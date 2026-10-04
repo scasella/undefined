@@ -1,0 +1,350 @@
+import { afterEach, describe, expect, it } from 'vitest';
+import type { GateResult } from '../types';
+import { INTERRUPTED_NOTE } from './attribution';
+import { executeGates, NO_PROPERTIES_NOTE, NO_TESTS_NOTE, type ExecGateInput, type ExecHooks } from './gateExecutor';
+
+// ───────── real candidates (strict JS as the compile gate would emit it) ─────────
+
+const MEDIAN = `function median(numbers) {
+  if (numbers.length === 0) throw new RangeError('median of empty array');
+  const s = [...numbers].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}`;
+
+const MEDIAN_IN_PLACE = `function median(numbers) {
+  if (numbers.length === 0) throw new RangeError('median of empty array');
+  const s = numbers.sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}`;
+
+const MEDIAN_LOWER = `function median(numbers) {
+  if (numbers.length === 0) throw new RangeError('median of empty array');
+  const s = [...numbers].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : s[m - 1];
+}`;
+
+const MEDIAN_RANDOM = `function median(numbers) {
+  const s = [...numbers].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  if (s.length % 2 === 0 && Math.random() < 2) return (s[m - 1] + s[m]) / 2;
+  return s[m];
+}`;
+
+const MEDIAN_SWALLOWS_FETCH = `function median(numbers) {
+  try { fetch('https://example.com/log'); } catch (e) { /* hide it */ }
+  const s = [...numbers].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}`;
+
+// Impure only on long inputs: unit tests pass, the property phase trips it.
+const MEDIAN_CLOCK_ON_LONG = `function median(numbers) {
+  if (numbers.length === 0) throw new RangeError('median of empty array');
+  if (numbers.length > 5) { try { Date.now(); } catch (e) {} }
+  const s = [...numbers].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}`;
+
+const MEDIAN_THROWS = `function median(numbers) { throw new Error('boom'); }`;
+const MEDIAN_ZERO = `function median(numbers) { return 0; }`;
+
+const TESTS = `
+test('odd length', () => eq(median([3, 1, 2]), 2));
+test('even length', () => eq(median([4, 1, 3, 2]), 2.5));
+test('single', () => eq(median([7]), 7));
+test('empty throws', () => throws(() => median([]), /empty/));
+`;
+
+const PROPERTIES = `
+const reference = (xs) => {
+  const s = [...xs].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+};
+matchesReference('agrees with the sort-based reference', [fc.array(fc.integer({ min: -1000, max: 1000 }), { minLength: 1 })], reference);
+property('result is within min and max', [fc.array(fc.integer({ min: -1000, max: 1000 }), { minLength: 1 })], (xs) => {
+  const r = median(xs);
+  return r >= Math.min(...xs) && r <= Math.max(...xs);
+});
+`;
+
+const FIB_BIGINT = `function fibonacci(n) {
+  let a = 0n, b = 1n;
+  for (let i = 0; i < n; i++) [a, b] = [b, a + b];
+  return a;
+}`;
+const FIB_OFF_BY_ONE = `function fibonacci(n) {
+  let a = 0n, b = 1n;
+  for (let i = 0; i < n; i++) [a, b] = [b, a + b];
+  return n > 10 ? a + 1n : a;
+}`;
+
+function input(over: Partial<ExecGateInput> & Pick<ExecGateInput, 'js'>): ExecGateInput {
+  return { name: 'median', testsJs: TESTS, propertiesJs: PROPERTIES, budgetMs: 1500, seed: 1938244123, ...over };
+}
+
+type Event = ['phase', string] | ['enter', string] | ['leave'] | ['gate', string];
+
+function run(inp: ExecGateInput): { results: GateResult[]; events: Event[] } {
+  const events: Event[] = [];
+  const hooks: ExecHooks = {
+    phase: (p) => events.push(['phase', p]),
+    enter: (l) => events.push(['enter', l]),
+    leave: () => events.push(['leave']),
+    gate: (r) => events.push(['gate', r.gate]),
+  };
+  const results = executeGates(inp, hooks);
+  return { results, events };
+}
+
+const statuses = (rs: GateResult[]): string[] => rs.map((r) => `${r.gate}:${r.status}`);
+const strip = (rs: GateResult[]): unknown => rs.map(({ ms: _ms, ...r }) => r);
+
+describe('executeGates', () => {
+  it('accepts a correct median through all three gates', () => {
+    const { results, events } = run(input({ js: MEDIAN, callArgs: [[1, 2]] }));
+    expect(statuses(results)).toEqual(['tests:pass', 'properties:pass', 'invariants:pass']);
+    expect(results[0].summary).toBe('4/4 tests passed');
+    expect(results[0].counts).toEqual({ passed: 4, total: 4 });
+    expect(results[1].summary).toBe('2/2 properties held (200 runs)');
+    expect(results[2].summary).toMatch(/^pure ✓ bounded ✓ \(\d+ sampled calls replayed on frozen arguments\)$/);
+    const replayed = Number(/\((\d+) sampled/.exec(results[2].summary)![1]);
+    expect(replayed).toBeGreaterThan(1);
+    expect(replayed).toBeLessThanOrEqual(26); // 25 samples + the triggering call
+    expect(events.filter((e) => e[0] === 'gate').map((e) => e[1])).toEqual(['tests', 'properties', 'invariants']);
+    expect(results.every((r) => r.headline === undefined)).toBe(true);
+  });
+
+  it('rejects an in-place sort in the Invariants replay (pure: mutated its argument)', () => {
+    const { results } = run(input({ js: MEDIAN_IN_PLACE }));
+    expect(statuses(results)).toEqual(['tests:pass', 'properties:pass', 'invariants:fail']);
+    const inv = results[2];
+    expect(inv.headline).toBe('Rejected: median([3, 1, 2]) mutated its argument (pure)');
+    expect(inv.diagnostics[0]).toMatchObject({ kind: 'invariant', invariant: 'pure', message: 'mutated its argument', call: 'median([3, 1, 2])', phase: 'invariants' });
+  });
+
+  it('rejects lower-middle median in Properties with a shrunk counterexample from the reference', () => {
+    const { results } = run(input({ js: MEDIAN_LOWER, testsJs: '' }));
+    expect(statuses(results)).toEqual(['tests:skipped', 'properties:fail', 'invariants:skipped']);
+    const props = results[1];
+    expect(props.headline).toBe('Rejected: median([0, 1]) returned 0, expected 0.5');
+    expect(props.summary).toBe('1/2 properties failed');
+    expect(props.counts).toEqual({ passed: 1, total: 2 });
+    const d = props.diagnostics[0];
+    expect(d).toMatchObject({
+      kind: 'property',
+      name: 'agrees with the sort-based reference',
+      call: 'median([0, 1])',
+      counterexample: '[[0, 1]]',
+      actual: '0',
+      expected: '0.5',
+      seed: 1938244123,
+    });
+    if (d.kind === 'property') {
+      expect(d.shrinks).toBeGreaterThan(0);
+      expect(d.runs).toBeGreaterThan(0);
+    }
+    expect(results[2].note).toBe('not reached');
+  });
+
+  it('is deterministic: same seed, same verdict and counterexample', () => {
+    const a = run(input({ js: MEDIAN_LOWER, testsJs: '' })).results;
+    const b = run(input({ js: MEDIAN_LOWER, testsJs: '' })).results;
+    expect(strip(a)).toEqual(strip(b));
+  });
+
+  it('reports a false boolean property with the call that was made', () => {
+    const { results } = run(
+      input({
+        js: MEDIAN_LOWER,
+        testsJs: '',
+        propertiesJs: `property('mean of a pair', [fc.integer(), fc.integer()], (a, b) => median([a, b]) === (a + b) / 2);`,
+      }),
+    );
+    expect(results[1].headline).toMatch(/^Rejected: property "mean of a pair" failed for median\(\[-?\d+, -?\d+\]\)$/);
+    expect(results[1].diagnostics[0]).toMatchObject({ kind: 'property', name: 'mean of a pair' });
+  });
+
+  it('rejects Math.random via Invariants and marks the interrupted phases', () => {
+    const { results } = run(input({ js: MEDIAN_RANDOM }));
+    expect(statuses(results)).toEqual(['tests:skipped', 'properties:skipped', 'invariants:fail']);
+    expect(results[0].note).toBe(INTERRUPTED_NOTE);
+    expect(results[1].note).toBe(INTERRUPTED_NOTE);
+    expect(results[2].headline).toBe("Rejected: candidate read global 'Math.random' (pure)");
+    expect(results[2].diagnostics[0]).toMatchObject({ invariant: 'pure', call: 'median([4, 1, 3, 2])', phase: 'tests' });
+  });
+
+  it('catches fetch even when the candidate swallows the error', () => {
+    const { results } = run(input({ js: MEDIAN_SWALLOWS_FETCH }));
+    expect(statuses(results)).toEqual(['tests:skipped', 'properties:skipped', 'invariants:fail']);
+    expect(results[2].headline).toBe("Rejected: candidate read global 'fetch' (pure)");
+    expect(results[2].diagnostics[0]).toMatchObject({ call: 'median([3, 1, 2])' });
+  });
+
+  it('attributes to Invariants even when the user test catches the violation', () => {
+    const { results } = run(input({ js: MEDIAN_RANDOM, testsJs: `test('swallow', () => { try { median([1, 2]); } catch (e) {} });` }));
+    expect(statuses(results)).toEqual(['tests:skipped', 'properties:skipped', 'invariants:fail']);
+  });
+
+  it('keeps a completed Tests result when the violation happens during Properties', () => {
+    const { results } = run(input({ js: MEDIAN_CLOCK_ON_LONG }));
+    expect(statuses(results)).toEqual(['tests:pass', 'properties:skipped', 'invariants:fail']);
+    expect(results[1].note).toBe(INTERRUPTED_NOTE);
+    expect(results[2].headline).toBe("Rejected: candidate read global 'Date.now' (pure)");
+    expect(results[2].diagnostics[0]).toMatchObject({ phase: 'properties' });
+  });
+
+  it('rejects a global write that escapes the mask', () => {
+    const js = `function median(numbers) { Function('return this')().__leakedByCandidate = 1; return numbers[0]; }`;
+    try {
+      const { results } = run(input({ js, testsJs: `test('t', () => eq(median([1]), 1));`, propertiesJs: '' }));
+      expect(results[2].headline).toBe("Rejected: candidate wrote global '__leakedByCandidate' (pure)");
+      expect(results[0].status).toBe('skipped');
+    } finally {
+      delete (globalThis as Record<string, unknown>).__leakedByCandidate;
+    }
+  });
+
+  it('reports a throwing candidate', () => {
+    const { results } = run(input({ js: MEDIAN_THROWS }));
+    expect(statuses(results)).toEqual(['tests:fail', 'properties:skipped', 'invariants:skipped']);
+    expect(results[0].headline).toBe('Rejected: median([3, 1, 2]) threw Error: boom');
+    expect(results[0].diagnostics[0]).toMatchObject({ kind: 'test', name: 'odd length', call: 'median([3, 1, 2])', error: 'Error: boom' });
+    expect(results[1].note).toBe('not reached');
+  });
+
+  it('reports a property whose candidate threw on the shrunk input', () => {
+    const { results } = run(input({ js: MEDIAN_THROWS, testsJs: '' }));
+    expect(results[1].headline).toMatch(/^Rejected: median\(\[-?\d+\]\) threw Error: boom$/);
+  });
+
+  it('reports unit test failures with expected and actual, running every test', () => {
+    const { results } = run(input({ js: MEDIAN_ZERO }));
+    expect(results[0].status).toBe('fail');
+    expect(results[0].headline).toBe('Rejected: median([3, 1, 2]) returned 0, expected 2');
+    expect(results[0].summary).toBe('0/4 tests passed');
+    expect(results[0].diagnostics).toHaveLength(4);
+    expect(results[0].diagnostics[0]).toMatchObject({ kind: 'test', name: 'odd length', expected: '2', actual: '0', call: 'median([3, 1, 2])' });
+    expect(results[0].diagnostics[3]).toMatchObject({ name: 'empty throws', actual: 'no error', expected: 'an error matching /empty/' });
+  });
+
+  it('does not claim "returned" when the assertion is about something else', () => {
+    const { results } = run(
+      input({ js: MEDIAN_IN_PLACE, testsJs: `test('keeps input', () => { const xs = [3, 1, 2]; median(xs); eq(xs, [3, 1, 2]); });`, propertiesJs: '' }),
+    );
+    expect(results[0].headline).toBe('Rejected: test "keeps input" failed after median([3, 1, 2]): expected [3, 1, 2], got [1, 2, 3]');
+    expect(results[0].diagnostics[0]).toMatchObject({ expected: '[3, 1, 2]', actual: '[1, 2, 3]' });
+  });
+
+  it('skips empty test and property gates with explanatory notes, still replaying the call', () => {
+    const { results } = run(input({ js: MEDIAN, testsJs: '', propertiesJs: '  ', callArgs: [[5, 1]] }));
+    expect(statuses(results)).toEqual(['tests:skipped', 'properties:skipped', 'invariants:pass']);
+    expect(results[0].note).toBe(NO_TESTS_NOTE);
+    expect(results[1].note).toBe(NO_PROPERTIES_NOTE);
+    expect(results[2].summary).toBe('pure ✓ bounded ✓ (1 sampled call replayed on frozen arguments)');
+  });
+
+  it('treats a source that registers nothing as "no tests yet"', () => {
+    const { results } = run(input({ js: MEDIAN, testsJs: 'const unused = 1;', propertiesJs: '// nothing' }));
+    expect(results[0].note).toBe(NO_TESTS_NOTE);
+    expect(results[1].note).toBe(NO_PROPERTIES_NOTE);
+    expect(results[2].summary).toBe('pure ✓ bounded ✓ (no sampled calls to replay)');
+  });
+
+  it('reports errors in the user spec as spec errors, not candidate failures', () => {
+    const thrown = run(input({ js: MEDIAN, testsJs: `test('a', () => {}); throw new Error('oops in spec');` })).results;
+    expect(statuses(thrown)).toEqual(['tests:fail', 'properties:skipped', 'invariants:skipped']);
+    expect(thrown[0].note).toBe('spec error');
+    expect(thrown[0].headline).toBe('Spec error: oops in spec');
+
+    const syntax = run(input({ js: MEDIAN, testsJs: `test('a', () => {` })).results;
+    expect(syntax[0].note).toBe('spec error');
+    expect(syntax[0].headline).toMatch(/^Spec error: /);
+
+    const badArbs = run(input({ js: MEDIAN, propertiesJs: `property('p', fc.integer(), () => true);` })).results;
+    expect(statuses(badArbs)).toEqual(['tests:pass', 'properties:fail', 'invariants:skipped']);
+    expect(badArbs[1].note).toBe('spec error');
+    expect(badArbs[1].headline).toMatch(/^Spec error: property\("p"\): arbitraries must be/);
+  });
+
+  it('compares bigint results correctly', () => {
+    const tests = `test('fib 90', () => eq(fibonacci(90), 2880067194370816120n));
+                   test('fib 0', () => eq(fibonacci(0), 0n));`;
+    const props = `const ref = (n) => { let a = 0n, b = 1n; for (let i = 0; i < n; i++) [a, b] = [b, a + b]; return a; };
+                   matchesReference('reference', [fc.integer({ min: 0, max: 60 })], ref);`;
+    const ok = run({ name: 'fibonacci', js: FIB_BIGINT, testsJs: tests, propertiesJs: props, budgetMs: 1500, seed: 7, callArgs: [90] }).results;
+    expect(statuses(ok)).toEqual(['tests:pass', 'properties:pass', 'invariants:pass']);
+
+    const bad = run({ name: 'fibonacci', js: FIB_OFF_BY_ONE, testsJs: tests, propertiesJs: props, budgetMs: 1500, seed: 7 }).results;
+    expect(bad[0].headline).toBe('Rejected: fibonacci(90) returned 2880067194370816121n, expected 2880067194370816120n');
+
+    const badProps = run({ name: 'fibonacci', js: FIB_OFF_BY_ONE, testsJs: '', propertiesJs: props, budgetMs: 1500, seed: 7 }).results;
+    expect(badProps[1].headline).toBe('Rejected: fibonacci(11) returned 90n, expected 89n');
+  });
+
+  it('fires enter/leave around every candidate call, in balanced pairs, after the phase hook', () => {
+    const { events } = run(input({ js: MEDIAN, callArgs: [[2, 1]] }));
+    expect(events[0]).toEqual(['phase', 'tests']);
+    let open: string | null = null;
+    let calls = 0;
+    for (const e of events) {
+      if (e[0] === 'enter') {
+        expect(open).toBeNull(); // no nesting: recursion calls the inner function, not the wrapper
+        open = e[1];
+        calls++;
+      } else if (e[0] === 'leave') {
+        expect(open).not.toBeNull();
+        open = null;
+      } else {
+        expect(open).toBeNull(); // phase and gate events never land inside a call
+      }
+    }
+    expect(calls).toBeGreaterThan(200);
+    expect(events.filter((e) => e[0] === 'phase').map((e) => e[1])).toEqual(['tests', 'properties', 'invariants']);
+    expect(events).toContainEqual(['enter', 'median([3, 1, 2])']);
+    // The triggering call is replayed in the invariants phase.
+    const invStart = events.findIndex((e) => e[0] === 'phase' && e[1] === 'invariants');
+    expect(events.slice(invStart)).toContainEqual(['enter', 'median([2, 1])']);
+  });
+
+  it('leaves an enter without a leave only when a call never returns (what the watchdog sees)', () => {
+    // A recursive candidate is a single outer call: one enter, one leave.
+    const js = `function fibonacci(n) { return n < 2 ? n : fibonacci(n - 1) + fibonacci(n - 2); }`;
+    const { events } = run({ name: 'fibonacci', js, testsJs: `test('f', () => eq(fibonacci(20), 6765));`, propertiesJs: '', budgetMs: 1500, seed: 1 });
+    const testCalls = events.slice(0, events.findIndex((e) => e[0] === 'gate'));
+    expect(testCalls).toEqual([['phase', 'tests'], ['enter', 'fibonacci(20)'], ['leave']]);
+  });
+
+  it('detects non-determinism through state kept on the function object', () => {
+    const js = `function counter(x) { counter.n = (counter.n || 0) + 1; return x + counter.n; }`;
+    const { results } = run({ name: 'counter', js, testsJs: '', propertiesJs: '', budgetMs: 100, seed: 1, callArgs: [1] });
+    expect(results[2].headline).toBe('Rejected: counter(1) returned different results for identical input (non-deterministic) (pure)');
+    expect(results[2].diagnostics[0]).toMatchObject({ invariant: 'pure', detail: 'first 2, then 3' });
+  });
+
+  it('detects mutation of a Map argument, which freezing cannot prevent', () => {
+    const js = `function tag(m) { m.set('seen', true); return m.size; }`;
+    const { results } = run({ name: 'tag', js, testsJs: '', propertiesJs: '', budgetMs: 100, seed: 1, callArgs: [new Map([['a', 1]])] });
+    expect(results[2].headline).toBe('Rejected: tag(Map(1) { "a" => 1 }) mutated its argument (pure)');
+  });
+
+  it('does not mistake an ordinary TypeError bug for argument mutation', () => {
+    const js = `function broken(xs) { return xs.nope.length; }`;
+    const { results } = run({ name: 'broken', js, testsJs: '', propertiesJs: '', budgetMs: 100, seed: 1, callArgs: [[1]] });
+    expect(results[2].status).toBe('pass');
+  });
+
+  it('fails the Tests gate when the candidate cannot be loaded', () => {
+    const { results } = run(input({ js: 'function other() {}' }));
+    expect(statuses(results)).toEqual(['tests:fail', 'properties:skipped', 'invariants:skipped']);
+    expect(results[0].headline).toMatch(/^Rejected: candidate failed to load: ReferenceError/);
+  });
+});
+
+afterEach(() => {
+  expect((globalThis as Record<string, unknown>).__leakedByCandidate).toBeUndefined();
+});

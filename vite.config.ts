@@ -9,6 +9,7 @@ export default defineConfig({
   base: './',
   plugins: [preact(), codexService()],
   worker: { format: 'es' },
+  optimizeDeps: { include: ['typescript', 'fast-check'] },
   build: { target: 'es2022', chunkSizeWarningLimit: 4000 },
   test: { environment: 'node', include: ['src/**/*.test.ts', 'server/**/*.test.ts'] },
 });

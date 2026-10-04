@@ -98,6 +98,7 @@ The prompt contains: role + hard rules (do NOT run commands, do NOT read/inspect
 | `src/gates/source.ts` | compile | `buildSource(spec, body): { source: string; bodyStartLine: number }`, `specFromCall(name, argTypes: string[]): FunctionSpec` (params named `arg0..`, returns null) |
 | `src/gates/compile.ts` | compile | `compileCandidate(spec, body): Promise<{ gate: GateResult; js: string \| null; source: string; returnType: string }>`, `transpileUserCode(src: string): { js: string; error?: string }`, lazy-loads `typescript` + lib `.d.ts` files |
 | `src/sandbox/testApi.ts`, `gateExecutor.ts`, `gateWorker.ts`, `gateRunner.ts` | sandbox-gates | `runExecutionGates(input: ExecGateInput, onGate?: (r: GateResult) => void): Promise<GateResult[]>` (3 results: tests, properties, invariants). `gateExecutor.ts` is the environment-agnostic core usable in Node tests (no Worker/timeout there); `gateWorker.ts` is the thin shell; `gateRunner.ts` owns Worker + watchdog + termination |
+| `src/sandbox/mask.ts` | architect (DONE, read it) | `evalMasked(js, exportName)`, `InvariantViolation`, `isInvariantViolation`, `takeViolations()`, `scrubWorkerGlobals(self)`. Both workers use it; the gate executor must check `takeViolations()` after every phase/call because a candidate can swallow the thrown error |
 | `src/sandbox/runtimeWorker.ts`, `runtime.ts` | sandbox-runtime | `class Runtime` (below) |
 | `src/core/program.ts` | core | pure program/revision operations (below) |
 | `src/core/store.ts` | core | IndexedDB persistence + image export/import/validation |

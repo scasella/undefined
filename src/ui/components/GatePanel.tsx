@@ -1,0 +1,155 @@
+import { GATE_ORDER, type AttemptView, type GateResult, type GenerationView } from '../../types';
+import { fmtMs } from '../format';
+import { attribution, failingGate, gateAttempt, isLatestAttempt } from '../select';
+import { selection } from '../uiState';
+import { CopyBlock, PanelHead, StatusIcon, statusWord } from './common';
+import { DiagnosticFacts, DiagnosticItem } from './Diagnostics';
+
+const GATE_LABEL = { compile: 'Compile', tests: 'Tests', properties: 'Properties', invariants: 'Invariants' } as const;
+const GATE_WHAT = {
+  compile: 'strict TypeScript',
+  tests: 'your unit tests',
+  properties: 'fast-check, fixed seed',
+  invariants: 'pure · bounded',
+} as const;
+
+function GateRow({ g }: { g: GateResult }) {
+  const counts = g.counts ? `${g.counts.passed}/${g.counts.total}` : null;
+  // skip a note the summary already says (e.g. both "not reached")
+  const showNote = !!g.note && !(g.summary && g.summary.startsWith(g.note));
+  return (
+    <li class={`gate-row g-${g.status}`} aria-label={`${GATE_LABEL[g.gate]}: ${statusWord(g.status)}. ${g.summary}`}>
+      <StatusIcon status={g.status} />
+      <span class="gate-name">{GATE_LABEL[g.gate]}</span>
+      <span class="gate-what">{GATE_WHAT[g.gate]}</span>
+      <span class="gate-summary">
+        <span class="gate-word">{statusWord(g.status)}</span>
+        {g.summary && <span> · {g.summary}</span>}
+        {showNote && <span class="gate-note"> — {g.note}</span>}
+      </span>
+      <span class="gate-ms mono">{g.status === 'pass' || g.status === 'fail' ? fmtMs(g.ms) : counts ?? ''}</span>
+    </li>
+  );
+}
+
+function rowsFor(a: AttemptView | undefined): GateResult[] {
+  if (a && a.gates.length) return a.gates;
+  const aborted = a?.status === 'aborted';
+  return GATE_ORDER.map((gate) => ({
+    gate,
+    status: aborted ? ('skipped' as const) : ('pending' as const),
+    ms: 0,
+    summary: aborted ? 'not run — there was no candidate' : '',
+    diagnostics: [],
+  }));
+}
+
+function Headline({ gen, a }: { gen: GenerationView; a: AttemptView }) {
+  const fail = failingGate(a.gates);
+  if (fail) {
+    const first = fail.diagnostics[0];
+    return (
+      <div class="headline headline-fail" key={`${gen.id}:${a.attempt}`}>
+        <p class="headline-gate">
+          <span aria-hidden="true">✕</span> {fail.gate.toUpperCase()}
+          <span class="muted"> · candidate #{a.attempt}</span>
+          {fail.note && <span class="spec-error"> · {fail.note}</span>}
+        </p>
+        <p class="headline-text">{fail.headline ?? a.candidate?.headline ?? `Rejected by ${fail.gate}`}</p>
+        {first && <DiagnosticFacts d={first} />}
+        {first && <p class="attribution">{attribution(first, fail.gate)}</p>}
+      </div>
+    );
+  }
+  if (a.status === 'accepted') {
+    return (
+      <div class="headline headline-pass">
+        <p class="headline-gate">
+          <span aria-hidden="true">✓</span> ALL GATES · candidate #{a.attempt}
+        </p>
+        <p class="headline-text">
+          Accepted{gen.phase === 'committed' && gen.revision !== undefined ? ` — committed as r${gen.revision}` : ''}
+        </p>
+      </div>
+    );
+  }
+  return null;
+}
+
+export function GatePanel({ gen }: { gen: GenerationView | null }) {
+  const a = gateAttempt(gen, selection.value);
+  const rows = rowsFor(a);
+  const failing = a ? failingGate(a.gates) : undefined;
+  const diags = a ? a.gates.filter((g) => g.diagnostics.length > 0) : [];
+  const diagCount = diags.reduce((n, g) => n + g.diagnostics.length, 0);
+
+  return (
+    <section class="panel panel-gates" aria-label="Gates">
+      <PanelHead ch="03" title="Gates">
+        {gen && (
+          <span class="budget mono">
+            attempt {gen.attempt} of {gen.maxAttempts}
+          </span>
+        )}
+      </PanelHead>
+      <div class="panel-body gates-body">
+        {gen && a && !isLatestAttempt(gen, a) && (
+          <p class="showing muted small">
+            showing the verdict on candidate #{a.attempt}
+            {selection.value ? '' : ` while #${gen.attempts[gen.attempts.length - 1].attempt} is on its way`}
+          </p>
+        )}
+        {gen?.ungated && (
+          <p class="ungated" role="note">
+            <span aria-hidden="true">⚠</span> No tests yet — add one to make the gate stricter.
+            <span class="muted"> Compile and Invariants still run.</span>
+          </p>
+        )}
+        <ol class="gate-rows">
+          {rows.map((g) => (
+            <GateRow key={g.gate} g={g} />
+          ))}
+        </ol>
+
+        <div aria-live="polite" aria-atomic="true">
+          {gen?.error ? (
+            <div class="headline headline-error" role="alert">
+              <p class="headline-gate">
+                <span aria-hidden="true">⚠</span> GENERATION FAILED · {gen.error.code}
+              </p>
+              <p class="headline-text">{gen.error.message}</p>
+              {gen.error.fix && gen.error.fix.length > 0 && (
+                <div class="fix">
+                  <p class="muted small">To fix, run:</p>
+                  {gen.error.fix.map((line) => (
+                    <CopyBlock key={line} text={line} />
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            gen?.phase === 'failed' && (
+              <p class="exhausted">
+                Budget exhausted after {gen.attempts.length} candidate{gen.attempts.length === 1 ? '' : 's'} — the
+                program is unchanged.
+              </p>
+            )
+          )}
+          {gen && a && <Headline gen={gen} a={a} />}
+        </div>
+
+        {!gen && <p class="empty">The gates run here when a call grows a function. Nothing has been judged yet.</p>}
+
+        {diags.length > 0 && (
+          // a single diagnostic is already spelled out in the headline block, so its list starts collapsed
+          <details class="diags" open={!!failing && diagCount > 1} key={`${gen?.id}:${a?.attempt}`}>
+            <summary>Diagnostics ({diagCount}) — who decided, and on what evidence</summary>
+            <ul>
+              {diags.flatMap((g) => g.diagnostics.map((d, i) => <DiagnosticItem key={`${g.gate}${i}`} d={d} gate={g.gate} />))}
+            </ul>
+          </details>
+        )}
+      </div>
+    </section>
+  );
+}

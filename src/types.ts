@@ -439,6 +439,8 @@ export interface EngineState {
   busy: boolean;
   examples: ExampleInfo[];
   pacing: Pacing;
+  /** Set by the 'edit-spec' restart: the UI switches to the Repo tab and focuses this function's spec. */
+  focusSpec?: { fn: string; nonce: number };
   /** Transient message for the UI (import failed, etc.). */
   notice?: { tone: 'info' | 'error'; text: string };
 }

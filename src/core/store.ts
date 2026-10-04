@@ -1,0 +1,539 @@
+/**
+ * Persistence of the program image (IndexedDB) plus image export/import validation.
+ *
+ * All storage goes through a tiny Backend interface. The default backend is IndexedDB; when IndexedDB is
+ * missing, fails to open, or errors later (private windows, blocked storage), the store silently degrades to
+ * an in-memory backend for the rest of the session. No exported storage function ever throws.
+ */
+import { hashesFor } from '../shared/hash';
+import type {
+  Artifact,
+  Candidate,
+  Diagnostic,
+  FunctionRecord,
+  FunctionSpec,
+  GateResult,
+  Image,
+  Json,
+  Program,
+  Revision,
+} from '../types';
+
+export interface Persisted {
+  image: Image;
+  flags: { takeawayShown: boolean; openerDismissed: boolean };
+  liveEnv: Record<string, Json>;
+}
+
+// ───────────────────────── backends ─────────────────────────
+
+/** One atomic write: revisions to put plus kv entries to set. */
+export interface WriteBatch {
+  revisions?: Revision[];
+  kv?: Record<string, unknown>;
+}
+
+export interface Backend {
+  readAll(): Promise<{ revisions: Revision[]; kv: Record<string, unknown> }>;
+  write(batch: WriteBatch): Promise<void>;
+  clear(): Promise<void>;
+}
+
+export function memoryBackend(): Backend {
+  const revisions = new Map<number, Revision>();
+  const kv = new Map<string, unknown>();
+  return {
+    async readAll() {
+      return {
+        revisions: [...revisions.values()].sort((a, b) => a.id - b.id).map((r) => structuredClone(r)),
+        kv: structuredClone(Object.fromEntries(kv)),
+      };
+    },
+    async write(batch) {
+      // Clone on the way in so later mutation by a caller cannot reach stored data (as with IndexedDB).
+      for (const r of batch.revisions ?? []) revisions.set(r.id, structuredClone(r));
+      for (const [k, v] of Object.entries(batch.kv ?? {})) kv.set(k, structuredClone(v));
+    },
+    async clear() {
+      revisions.clear();
+      kv.clear();
+    },
+  };
+}
+
+const DB_NAME = 'undefined-image';
+const DB_VERSION = 1;
+const OPEN_TIMEOUT_MS = 3000;
+
+function request<T>(req: IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error ?? new Error('IndexedDB request failed'));
+  });
+}
+
+function done(tx: IDBTransaction): Promise<void> {
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error ?? new Error('IndexedDB transaction failed'));
+    tx.onabort = () => reject(tx.error ?? new Error('IndexedDB transaction aborted'));
+  });
+}
+
+/** Opens the database; rejects on error, on a blocked upgrade, or when opening hangs past the timeout. */
+export function openIdbBackend(factory: IDBFactory): Promise<Backend> {
+  return new Promise<IDBDatabase>((resolve, rejectOpen) => {
+    let gaveUp = false;
+    const reject = (e: unknown): void => {
+      gaveUp = true;
+      rejectOpen(e);
+    };
+    const timer = setTimeout(() => reject(new Error('IndexedDB open timed out')), OPEN_TIMEOUT_MS);
+    const req = factory.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains('revisions')) db.createObjectStore('revisions', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('kv')) db.createObjectStore('kv');
+    };
+    req.onsuccess = () => {
+      clearTimeout(timer);
+      if (gaveUp) req.result.close(); // opened after a timeout/block: we already fell back to memory
+      else resolve(req.result);
+    };
+    req.onerror = () => {
+      clearTimeout(timer);
+      reject(req.error ?? new Error('IndexedDB open failed'));
+    };
+    req.onblocked = () => {
+      clearTimeout(timer);
+      reject(new Error('IndexedDB open blocked'));
+    };
+  }).then((db) => ({
+    async readAll() {
+      const tx = db.transaction(['revisions', 'kv'], 'readonly');
+      const revStore = tx.objectStore('revisions');
+      const kvStore = tx.objectStore('kv');
+      const [revisions, keys, values] = await Promise.all([
+        request(revStore.getAll() as IDBRequest<Revision[]>),
+        request(kvStore.getAllKeys()),
+        request(kvStore.getAll()),
+      ]);
+      const kv: Record<string, unknown> = {};
+      keys.forEach((k, i) => (kv[String(k)] = values[i]));
+      return { revisions: revisions.sort((a, b) => a.id - b.id), kv };
+    },
+    async write(batch) {
+      const tx = db.transaction(['revisions', 'kv'], 'readwrite');
+      const finished = done(tx);
+      for (const r of batch.revisions ?? []) tx.objectStore('revisions').put(r);
+      for (const [k, v] of Object.entries(batch.kv ?? {})) tx.objectStore('kv').put(v, k);
+      await finished;
+    },
+    async clear() {
+      const tx = db.transaction(['revisions', 'kv'], 'readwrite');
+      const finished = done(tx);
+      tx.objectStore('revisions').clear();
+      tx.objectStore('kv').clear();
+      await finished;
+    },
+  }));
+}
+
+/**
+ * Wraps a primary backend with an in-memory mirror. Every write also lands in the mirror; the first failure of
+ * the primary switches all later reads and writes to the mirror for the rest of the session.
+ */
+export function resilientBackend(primary: Promise<Backend> | Backend): Backend {
+  const mirror = memoryBackend();
+  let failed = false;
+  const fail = (e: unknown): void => {
+    if (!failed) console.warn('[store] persistent storage unavailable; keeping state in memory for this session', e);
+    failed = true;
+  };
+  return {
+    async readAll() {
+      if (!failed) {
+        try {
+          const data = await (await primary).readAll();
+          // Seed the mirror so a later failure does not lose what was already persisted.
+          await mirror.clear();
+          await mirror.write({ revisions: data.revisions, kv: data.kv });
+          return data;
+        } catch (e) {
+          fail(e);
+        }
+      }
+      return mirror.readAll();
+    },
+    async write(batch) {
+      await mirror.write(batch);
+      if (failed) return;
+      try {
+        await (await primary).write(batch);
+      } catch (e) {
+        fail(e);
+      }
+    },
+    async clear() {
+      await mirror.clear();
+      if (failed) return;
+      try {
+        await (await primary).clear();
+      } catch (e) {
+        fail(e);
+      }
+    },
+  };
+}
+
+function defaultBackend(): Backend {
+  const factory = (globalThis as { indexedDB?: IDBFactory }).indexedDB;
+  if (!factory) return memoryBackend();
+  let opened: Promise<Backend>;
+  try {
+    opened = openIdbBackend(factory);
+  } catch (e) {
+    opened = Promise.reject(e); // some browsers throw synchronously from open() in private mode
+  }
+  opened.catch(() => {}); // the rejection is observed by resilientBackend on first use
+  return resilientBackend(opened);
+}
+
+let backend: Backend | null = null;
+
+function current(): Backend {
+  backend ??= defaultBackend();
+  return backend;
+}
+
+/** Test hook: inject a backend (wrap it with resilientBackend for the degrade behaviour); null = default again. */
+export function _useBackend(b: Backend | null): void {
+  backend = b;
+}
+
+async function safely<T>(what: string, fallback: T, op: () => Promise<T>): Promise<T> {
+  try {
+    return await op();
+  } catch (e) {
+    console.warn(`[store] ${what} failed`, e);
+    return fallback;
+  }
+}
+
+// ───────────────────────── persisted state ─────────────────────────
+
+const K_HEAD = 'head';
+const K_FLAGS = 'flags';
+const K_ENV = 'liveEnv';
+
+/**
+ * The stored image, flags and live env; null when nothing is stored or the stored data fails validation
+ * (a warning is logged). Hashes are returned as stored; call reverify() if they must be recomputed.
+ */
+export function loadPersisted(): Promise<Persisted | null> {
+  return safely('load', null, async () => {
+    const { revisions, kv } = await current().readAll();
+    if (revisions.length === 0) return null;
+    const lastId = revisions[revisions.length - 1]!.id;
+    const storedHead = kv[K_HEAD];
+    const head =
+      typeof storedHead === 'number' && revisions.some((r) => r.id === storedHead) ? storedHead : lastId;
+    const checked = validateImage(toImage(revisions, head));
+    if (!checked.ok) {
+      // Clear it: otherwise reseeding r1 would overwrite id 1 only and leave the broken rows behind.
+      console.warn(`[store] discarding stored image: ${checked.error}`);
+      await current().clear();
+      return null;
+    }
+    const f = isObject(kv[K_FLAGS]) ? kv[K_FLAGS] : {};
+    const env = kv[K_ENV];
+    return {
+      image: checked.image,
+      flags: { takeawayShown: f.takeawayShown === true, openerDismissed: f.openerDismissed === true },
+      liveEnv: isObject(env) && Object.values(env).every(isJson) ? (env as Record<string, Json>) : {},
+    };
+  });
+}
+
+export function appendRevision(rev: Revision, head: number): Promise<void> {
+  return safely('appendRevision', undefined, () => current().write({ revisions: [rev], kv: { [K_HEAD]: head } }));
+}
+
+export function saveFlags(flags: Persisted['flags']): Promise<void> {
+  return safely('saveFlags', undefined, () => current().write({ kv: { [K_FLAGS]: flags } }));
+}
+
+export function saveLiveEnv(env: Record<string, Json>): Promise<void> {
+  return safely('saveLiveEnv', undefined, () => current().write({ kv: { [K_ENV]: env } }));
+}
+
+export function clearAll(): Promise<void> {
+  return safely('clearAll', undefined, () => current().clear());
+}
+
+// ───────────────────────── image ─────────────────────────
+
+export function toImage(revisions: Revision[], head: number): Image {
+  return { format: 'undefined-image', version: 1, exportedAt: new Date().toISOString(), head, revisions };
+}
+
+/**
+ * Recompute every record's specHash/testsHash from its spec text. Imported hashes are never trusted: a spec
+ * edited by hand gets new record hashes while the artifact keeps its provenance hashes, so it reads as stale.
+ */
+export async function reverify(image: Image): Promise<Image> {
+  const revisions = await Promise.all(
+    image.revisions.map(async (rev) => {
+      const entries = await Promise.all(
+        Object.entries(rev.program.functions).map(
+          async ([name, rec]) => [name, { ...rec, ...(await hashesFor(rec.spec)) }] as const,
+        ),
+      );
+      return { ...rev, program: { functions: Object.fromEntries(entries) } };
+    }),
+  );
+  return { ...image, revisions };
+}
+
+class Invalid extends Error {}
+
+type Obj = Record<string, unknown>;
+
+function isObject(v: unknown): v is Obj {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+function isJson(v: unknown): v is Json {
+  if (v === null || typeof v === 'boolean' || typeof v === 'string') return true;
+  if (typeof v === 'number') return Number.isFinite(v);
+  if (Array.isArray(v)) return v.every(isJson);
+  return isObject(v) && Object.values(v).every(isJson);
+}
+
+function key(path: string, k: string): string {
+  return /^[A-Za-z_$][\w$]*$/.test(k) ? `${path}.${k}` : `${path}[${JSON.stringify(k)}]`;
+}
+
+function bad(path: string, what: string): never {
+  throw new Invalid(`${path} ${what}`);
+}
+
+function obj(v: unknown, path: string): Obj {
+  return isObject(v) ? v : bad(path, 'must be an object');
+}
+
+function str(o: Obj, k: string, path: string): string {
+  const v = o[k];
+  return typeof v === 'string' ? v : bad(key(path, k), 'must be a string');
+}
+
+function optStr(o: Obj, k: string, path: string): string | undefined {
+  return o[k] === undefined ? undefined : str(o, k, path);
+}
+
+function num(o: Obj, k: string, path: string): number {
+  const v = o[k];
+  return typeof v === 'number' && Number.isFinite(v) ? v : bad(key(path, k), 'must be a number');
+}
+
+function int(o: Obj, k: string, path: string, min = 0): number {
+  const v = num(o, k, path);
+  return Number.isInteger(v) && v >= min ? v : bad(key(path, k), `must be an integer >= ${min}`);
+}
+
+function oneOf<T extends string>(o: Obj, k: string, path: string, allowed: readonly T[]): T {
+  const v = o[k];
+  return allowed.includes(v as T) ? (v as T) : bad(key(path, k), `must be one of ${allowed.join(', ')}`);
+}
+
+function arr(o: Obj, k: string, path: string): unknown[] {
+  const v = o[k];
+  return Array.isArray(v) ? v : bad(key(path, k), 'must be an array');
+}
+
+/** Copies only the given optional fields that are present (keeps `undefined` keys out of the result). */
+function opt<T extends object>(base: T, extra: Obj): T {
+  for (const [k, v] of Object.entries(extra)) if (v !== undefined) (base as Obj)[k] = v;
+  return base;
+}
+
+const GATE_IDS = ['compile', 'tests', 'properties', 'invariants'] as const;
+const KINDS = ['init', 'commit', 'spec-edit', 'rollback', 'import', 'example', 'delete'] as const;
+
+function vSpec(v: unknown, path: string): FunctionSpec {
+  const o = obj(v, path);
+  const name = str(o, 'name', path);
+  const params = arr(o, 'params', path).map((p, i) => {
+    const pp = obj(p, `${path}.params[${i}]`);
+    return { name: str(pp, 'name', `${path}.params[${i}]`), type: str(pp, 'type', `${path}.params[${i}]`) };
+  });
+  const returns = o.returns === null ? null : str(o, 'returns', path);
+  return opt(
+    {
+      name,
+      params,
+      returns,
+      doc: str(o, 'doc', path),
+      tests: str(o, 'tests', path),
+      properties: str(o, 'properties', path),
+      budgetMs: num(o, 'budgetMs', path),
+      maxAttempts: int(o, 'maxAttempts', path, 1),
+      origin: oneOf(o, 'origin', path, ['call', 'user', 'example'] as const),
+    } as FunctionSpec,
+    { exampleId: optStr(o, 'exampleId', path) },
+  );
+}
+
+function vDiagnostic(v: unknown, path: string): Diagnostic {
+  const o = obj(v, path);
+  const kind = oneOf(o, 'kind', path, ['compile', 'test', 'property', 'invariant'] as const);
+  // Check the fields each kind's renderer relies on; then keep the whole (JSON-safe) object.
+  if (kind === 'compile') {
+    for (const k of ['code', 'line', 'col', 'endLine', 'endCol']) num(o, k, path);
+    str(o, 'message', path);
+    str(o, 'snippet', path);
+    oneOf(o, 'category', path, ['error', 'warning'] as const);
+  } else if (kind === 'test') {
+    str(o, 'name', path);
+    str(o, 'message', path);
+  } else if (kind === 'property') {
+    str(o, 'name', path);
+    str(o, 'counterexample', path);
+    for (const k of ['shrinks', 'runs', 'seed']) num(o, k, path);
+  } else {
+    oneOf(o, 'invariant', path, ['pure', 'bounded'] as const);
+    str(o, 'message', path);
+  }
+  if (!isJson(o)) bad(path, 'must be plain JSON');
+  return structuredClone(o) as unknown as Diagnostic;
+}
+
+function vGate(v: unknown, path: string): GateResult {
+  const o = obj(v, path);
+  let counts: GateResult['counts'];
+  if (o.counts !== undefined) {
+    const c = obj(o.counts, `${path}.counts`);
+    counts = { passed: num(c, 'passed', `${path}.counts`), total: num(c, 'total', `${path}.counts`) };
+  }
+  return opt(
+    {
+      gate: oneOf(o, 'gate', path, GATE_IDS),
+      status: oneOf(o, 'status', path, ['pending', 'running', 'pass', 'fail', 'skipped'] as const),
+      ms: num(o, 'ms', path),
+      summary: str(o, 'summary', path),
+      diagnostics: arr(o, 'diagnostics', path).map((d, i) => vDiagnostic(d, `${path}.diagnostics[${i}]`)),
+    } as GateResult,
+    { headline: optStr(o, 'headline', path), note: optStr(o, 'note', path), counts },
+  );
+}
+
+function vCandidate(v: unknown, path: string): Candidate {
+  const o = obj(v, path);
+  return opt(
+    {
+      id: str(o, 'id', path),
+      attempt: int(o, 'attempt', path, 1),
+      body: str(o, 'body', path),
+      notes: str(o, 'notes', path),
+      source: oneOf(o, 'source', path, ['live', 'replay'] as const),
+      generationMs: num(o, 'generationMs', path),
+      gates: arr(o, 'gates', path).map((g, i) => vGate(g, `${path}.gates[${i}]`)),
+      verdict: oneOf(o, 'verdict', path, ['accepted', 'rejected', 'aborted'] as const),
+    } as Candidate,
+    {
+      rejectedBy: o.rejectedBy === undefined ? undefined : oneOf(o, 'rejectedBy', path, GATE_IDS),
+      headline: optStr(o, 'headline', path),
+    },
+  );
+}
+
+function vArtifact(v: unknown, path: string): Artifact | null {
+  if (v === undefined || v === null) return null;
+  const o = obj(v, path);
+  return {
+    body: str(o, 'body', path),
+    source: str(o, 'source', path),
+    js: str(o, 'js', path),
+    returnType: str(o, 'returnType', path),
+    specHash: str(o, 'specHash', path),
+    testsHash: str(o, 'testsHash', path),
+    model: str(o, 'model', path),
+    codexVersion: str(o, 'codexVersion', path),
+    committedAt: num(o, 'committedAt', path),
+    candidates: arr(o, 'candidates', path).map((c, i) => vCandidate(c, `${path}.candidates[${i}]`)),
+    revision: int(o, 'revision', path, 1),
+  };
+}
+
+function vProgram(v: unknown, path: string): Program {
+  const o = obj(v, path);
+  const fns = obj(o.functions, `${path}.functions`);
+  const functions: Record<string, FunctionRecord> = {};
+  for (const [name, raw] of Object.entries(fns)) {
+    const p = key(`${path}.functions`, name);
+    const r = obj(raw, p);
+    const spec = vSpec(r.spec, `${p}.spec`);
+    if (spec.name !== name) bad(`${p}.spec.name`, `must equal its key ${JSON.stringify(name)}`);
+    functions[name] = {
+      spec,
+      specHash: str(r, 'specHash', p),
+      testsHash: str(r, 'testsHash', p),
+      artifact: vArtifact(r.artifact, `${p}.artifact`),
+    };
+  }
+  return { functions };
+}
+
+function vRevision(v: unknown, path: string, earlier: Set<number>): Revision {
+  const o = obj(v, path);
+  const id = int(o, 'id', path, 1);
+  const kind = oneOf(o, 'kind', path, KINDS);
+  let restoredFrom: number | undefined;
+  if (o.restoredFrom !== undefined || kind === 'rollback') {
+    restoredFrom = int(o, 'restoredFrom', path, 1);
+    if (!earlier.has(restoredFrom)) bad(`${path}.restoredFrom`, `must refer to an earlier revision (got ${restoredFrom})`);
+  }
+  const env = obj(o.env, `${path}.env`);
+  for (const [k, val] of Object.entries(env)) if (!isJson(val)) bad(key(`${path}.env`, k), 'must be JSON');
+  return opt(
+    {
+      id,
+      at: num(o, 'at', path),
+      kind,
+      title: str(o, 'title', path),
+      program: vProgram(o.program, `${path}.program`),
+      env: structuredClone(env) as Record<string, Json>,
+    } as Revision,
+    { detail: optStr(o, 'detail', path), fn: optStr(o, 'fn', path), restoredFrom },
+  );
+}
+
+/**
+ * Structural validation of an untrusted image (e.g. an imported file). Returns a sanitised copy holding only
+ * known fields, or the first problem as a path-qualified message. Hashes are NOT checked here; use reverify().
+ */
+export function validateImage(raw: unknown): { ok: true; image: Image } | { ok: false; error: string } {
+  try {
+    const o = obj(raw, 'image');
+    if (o.format !== 'undefined-image') bad('format', 'must be "undefined-image"');
+    if (o.version !== 1) bad('version', 'must be 1');
+    const exportedAt = str(o, 'exportedAt', 'image');
+    const head = int(o, 'head', 'image', 1);
+    const list = arr(o, 'revisions', 'image');
+    if (list.length === 0) bad('revisions', 'must not be empty');
+    const seen = new Set<number>();
+    let prev = 0;
+    const revisions = list.map((r, i) => {
+      const rev = vRevision(r, `revisions[${i}]`, seen);
+      if (rev.id <= prev) bad(`revisions[${i}].id`, `must be greater than the previous id ${prev} (got ${rev.id})`);
+      prev = rev.id;
+      seen.add(rev.id);
+      return rev;
+    });
+    if (!seen.has(head)) bad('head', `must be the id of a revision (got ${head})`);
+    return { ok: true, image: { format: 'undefined-image', version: 1, exportedAt, head, revisions } };
+  } catch (e) {
+    if (e instanceof Invalid) return { ok: false, error: e.message.replace(/^image\./, '') };
+    throw e;
+  }
+}
