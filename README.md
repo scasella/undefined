@@ -91,29 +91,41 @@ so the same candidate always gets the same verdict and the same shrunk counterex
 **Provenance, not reproducibility.** Each artifact records its spec hash, tests hash, model id, Codex CLI version, and the
 full candidate history including rejected attempts. Nothing here claims the model would produce the same code twice.
 
-## The examples, and how they were tuned (read this)
+## The examples: who held the contract (read this)
 
-`gpt-6-luna` is a strong model, and with tight specs it passes first time: in my first sampling, **18 of 18** attempts at
-fully-specified versions of these examples passed every gate on the first try. A demo of rejection needs a spec that is
-*honestly incomplete*, the way real tickets are, with the tests encoding conventions the doc leaves open. So the shipped
-docs are terse, test names are vague, and the property/test bodies are hidden from the model:
+`gpt-6-luna` is a strong model, and with a fully specified ticket it passes first time: in my first sampling, **18 of 18**
+attempts at tightly specified versions of these examples passed every gate on the first try. So a demo of rejection cannot
+claim the model "blundered". Each example is built so that the *reason* for the rejection is plain on screen, and the
+rejection card says which kind it is:
 
-| example | what the gates catch | measured on gpt-6-luna (effort `low`, 8 samples each, first attempt → retry) |
-|---|---|---|
-| `median` | empty list: the model throws, the reference returns `NaN`. The reference-comparison property generates `[]` and fast-check shrinks to it (headline: `median([]) threw Error: …, expected NaN`) | 8/8 rejected by Properties → 8/8 passed on retry |
-| `slugify` | convention gaps: `"Don't Stop"` → `dont-stop` (the model says `don-t-stop`), `&` → `and`, `ß`/`ø` | 8/8 rejected by Tests → 7/8 passed on retry |
-| `fibonacci` | the obvious O(n) bigint loop takes ~4 s at `n = 1,000,000`; the 1.5 s bounded invariant terminates it; the diagnostic steers the model to fast doubling | 8/8 rejected by Invariants (bounded) → 8/8 passed on retry |
+- **The spec was silent and your tests decided.** The check carries a marker saying what the doc never said, and the card
+  reads "The spec didn't say what the median of nothing is. Your tests did." plus a line saying the candidate's choice was
+  defensible. The marker can carry a condition on the *shrunk counterexample*, so a real bug elsewhere in the same check
+  is never labelled a spec gap.
+- **The spec stated it and the candidate broke it** (compile errors, the time limit, a mutation of the arguments).
+
+The model sees the signature, the doc, the *names* of your checks, and the time budget; never the bodies of the tests or
+properties (tests are the contract, not a hint sheet). The "What the model saw" panel under every candidate shows the exact
+prompt, and what was withheld.
+
+| example | the one sentence a skeptic needs | what rejects it | measured: first attempt → retry |
+|---|---|---|---|
+| `median` | A median of nothing has no right answer: throwing, `NaN`, `0` and `undefined` are all defensible and the doc ("Returns the median of a list of numbers.") never says which, so when the tests say `NaN` the contract is speaking, not the model failing. | Properties (fast-check generates `[]` and shrinks to it): `median([]) threw Error…, expected NaN` | 8/8 rejected → 8/8 passed |
+| `slugify` | Whether an apostrophe splits a word, what `&` becomes and how `ß` is spelled are conventions the doc ("Turns a title into a URL slug.") never states; our tests state ours, and each of those rejections is labelled "the spec didn't say". | Tests: `slugify("Don't Stop") returned "don-t-stop", expected "dont-stop"` (or `Straße`/`stra-e`) | 8/8 rejected → 7/8 passed |
+| `fibonacci` | The doc states the range (n up to 1,000,000) and the prompt states the 1.5 s limit; the model wrote an O(n) loop it never timed (about 4 s at that n), so the fault is the candidate's and nothing was withheld. | Invariants (bounded): `fibonacci(1000000) did not return within 1500 ms` | 8/8 rejected → 8/8 passed |
+
+Measured 2026-10-04 with `gpt-6-luna`, effort `low`, Codex CLI 0.159.2, 8 samples each, through the real compile and
+execution gates (`scripts/tune.tune.ts`). They are one day's rates for one model, not a guarantee: a live run can pass first
+time. The shipped recordings are real sessions captured by `npm run record`, which keeps a session only if its first
+candidate was rejected and prints how many tries that took (median 1, slugify 1, fibonacci 2: the first fibonacci session
+exhausted its retry budget and was discarded).
 
 Models also fail in ways nobody tuned: in one live `slugify` run the first candidate came back with a literal `\n` in place
 of a newline and the compiler rejected it ("Invalid character"), which is exactly the kind of thing the compile gate is for.
 
-These are rates I measured on one day with one model; they are not a guarantee. A live run can pass first time. The
-shipped recordings are real sessions captured from the live app (nothing was edited), made on runs where the first
-candidate was rejected, which is the typical outcome above.
-
-Two honest deviations from the idealised story: the `median` rejection is the empty list (shrunk by fast-check), not
-`median([1, 2])` returning `1` (this model gets the textbook cases right), and `fibonacci` is rejected for the loop at `n = 1,000,000`, not for naive
-recursion at `n = 90` (this model never wrote the naive recursion unprompted, even with the recurrence in the doc).
+Where the idealised story differs: the `median` rejection is the empty list (shrunk by fast-check), not `median([1, 2])`
+returning `1`, because this model gets the textbook cases right; and the fibonacci rejection is a slow-but-correct loop, not
+naive recursion, because the model never wrote the recursion.
 
 ## Replay mode and recordings
 
@@ -122,8 +134,10 @@ prompts and progress lines. Recordings in `public/recordings/` are matched by fu
 replay works for the unmodified examples and for their **Break it** edits. Edit a spec to something that was never
 recorded and replay mode says so, and tells you how to run live.
 
-Maintainers can record new sessions against a running `npm run dev` (it exposes a dev-only
-`POST /__save-recording?id=<name>` route and `window.__undefined`); the static build contains neither.
+Maintainers re-record the shipped sessions with `npm run record` (starts the dev server, drives headless Chrome through the
+real app against your Codex login, and writes `public/recordings/*.json`; it keeps a session only if the first candidate
+was rejected and prints how many tries that took). `npm run check:replay` serves the production build with no backend and
+checks that each example replays from its recording through the real UI.
 
 ## The generation service
 

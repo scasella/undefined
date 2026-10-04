@@ -1,66 +1,28 @@
 {
  "format": "undefined-recording",
- "version": 1,
+ "version": 2,
  "id": "fibonacci",
- "title": "fibonacci \u2014 recorded live session",
- "recordedAt": "2026-10-04T13:12:59.085Z",
+ "title": "fibonacci — recorded live session",
+ "recordedAt": "2026-10-04T15:18:57.927Z",
  "model": "gpt-6-luna",
  "codexVersion": "0.159.2",
  "effort": "low",
  "sessions": [
   {
    "fn": "fibonacci",
-   "specHash": "6f97a7150f82d10b067156f1982a37c286dfbceb444268a18ffee1e572f5170f",
+   "specHash": "e924f6c85db985bfcb1600fb51a4ceee134da6c758a15e6f6f8aeaa49cc374cf",
    "testsHash": "d137719dcacdc53d681b95f2a45185c8b05acb2c0f375007d96dea81ee3044aa",
-   "label": "fibonacci \u2014 Returns the nth Fibonacci number: F(0) =",
+   "label": "fibonacci — Returns the nth Fibonacci number, exactl",
    "attempts": [
     {
-     "prompt": "You write the body of one TypeScript function, fibonacci. A strict toolchain decides whether your code is accepted: the TypeScript compiler, hidden unit tests, fast-check property tests, and purity/time-limit checks. Only code that passes all of them is used.\n\nHARD RULES\n- Do not run any shell command. Do not read, list or inspect any file. Do not use any tool. The working directory is empty on purpose; nothing there will help.\n- Answer immediately, from this prompt alone.\n- Return ONLY the JSON object {\"body\": string, \"notes\": string}. No text before or after it.\n\nOUTPUT\n- \"body\": ONLY the statements that go between the function's braces. No signature, no braces around the whole thing, no markdown fences, nothing declared outside the function. Helper functions, if needed, must be declared inside the body.\n- \"notes\": one short sentence about the approach.\n\nFUNCTION\nfunction fibonacci(n: number): bigint\n\nYour body is compiled exactly as:\nfunction fibonacci(n: number): bigint {\n  <body>\n}\n\nREQUIREMENTS FOR THE BODY\n- Must compile under TypeScript 'strict' with lib ES2022 only: no DOM and no Node APIs (no window, document, fetch, process, require, console, setTimeout).\n- Pure and deterministic: read only the parameters and standard ES2022 built-ins. No global state, no I/O, no Date or Date.now(), no Math.random(), no performance, no crypto.\n- Must not mutate its arguments.\n- Throw an Error only where the contract says the input is invalid.\n\nCONTRACT (the doc; follow it exactly)\nReturns the nth Fibonacci number: F(0) = 0, F(1) = 1, and F(n) = F(n - 1) + F(n - 2).\n\nCHECKS\nThese checks will be run against your function (bodies are hidden):\nUnit tests:\n- \"first values\"\n- \"small n\"\n- \"a late value\"\n- \"a very late value\"\nProperties (fast-check generates many inputs, including edge cases):\n- \"recurrence\"\n- \"monotonic\"\n\nFINAL REMINDER\n- Do not run any shell command, do not read or inspect any file, do not use any tool.\n- Reply now with ONLY the JSON object {\"body\": string, \"notes\": string}; \"body\" holds only the statements between the braces.\n",
-     "body": "if (!Number.isSafeInteger(n) || n < 0) throw new Error(\"n must be a non-negative safe integer\");\nlet a = 0n;\nlet b = 1n;\nfor (let i = 0; i < n; i++) {\n  const next = a + b;\n  a = b;\n  b = next;\n}\nreturn a;",
-     "notes": "Validates n and iteratively computes F(n) with bigint arithmetic.",
-     "durationMs": 8148,
-     "progress": [
-      {
-       "t": 112,
-       "text": "codex exec \u00b7 model gpt-6-luna \u00b7 effort low \u00b7 read-only sandbox",
-       "channel": "system"
-      },
-      {
-       "t": 369,
-       "text": "session started",
-       "channel": "event"
-      },
-      {
-       "t": 375,
-       "text": "turn started",
-       "channel": "event"
-      },
-      {
-       "t": 7513,
-       "text": "model answered \u00b7 body 205 chars",
-       "channel": "event"
-      },
-      {
-       "t": 7536,
-       "text": "model replied \u00b7 119 output tokens \u00b7 16721 input tokens",
-       "channel": "event"
-      },
-      {
-       "t": 8147,
-       "text": "answer received",
-       "channel": "system"
-      }
-     ]
-    },
-    {
-     "prompt": "You write the body of one TypeScript function, fibonacci. A strict toolchain decides whether your code is accepted: the TypeScript compiler, hidden unit tests, fast-check property tests, and purity/time-limit checks. Only code that passes all of them is used.\n\nHARD RULES\n- Do not run any shell command. Do not read, list or inspect any file. Do not use any tool. The working directory is empty on purpose; nothing there will help.\n- Answer immediately, from this prompt alone.\n- Return ONLY the JSON object {\"body\": string, \"notes\": string}. No text before or after it.\n\nOUTPUT\n- \"body\": ONLY the statements that go between the function's braces. No signature, no braces around the whole thing, no markdown fences, nothing declared outside the function. Helper functions, if needed, must be declared inside the body.\n- \"notes\": one short sentence about the approach.\n\nFUNCTION\nfunction fibonacci(n: number): bigint\n\nYour body is compiled exactly as:\nfunction fibonacci(n: number): bigint {\n  <body>\n}\n\nREQUIREMENTS FOR THE BODY\n- Must compile under TypeScript 'strict' with lib ES2022 only: no DOM and no Node APIs (no window, document, fetch, process, require, console, setTimeout).\n- Pure and deterministic: read only the parameters and standard ES2022 built-ins. No global state, no I/O, no Date or Date.now(), no Math.random(), no performance, no crypto.\n- Must not mutate its arguments.\n- Throw an Error only where the contract says the input is invalid.\n\nCONTRACT (the doc; follow it exactly)\nReturns the nth Fibonacci number: F(0) = 0, F(1) = 1, and F(n) = F(n - 1) + F(n - 2).\n\nCHECKS\nThese checks will be run against your function (bodies are hidden):\nUnit tests:\n- \"first values\"\n- \"small n\"\n- \"a late value\"\n- \"a very late value\"\nProperties (fast-check generates many inputs, including edge cases):\n- \"recurrence\"\n- \"monotonic\"\n\nPREVIOUS ATTEMPT (rejected)\nAttempt 1 was rejected. Its body:\n```ts\nif (!Number.isSafeInteger(n) || n < 0) throw new Error(\"n must be a non-negative safe integer\");\nlet a = 0n;\nlet b = 1n;\nfor (let i = 0; i < n; i++) {\n  const next = a + b;\n  a = b;\n  b = next;\n}\nreturn a;\n```\nWhat the checks reported:\npassed: compile\nINVARIANTS FAILED\n  - bounded: fibonacci(1000000) did not return within 1500 ms\n    call:     fibonacci(1000000)\n    budget:   1500 ms, elapsed: 1520 ms\n    during:   tests\n    detail:   worker terminated by the watchdog\n    meaning:  the call was too slow; use an asymptotically faster algorithm\n\nFix exactly what the diagnostics show. Keep what worked. Do not repeat an approach that was already rejected.\n\nFINAL REMINDER\n- Do not run any shell command, do not read or inspect any file, do not use any tool.\n- Reply now with ONLY the JSON object {\"body\": string, \"notes\": string}; \"body\" holds only the statements between the braces.\n",
-     "body": "if (!Number.isSafeInteger(n) || n < 0) throw new Error(\"n must be a non-negative safe integer\");\nlet a = 0n;\nlet b = 1n;\nlet bit = 1;\nwhile (bit <= n / 2) bit *= 2;\nfor (; bit > 0; bit = Math.floor(bit / 2)) {\n  const c = a * ((b << 1n) - a);\n  const d = a * a + b * b;\n  if (Math.floor(n / bit) % 2 === 0) {\n    a = c;\n    b = d;\n  } else {\n    a = d;\n    b = c + d;\n  }\n}\nreturn a;",
-     "notes": "Validates non-negative safe integers, then uses fast doubling to compute Fibonacci in logarithmically many steps.",
-     "durationMs": 8155,
+     "prompt": "You write the body of one TypeScript function, fibonacci. A strict toolchain decides whether your code is accepted: the TypeScript compiler, hidden unit tests, fast-check property tests, and purity/time-limit checks. Only code that passes all of them is used.\n\nHARD RULES\n- Do not run any shell command. Do not read, list or inspect any file. Do not use any tool. The working directory is empty on purpose; nothing there will help.\n- Answer immediately, from this prompt alone.\n- Return ONLY the JSON object {\"body\": string, \"notes\": string}. No text before or after it.\n\nOUTPUT\n- \"body\": ONLY the statements that go between the function's braces. No signature, no braces around the whole thing, no markdown fences, nothing declared outside the function. Helper functions, if needed, must be declared inside the body.\n- \"notes\": one short sentence about the approach.\n\nFUNCTION\nfunction fibonacci(n: number): bigint\n\nYour body is compiled exactly as:\nfunction fibonacci(n: number): bigint {\n  <body>\n}\n\nREQUIREMENTS FOR THE BODY\n- Must compile under TypeScript 'strict' with lib ES2022 only: no DOM and no Node APIs (no window, document, fetch, process, require, console, setTimeout).\n- Pure and deterministic: read only the parameters and standard ES2022 built-ins. No global state, no I/O, no Date or Date.now(), no Math.random(), no performance, no crypto.\n- Must not mutate its arguments.\n- Each call must return within 1500 ms.\n- Throw an Error only where the contract says the input is invalid.\n\nCONTRACT (the doc; follow it exactly)\nReturns the nth Fibonacci number, exactly, for any n from 0 to 1,000,000: F(0) = 0, F(1) = 1, and F(n) = F(n - 1) + F(n - 2).\n\nCHECKS\nThese checks will be run against your function (bodies are hidden):\nUnit tests:\n- \"first values\"\n- \"small n\"\n- \"a late value\"\n- \"a very late value\"\nProperties (fast-check generates many inputs, including edge cases):\n- \"recurrence\"\n- \"monotonic\"\n\nFINAL REMINDER\n- Do not run any shell command, do not read or inspect any file, do not use any tool.\n- Reply now with ONLY the JSON object {\"body\": string, \"notes\": string}; \"body\" holds only the statements between the braces.\n",
+     "body": "if (!Number.isInteger(n) || n < 0 || n > 1_000_000) throw new Error(\"Invalid n\");\nlet a = 0n;\nlet b = 1n;\nfor (let i = 0; i < n; i++) {\n  const next = a + b;\n  a = b;\n  b = next;\n}\nreturn a;",
+     "notes": "Validates the contract range, then iterates with bigint arithmetic for an exact result.",
+     "durationMs": 6804,
      "progress": [
       {
        "t": 1,
-       "text": "codex exec \u00b7 model gpt-6-luna \u00b7 effort low \u00b7 read-only sandbox",
+       "text": "codex exec · model gpt-6-luna · effort low · read-only sandbox",
        "channel": "system"
       },
       {
@@ -69,149 +31,189 @@
        "channel": "event"
       },
       {
-       "t": 118,
+       "t": 119,
        "text": "turn started",
        "channel": "event"
       },
       {
-       "t": 6884,
-       "text": "model answered \u00b7 body 383 chars",
+       "t": 5954,
+       "text": "model answered · body 190 chars",
        "channel": "event"
       },
       {
-       "t": 6922,
-       "text": "model replied \u00b7 211 output tokens \u00b7 16938 input tokens",
+       "t": 5973,
+       "text": "model replied · 124 output tokens · 16746 input tokens",
        "channel": "event"
       },
       {
-       "t": 8154,
+       "t": 6804,
+       "text": "answer received",
+       "channel": "system"
+      }
+     ]
+    },
+    {
+     "prompt": "You write the body of one TypeScript function, fibonacci. A strict toolchain decides whether your code is accepted: the TypeScript compiler, hidden unit tests, fast-check property tests, and purity/time-limit checks. Only code that passes all of them is used.\n\nHARD RULES\n- Do not run any shell command. Do not read, list or inspect any file. Do not use any tool. The working directory is empty on purpose; nothing there will help.\n- Answer immediately, from this prompt alone.\n- Return ONLY the JSON object {\"body\": string, \"notes\": string}. No text before or after it.\n\nOUTPUT\n- \"body\": ONLY the statements that go between the function's braces. No signature, no braces around the whole thing, no markdown fences, nothing declared outside the function. Helper functions, if needed, must be declared inside the body.\n- \"notes\": one short sentence about the approach.\n\nFUNCTION\nfunction fibonacci(n: number): bigint\n\nYour body is compiled exactly as:\nfunction fibonacci(n: number): bigint {\n  <body>\n}\n\nREQUIREMENTS FOR THE BODY\n- Must compile under TypeScript 'strict' with lib ES2022 only: no DOM and no Node APIs (no window, document, fetch, process, require, console, setTimeout).\n- Pure and deterministic: read only the parameters and standard ES2022 built-ins. No global state, no I/O, no Date or Date.now(), no Math.random(), no performance, no crypto.\n- Must not mutate its arguments.\n- Each call must return within 1500 ms.\n- Throw an Error only where the contract says the input is invalid.\n\nCONTRACT (the doc; follow it exactly)\nReturns the nth Fibonacci number, exactly, for any n from 0 to 1,000,000: F(0) = 0, F(1) = 1, and F(n) = F(n - 1) + F(n - 2).\n\nCHECKS\nThese checks will be run against your function (bodies are hidden):\nUnit tests:\n- \"first values\"\n- \"small n\"\n- \"a late value\"\n- \"a very late value\"\nProperties (fast-check generates many inputs, including edge cases):\n- \"recurrence\"\n- \"monotonic\"\n\nPREVIOUS ATTEMPT (rejected)\nAttempt 1 was rejected. Its body:\n```ts\nif (!Number.isInteger(n) || n < 0 || n > 1_000_000) throw new Error(\"Invalid n\");\nlet a = 0n;\nlet b = 1n;\nfor (let i = 0; i < n; i++) {\n  const next = a + b;\n  a = b;\n  b = next;\n}\nreturn a;\n```\nWhat the checks reported:\npassed: compile\nINVARIANTS FAILED\n  - bounded: fibonacci(1000000) did not return within 1500 ms\n    call:     fibonacci(1000000)\n    budget:   1500 ms, elapsed: 1508 ms\n    during:   tests\n    detail:   worker terminated by the watchdog\n    meaning:  the call was too slow; use an asymptotically faster algorithm\n\nFix exactly what the diagnostics show. Keep what worked. Do not repeat an approach that was already rejected.\n\nFINAL REMINDER\n- Do not run any shell command, do not read or inspect any file, do not use any tool.\n- Reply now with ONLY the JSON object {\"body\": string, \"notes\": string}; \"body\" holds only the statements between the braces.\n",
+     "body": "if (!Number.isInteger(n) || n < 0 || n > 1_000_000) throw new Error(\"Invalid n\");\nlet a = 0n;\nlet b = 1n;\nlet k = n;\nlet bit = 1;\nwhile (bit <= k / 2) bit *= 2;\nwhile (bit > 0) {\n  const c = a * (2n * b - a);\n  const d = a * a + b * b;\n  if (Math.floor(k / bit) % 2 === 0) {\n    a = c;\n    b = d;\n  } else {\n    a = d;\n    b = c + d;\n  }\n  k %= bit;\n  bit = Math.floor(bit / 2);\n}\nreturn a;",
+     "notes": "Validates the contract range, then uses fast doubling to compute F(n) in logarithmic iterations.",
+     "durationMs": 7405,
+     "progress": [
+      {
+       "t": 0,
+       "text": "codex exec · model gpt-6-luna · effort low · read-only sandbox",
+       "channel": "system"
+      },
+      {
+       "t": 115,
+       "text": "session started",
+       "channel": "event"
+      },
+      {
+       "t": 117,
+       "text": "turn started",
+       "channel": "event"
+      },
+      {
+       "t": 6692,
+       "text": "model answered · body 390 chars",
+       "channel": "event"
+      },
+      {
+       "t": 6734,
+       "text": "model replied · 224 output tokens · 16969 input tokens",
+       "channel": "event"
+      },
+      {
+       "t": 7405,
        "text": "answer received",
        "channel": "system"
       }
      ]
     }
+   ],
+   "spec": {
+    "name": "fibonacci",
+    "params": [
+     {
+      "name": "n",
+      "type": "number"
+     }
+    ],
+    "returns": "bigint",
+    "doc": "Returns the nth Fibonacci number, exactly, for any n from 0 to 1,000,000: F(0) = 0, F(1) = 1, and F(n) = F(n - 1) + F(n - 2).",
+    "tests": "test('first values', () => {\n  const expected = [0n, 1n, 1n, 2n, 3n, 5n, 8n];\n  for (let n = 0; n < expected.length; n++) eq(fibonacci(n), expected[n]);\n});\n\ntest('small n', () => {\n  eq(fibonacci(10), 55n);\n  eq(fibonacci(20), 6765n);\n});\n\ntest('a late value', () => {\n  eq(fibonacci(90), 2880067194370816120n);\n});\n\ntest('a very late value', () => {\n  const f = fibonacci(1000000);\n  eq(f % 1000000007n, 918091266n);\n  eq(f.toString().length, 208988);\n});\n",
+    "properties": "property('recurrence', [fc.integer({ min: 0, max: 88 })], (n: number) => {\n  const sum = fibonacci(n) + fibonacci(n + 1);\n  eq(fibonacci(n + 2), sum);\n});\n\nproperty('monotonic', [fc.integer({ min: 0, max: 89 })], (n: number) => fibonacci(n) <= fibonacci(n + 1));\n",
+    "budgetMs": 1500,
+    "maxAttempts": 3,
+    "origin": "example",
+    "exampleId": "fibonacci"
+   },
+   "calls": [
+    "fibonacci(90)"
    ]
   },
   {
    "fn": "fibonacci",
-   "specHash": "6aa97edbfaf718068331ff2ffd0b6ebed088a34af97d2348bdaecf6ab55f7e44",
-   "testsHash": "88ac11cc35312a2490118ee5b07145d1aedaecfee0445870cf50e699e06cdf9c",
-   "label": "fibonacci \u2014 Returns the nth Fibonacci number as an e",
+   "specHash": "47aaf0816654f88d08c00b11459334869a55ee9958e07fe855634a40ec85f9e4",
+   "testsHash": "e34d5f4fab234e8fb65f020f15ed28c52c6688f335a5afdc98bd82dec25dc49a",
+   "label": "fibonacci — Returns the nth Fibonacci number, exactl",
    "attempts": [
     {
-     "prompt": "You write the body of one TypeScript function, fibonacci. A strict toolchain decides whether your code is accepted: the TypeScript compiler, hidden unit tests, fast-check property tests, and purity/time-limit checks. Only code that passes all of them is used.\n\nHARD RULES\n- Do not run any shell command. Do not read, list or inspect any file. Do not use any tool. The working directory is empty on purpose; nothing there will help.\n- Answer immediately, from this prompt alone.\n- Return ONLY the JSON object {\"body\": string, \"notes\": string}. No text before or after it.\n\nOUTPUT\n- \"body\": ONLY the statements that go between the function's braces. No signature, no braces around the whole thing, no markdown fences, nothing declared outside the function. Helper functions, if needed, must be declared inside the body.\n- \"notes\": one short sentence about the approach.\n\nFUNCTION\nfunction fibonacci(n: number): bigint\n\nYour body is compiled exactly as:\nfunction fibonacci(n: number): bigint {\n  <body>\n}\n\nREQUIREMENTS FOR THE BODY\n- Must compile under TypeScript 'strict' with lib ES2022 only: no DOM and no Node APIs (no window, document, fetch, process, require, console, setTimeout).\n- Pure and deterministic: read only the parameters and standard ES2022 built-ins. No global state, no I/O, no Date or Date.now(), no Math.random(), no performance, no crypto.\n- Must not mutate its arguments.\n- Throw an Error only where the contract says the input is invalid.\n\nCONTRACT (the doc; follow it exactly)\nReturns the nth Fibonacci number as an exact bigint, where fibonacci(0) = 0n, fibonacci(1) = 1n and fibonacci(n + 2) = fibonacci(n + 1) + fibonacci(n) for every integer n. n is an integer from -90 to 90. Negative n follows the same recurrence run backwards (the \"negafibonacci\" numbers): fibonacci(-n) = (-1)^(n+1) \u00b7 fibonacci(n), so fibonacci(-1) = 1n and fibonacci(-2) = -1n. Callers use it interactively, so every call must return quickly.\n\nCHECKS\nThese checks will be run against your function (bodies are hidden):\nUnit tests:\n- \"starts 0, 1, 1, 2, 3, 5, 8\"\n- \"extends to negative n with alternating signs\"\n- \"is exact at both ends of the range\"\n- \"a very late value\"\nProperties (fast-check generates many inputs, including edge cases):\n- \"each value is the sum of the two before it\"\n- \"negative n mirrors positive n up to sign\"\n\nFINAL REMINDER\n- Do not run any shell command, do not read or inspect any file, do not use any tool.\n- Reply now with ONLY the JSON object {\"body\": string, \"notes\": string}; \"body\" holds only the statements between the braces.\n",
-     "body": "if (!Number.isInteger(n) || n < -90 || n > 90) {\n  throw new Error(\"n must be an integer from -90 to 90\");\n}\nconst magnitude = Math.abs(n);\nlet previous = 0n;\nlet current = 1n;\nfor (let i = 0; i < magnitude; i++) {\n  [previous, current] = [current, previous + current];\n}\nreturn n < 0 && magnitude % 2 === 0 ? -previous : previous;",
-     "notes": "Validates the range, computes the positive value iteratively, and applies the negafibonacci sign.",
-     "durationMs": 6798,
+     "prompt": "You write the body of one TypeScript function, fibonacci. A strict toolchain decides whether your code is accepted: the TypeScript compiler, hidden unit tests, fast-check property tests, and purity/time-limit checks. Only code that passes all of them is used.\n\nHARD RULES\n- Do not run any shell command. Do not read, list or inspect any file. Do not use any tool. The working directory is empty on purpose; nothing there will help.\n- Answer immediately, from this prompt alone.\n- Return ONLY the JSON object {\"body\": string, \"notes\": string}. No text before or after it.\n\nOUTPUT\n- \"body\": ONLY the statements that go between the function's braces. No signature, no braces around the whole thing, no markdown fences, nothing declared outside the function. Helper functions, if needed, must be declared inside the body.\n- \"notes\": one short sentence about the approach.\n\nFUNCTION\nfunction fibonacci(n: number): bigint\n\nYour body is compiled exactly as:\nfunction fibonacci(n: number): bigint {\n  <body>\n}\n\nREQUIREMENTS FOR THE BODY\n- Must compile under TypeScript 'strict' with lib ES2022 only: no DOM and no Node APIs (no window, document, fetch, process, require, console, setTimeout).\n- Pure and deterministic: read only the parameters and standard ES2022 built-ins. No global state, no I/O, no Date or Date.now(), no Math.random(), no performance, no crypto.\n- Must not mutate its arguments.\n- Each call must return within 1500 ms.\n- Throw an Error only where the contract says the input is invalid.\n\nCONTRACT (the doc; follow it exactly)\nReturns the nth Fibonacci number, exactly, for any n from -1,000,000 to 1,000,000: F(0) = 0, F(1) = 1, and F(n) = F(n - 1) + F(n - 2). For negative n the same rule runs backwards (the negafibonacci numbers): F(-n) = (-1)^(n+1) · F(n), so F(-1) = 1, F(-2) = -1 and F(-1,000,000) = -F(1,000,000).\n\nCHECKS\nThese checks will be run against your function (bodies are hidden):\nUnit tests:\n- \"starts 0, 1, 1, 2, 3, 5, 8\"\n- \"extends to negative n with alternating signs\"\n- \"is exact past 2^53 in both directions\"\n- \"a very late value\"\n- \"a very early value\"\nProperties (fast-check generates many inputs, including edge cases):\n- \"each value is the sum of the two before it\"\n- \"negative n mirrors positive n up to sign\"\n\nFINAL REMINDER\n- Do not run any shell command, do not read or inspect any file, do not use any tool.\n- Reply now with ONLY the JSON object {\"body\": string, \"notes\": string}; \"body\" holds only the statements between the braces.\n",
+     "body": "if (!Number.isInteger(n) || n < -1_000_000 || n > 1_000_000) throw new Error(\"n must be an integer from -1,000,000 to 1,000,000\");\nconst k = Math.abs(n);\nlet a = 0n;\nlet b = 1n;\nfor (let i = 0; i < k; i++) {\n  const next = a + b;\n  a = b;\n  b = next;\n}\nreturn n < 0 && k % 2 === 0 ? -a : a;",
+     "notes": "Validates the integer range, iterates with BigInt for exact values, and applies the negafibonacci sign rule.",
+     "durationMs": 7074,
      "progress": [
       {
        "t": 23,
-       "text": "codex exec \u00b7 model gpt-6-luna \u00b7 effort low \u00b7 read-only sandbox",
+       "text": "codex exec · model gpt-6-luna · effort low · read-only sandbox",
        "channel": "system"
       },
       {
-       "t": 132,
+       "t": 142,
        "text": "session started",
        "channel": "event"
-      },
-      {
-       "t": 134,
-       "text": "turn started",
-       "channel": "event"
-      },
-      {
-       "t": 6106,
-       "text": "model answered \u00b7 body 331 chars",
-       "channel": "event"
-      },
-      {
-       "t": 6118,
-       "text": "model replied \u00b7 156 output tokens \u00b7 16852 input tokens",
-       "channel": "event"
-      },
-      {
-       "t": 6798,
-       "text": "answer received",
-       "channel": "system"
-      }
-     ]
-    },
-    {
-     "prompt": "You write the body of one TypeScript function, fibonacci. A strict toolchain decides whether your code is accepted: the TypeScript compiler, hidden unit tests, fast-check property tests, and purity/time-limit checks. Only code that passes all of them is used.\n\nHARD RULES\n- Do not run any shell command. Do not read, list or inspect any file. Do not use any tool. The working directory is empty on purpose; nothing there will help.\n- Answer immediately, from this prompt alone.\n- Return ONLY the JSON object {\"body\": string, \"notes\": string}. No text before or after it.\n\nOUTPUT\n- \"body\": ONLY the statements that go between the function's braces. No signature, no braces around the whole thing, no markdown fences, nothing declared outside the function. Helper functions, if needed, must be declared inside the body.\n- \"notes\": one short sentence about the approach.\n\nFUNCTION\nfunction fibonacci(n: number): bigint\n\nYour body is compiled exactly as:\nfunction fibonacci(n: number): bigint {\n  <body>\n}\n\nREQUIREMENTS FOR THE BODY\n- Must compile under TypeScript 'strict' with lib ES2022 only: no DOM and no Node APIs (no window, document, fetch, process, require, console, setTimeout).\n- Pure and deterministic: read only the parameters and standard ES2022 built-ins. No global state, no I/O, no Date or Date.now(), no Math.random(), no performance, no crypto.\n- Must not mutate its arguments.\n- Throw an Error only where the contract says the input is invalid.\n\nCONTRACT (the doc; follow it exactly)\nReturns the nth Fibonacci number as an exact bigint, where fibonacci(0) = 0n, fibonacci(1) = 1n and fibonacci(n + 2) = fibonacci(n + 1) + fibonacci(n) for every integer n. n is an integer from -90 to 90. Negative n follows the same recurrence run backwards (the \"negafibonacci\" numbers): fibonacci(-n) = (-1)^(n+1) \u00b7 fibonacci(n), so fibonacci(-1) = 1n and fibonacci(-2) = -1n. Callers use it interactively, so every call must return quickly.\n\nCHECKS\nThese checks will be run against your function (bodies are hidden):\nUnit tests:\n- \"starts 0, 1, 1, 2, 3, 5, 8\"\n- \"extends to negative n with alternating signs\"\n- \"is exact at both ends of the range\"\n- \"a very late value\"\nProperties (fast-check generates many inputs, including edge cases):\n- \"each value is the sum of the two before it\"\n- \"negative n mirrors positive n up to sign\"\n\nPREVIOUS ATTEMPT (rejected)\nAttempt 1 was rejected. Its body:\n```ts\nif (!Number.isInteger(n) || n < -90 || n > 90) {\n  throw new Error(\"n must be an integer from -90 to 90\");\n}\nconst magnitude = Math.abs(n);\nlet previous = 0n;\nlet current = 1n;\nfor (let i = 0; i < magnitude; i++) {\n  [previous, current] = [current, previous + current];\n}\nreturn n < 0 && magnitude % 2 === 0 ? -previous : previous;\n```\nWhat the checks reported:\npassed: compile\nTESTS FAILED \u2014 1 of 4\n  - test \"a very late value\"\n    call:     fibonacci(1000000)\n    error:    Error: n must be an integer from -90 to 90\n\nFix exactly what the diagnostics show. Keep what worked. Do not repeat an approach that was already rejected.\n\nFINAL REMINDER\n- Do not run any shell command, do not read or inspect any file, do not use any tool.\n- Reply now with ONLY the JSON object {\"body\": string, \"notes\": string}; \"body\" holds only the statements between the braces.\n",
-     "body": "if (!Number.isInteger(n) || !Number.isSafeInteger(n)) {\n  throw new Error(\"n must be an integer\");\n}\nconst magnitude = Math.abs(n);\nlet previous = 0n;\nlet current = 1n;\nfor (let i = 0; i < magnitude; i++) {\n  [previous, current] = [current, previous + current];\n}\nreturn n < 0 && magnitude % 2 === 0 ? -previous : previous;",
-     "notes": "Uses iterative bigint Fibonacci with the negafibonacci sign rule; rejects non-integer or unsafe integer inputs.",
-     "durationMs": 7609,
-     "progress": [
-      {
-       "t": 1,
-       "text": "codex exec \u00b7 model gpt-6-luna \u00b7 effort low \u00b7 read-only sandbox",
-       "channel": "system"
-      },
-      {
-       "t": 124,
-       "text": "session started",
-       "channel": "event"
-      },
-      {
-       "t": 126,
-       "text": "turn started",
-       "channel": "event"
-      },
-      {
-       "t": 6989,
-       "text": "model answered \u00b7 body 323 chars",
-       "channel": "event"
-      },
-      {
-       "t": 6990,
-       "text": "model replied \u00b7 148 output tokens \u00b7 17057 input tokens",
-       "channel": "event"
-      },
-      {
-       "t": 7609,
-       "text": "answer received",
-       "channel": "system"
-      }
-     ]
-    },
-    {
-     "prompt": "You write the body of one TypeScript function, fibonacci. A strict toolchain decides whether your code is accepted: the TypeScript compiler, hidden unit tests, fast-check property tests, and purity/time-limit checks. Only code that passes all of them is used.\n\nHARD RULES\n- Do not run any shell command. Do not read, list or inspect any file. Do not use any tool. The working directory is empty on purpose; nothing there will help.\n- Answer immediately, from this prompt alone.\n- Return ONLY the JSON object {\"body\": string, \"notes\": string}. No text before or after it.\n\nOUTPUT\n- \"body\": ONLY the statements that go between the function's braces. No signature, no braces around the whole thing, no markdown fences, nothing declared outside the function. Helper functions, if needed, must be declared inside the body.\n- \"notes\": one short sentence about the approach.\n\nFUNCTION\nfunction fibonacci(n: number): bigint\n\nYour body is compiled exactly as:\nfunction fibonacci(n: number): bigint {\n  <body>\n}\n\nREQUIREMENTS FOR THE BODY\n- Must compile under TypeScript 'strict' with lib ES2022 only: no DOM and no Node APIs (no window, document, fetch, process, require, console, setTimeout).\n- Pure and deterministic: read only the parameters and standard ES2022 built-ins. No global state, no I/O, no Date or Date.now(), no Math.random(), no performance, no crypto.\n- Must not mutate its arguments.\n- Throw an Error only where the contract says the input is invalid.\n\nCONTRACT (the doc; follow it exactly)\nReturns the nth Fibonacci number as an exact bigint, where fibonacci(0) = 0n, fibonacci(1) = 1n and fibonacci(n + 2) = fibonacci(n + 1) + fibonacci(n) for every integer n. n is an integer from -90 to 90. Negative n follows the same recurrence run backwards (the \"negafibonacci\" numbers): fibonacci(-n) = (-1)^(n+1) \u00b7 fibonacci(n), so fibonacci(-1) = 1n and fibonacci(-2) = -1n. Callers use it interactively, so every call must return quickly.\n\nCHECKS\nThese checks will be run against your function (bodies are hidden):\nUnit tests:\n- \"starts 0, 1, 1, 2, 3, 5, 8\"\n- \"extends to negative n with alternating signs\"\n- \"is exact at both ends of the range\"\n- \"a very late value\"\nProperties (fast-check generates many inputs, including edge cases):\n- \"each value is the sum of the two before it\"\n- \"negative n mirrors positive n up to sign\"\n\nPREVIOUS ATTEMPT (rejected)\nAttempt 2 was rejected. Its body:\n```ts\nif (!Number.isInteger(n) || !Number.isSafeInteger(n)) {\n  throw new Error(\"n must be an integer\");\n}\nconst magnitude = Math.abs(n);\nlet previous = 0n;\nlet current = 1n;\nfor (let i = 0; i < magnitude; i++) {\n  [previous, current] = [current, previous + current];\n}\nreturn n < 0 && magnitude % 2 === 0 ? -previous : previous;\n```\nWhat the checks reported:\npassed: compile\nINVARIANTS FAILED\n  - bounded: fibonacci(1000000) did not return within 1500 ms\n    call:     fibonacci(1000000)\n    budget:   1500 ms, elapsed: 1521 ms\n    during:   tests\n    detail:   worker terminated by the watchdog\n    meaning:  the call was too slow; use an asymptotically faster algorithm\n\nEarlier rejected attempts:\n- attempt 1: Rejected: fibonacci(1000000) threw Error: n must be an integer from -90 to 90\n\nFix exactly what the diagnostics show. Keep what worked. Do not repeat an approach that was already rejected.\n\nFINAL REMINDER\n- Do not run any shell command, do not read or inspect any file, do not use any tool.\n- Reply now with ONLY the JSON object {\"body\": string, \"notes\": string}; \"body\" holds only the statements between the braces.\n",
-     "body": "if (!Number.isInteger(n) || !Number.isSafeInteger(n)) {\n  throw new Error(\"n must be an integer\");\n}\nconst magnitude = Math.abs(n);\nlet a = 0n;\nlet b = 1n;\nfor (let bit = 31 - Math.clz32(magnitude); bit >= 0 && magnitude !== 0; bit--) {\n  const c = a * (2n * b - a);\n  const d = a * a + b * b;\n  if ((magnitude & (1 << bit)) === 0) {\n    a = c;\n    b = d;\n  } else {\n    a = d;\n    b = c + d;\n  }\n}\nreturn n < 0 && magnitude % 2 === 0 ? -a : a;",
-     "notes": "Uses fast doubling for logarithmic-time exact Fibonacci values and applies the negafibonacci sign rule.",
-     "durationMs": 8732,
-     "progress": [
-      {
-       "t": 20,
-       "text": "codex exec \u00b7 model gpt-6-luna \u00b7 effort low \u00b7 read-only sandbox",
-       "channel": "system"
       },
       {
        "t": 143,
-       "text": "session started",
-       "channel": "event"
-      },
-      {
-       "t": 144,
        "text": "turn started",
        "channel": "event"
       },
       {
-       "t": 7942,
-       "text": "model answered \u00b7 body 444 chars",
+       "t": 6097,
+       "text": "model answered · body 290 chars",
        "channel": "event"
       },
       {
-       "t": 7972,
-       "text": "model replied \u00b7 222 output tokens \u00b7 17126 input tokens",
+       "t": 6128,
+       "text": "model replied · 176 output tokens · 16870 input tokens",
        "channel": "event"
       },
       {
-       "t": 8732,
+       "t": 7074,
+       "text": "answer received",
+       "channel": "system"
+      }
+     ]
+    },
+    {
+     "prompt": "You write the body of one TypeScript function, fibonacci. A strict toolchain decides whether your code is accepted: the TypeScript compiler, hidden unit tests, fast-check property tests, and purity/time-limit checks. Only code that passes all of them is used.\n\nHARD RULES\n- Do not run any shell command. Do not read, list or inspect any file. Do not use any tool. The working directory is empty on purpose; nothing there will help.\n- Answer immediately, from this prompt alone.\n- Return ONLY the JSON object {\"body\": string, \"notes\": string}. No text before or after it.\n\nOUTPUT\n- \"body\": ONLY the statements that go between the function's braces. No signature, no braces around the whole thing, no markdown fences, nothing declared outside the function. Helper functions, if needed, must be declared inside the body.\n- \"notes\": one short sentence about the approach.\n\nFUNCTION\nfunction fibonacci(n: number): bigint\n\nYour body is compiled exactly as:\nfunction fibonacci(n: number): bigint {\n  <body>\n}\n\nREQUIREMENTS FOR THE BODY\n- Must compile under TypeScript 'strict' with lib ES2022 only: no DOM and no Node APIs (no window, document, fetch, process, require, console, setTimeout).\n- Pure and deterministic: read only the parameters and standard ES2022 built-ins. No global state, no I/O, no Date or Date.now(), no Math.random(), no performance, no crypto.\n- Must not mutate its arguments.\n- Each call must return within 1500 ms.\n- Throw an Error only where the contract says the input is invalid.\n\nCONTRACT (the doc; follow it exactly)\nReturns the nth Fibonacci number, exactly, for any n from -1,000,000 to 1,000,000: F(0) = 0, F(1) = 1, and F(n) = F(n - 1) + F(n - 2). For negative n the same rule runs backwards (the negafibonacci numbers): F(-n) = (-1)^(n+1) · F(n), so F(-1) = 1, F(-2) = -1 and F(-1,000,000) = -F(1,000,000).\n\nCHECKS\nThese checks will be run against your function (bodies are hidden):\nUnit tests:\n- \"starts 0, 1, 1, 2, 3, 5, 8\"\n- \"extends to negative n with alternating signs\"\n- \"is exact past 2^53 in both directions\"\n- \"a very late value\"\n- \"a very early value\"\nProperties (fast-check generates many inputs, including edge cases):\n- \"each value is the sum of the two before it\"\n- \"negative n mirrors positive n up to sign\"\n\nPREVIOUS ATTEMPT (rejected)\nAttempt 1 was rejected. Its body:\n```ts\nif (!Number.isInteger(n) || n < -1_000_000 || n > 1_000_000) throw new Error(\"n must be an integer from -1,000,000 to 1,000,000\");\nconst k = Math.abs(n);\nlet a = 0n;\nlet b = 1n;\nfor (let i = 0; i < k; i++) {\n  const next = a + b;\n  a = b;\n  b = next;\n}\nreturn n < 0 && k % 2 === 0 ? -a : a;\n```\nWhat the checks reported:\npassed: compile\nINVARIANTS FAILED\n  - bounded: fibonacci(1000000) did not return within 1500 ms\n    call:     fibonacci(1000000)\n    budget:   1500 ms, elapsed: 1506 ms\n    during:   tests\n    detail:   worker terminated by the watchdog\n    meaning:  the call was too slow; use an asymptotically faster algorithm\n\nFix exactly what the diagnostics show. Keep what worked. Do not repeat an approach that was already rejected.\n\nFINAL REMINDER\n- Do not run any shell command, do not read or inspect any file, do not use any tool.\n- Reply now with ONLY the JSON object {\"body\": string, \"notes\": string}; \"body\" holds only the statements between the braces.\n",
+     "body": "if (!Number.isInteger(n) || n < -1_000_000 || n > 1_000_000) throw new Error(\"n must be an integer from -1,000,000 to 1,000,000\");\nconst k = Math.abs(n);\nlet a = 0n;\nlet b = 1n;\nfor (let bit = 31; bit >= 0; bit--) {\n  const c = a * (2n * b - a);\n  const d = a * a + b * b;\n  if ((k & (1 << bit)) === 0) {\n    a = c;\n    b = d;\n  } else {\n    a = d;\n    b = c + d;\n  }\n}\nreturn n < 0 && k % 2 === 0 ? -a : a;",
+     "notes": "Uses fast doubling to compute Fibonacci in logarithmic time, with the contract’s range check and negative-index sign.",
+     "durationMs": 9697,
+     "progress": [
+      {
+       "t": 1,
+       "text": "codex exec · model gpt-6-luna · effort low · read-only sandbox",
+       "channel": "system"
+      },
+      {
+       "t": 118,
+       "text": "session started",
+       "channel": "event"
+      },
+      {
+       "t": 120,
+       "text": "turn started",
+       "channel": "event"
+      },
+      {
+       "t": 7720,
+       "text": "model answered · body 407 chars",
+       "channel": "event"
+      },
+      {
+       "t": 7721,
+       "text": "model replied · 232 output tokens · 17131 input tokens",
+       "channel": "event"
+      },
+      {
+       "t": 9697,
        "text": "answer received",
        "channel": "system"
       }
      ]
     }
+   ],
+   "spec": {
+    "name": "fibonacci",
+    "params": [
+     {
+      "name": "n",
+      "type": "number"
+     }
+    ],
+    "returns": "bigint",
+    "doc": "Returns the nth Fibonacci number, exactly, for any n from -1,000,000 to 1,000,000: F(0) = 0, F(1) = 1, and F(n) = F(n - 1) + F(n - 2). For negative n the same rule runs backwards (the negafibonacci numbers): F(-n) = (-1)^(n+1) · F(n), so F(-1) = 1, F(-2) = -1 and F(-1,000,000) = -F(1,000,000).",
+    "tests": "test('starts 0, 1, 1, 2, 3, 5, 8', () => {\n  const expected = [0n, 1n, 1n, 2n, 3n, 5n, 8n];\n  for (let n = 0; n < expected.length; n++) eq(fibonacci(n), expected[n]);\n});\n\ntest('extends to negative n with alternating signs', () => {\n  eq(fibonacci(-1), 1n);\n  eq(fibonacci(-2), -1n);\n  eq(fibonacci(-3), 2n);\n  eq(fibonacci(-10), -55n);\n});\n\ntest('is exact past 2^53 in both directions', () => {\n  eq(fibonacci(90), 2880067194370816120n);\n  eq(fibonacci(-90), -2880067194370816120n);\n});\n\ntest('a very late value', () => {\n  const f = fibonacci(1000000);\n  eq(f % 1000000007n, 918091266n);\n  eq(f.toString().length, 208988);\n});\n\ntest('a very early value', () => {\n  eq(fibonacci(-1000000), -fibonacci(1000000));\n});\n",
+    "properties": "const ns = fc.integer({ min: -90, max: 88 });\n\nproperty('each value is the sum of the two before it', [ns], (n: number) => {\n  const sum = fibonacci(n) + fibonacci(n + 1);\n  eq(fibonacci(n + 2), sum);\n});\n\nproperty('negative n mirrors positive n up to sign', [fc.integer({ min: 1, max: 90 })], (n: number) => {\n  const sign = n % 2 === 1 ? 1n : -1n;\n  const mirrored = sign * fibonacci(n);\n  eq(fibonacci(-n), mirrored);\n});\n",
+    "budgetMs": 1500,
+    "maxAttempts": 3,
+    "origin": "example",
+    "exampleId": "fibonacci"
+   },
+   "calls": [
+    "fibonacci(90)"
    ]
   }
  ]

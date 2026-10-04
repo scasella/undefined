@@ -1299,6 +1299,10 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
   }
 
   function loadExample(exampleId: string): Promise<void> {
+    // Type the call in now: an Enter right after the click must run THIS example's call (its spec load is queued
+    // ahead of that submit), not whatever was in the input.
+    const ex = examples.find((e) => e.id === exampleId);
+    if (ex && !state.value.busy) set({ replInput: ex.call });
     return exclusive('load an example', () => loadExampleInner(exampleId));
   }
 

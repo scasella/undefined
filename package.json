@@ -12,7 +12,9 @@
     "build": "tsc --noEmit && vite build --configLoader runner",
     "preview": "vite preview --configLoader runner",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run --configLoader runner",
+    "record": "node scripts/record.mjs",
+    "check:replay": "node scripts/replay-check.mjs"
   },
   "dependencies": {
     "@preact/signals": "^2.11.3",

@@ -528,6 +528,20 @@ describe('engine: specs, examples, history', () => {
     expect(other.s().replInput).toBe('median2([1])');
   }, 30_000);
 
+  it('an Enter right after clicking an example runs THAT example, not the previous input', async () => {
+    const other = setup({
+      script: { median2: [MEDIAN_GOOD.replace(/median/g, 'median2')] },
+      deps: { examples: [EXAMPLE, { ...EXAMPLE, id: 'median2', fn: 'median2', title: 'm2', call: 'median2([1, 2, 3])', spec: { ...MEDIAN_SPEC, name: 'median2' } }] },
+    });
+    await other.engine.init();
+    expect(other.s().replInput).toBe(EXAMPLE.call);
+    const click = other.engine.loadExample('median2'); // not awaited: the user presses Enter immediately
+    const enter = other.engine.submit();
+    await Promise.all([click, enter]);
+    const inputs = other.s().repl.filter((e) => e.kind === 'input').map((e) => (e as { text: string }).text);
+    expect(inputs).toEqual(['median2([1, 2, 3])']);
+  }, 30_000);
+
   it('rollback restores functions AND REPL variables exactly as they were at that revision', async () => {
     const { engine, gen, s, run } = setup({ script: { median: [MEDIAN_GOOD] } });
     await engine.init();
