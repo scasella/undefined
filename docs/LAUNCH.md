@@ -1,0 +1,185 @@
+# Launch kit: the evidence appendix
+
+For the essay. Everything here was measured or captured in this repository; nothing is estimated. Where a number is a
+sample, it says how large. Re-run commands are at the end of each section.
+
+**Setup of every live measurement below:** model `gpt-6-luna` (the only model; no other was tried), reasoning effort `low`,
+Codex CLI 0.159.2 (`codex exec`, read-only sandbox, empty temp directory, `--ignore-user-config`), macOS, Node v25.8.1,
+Chrome 154 headless via playwright-core, measured 2026-10-04. One model, one day: treat every rate as that.
+
+## 1. Rejection and recovery rates
+
+### 1a. Whole sessions through the real app (the number to quote)
+
+8 fresh sessions per example, each the example's pre-typed call, real Web Worker gates and watchdog, the real budget of
+3 candidates. `node scripts/sessions.mjs 8`.
+
+| example | sessions | first candidate rejected (by) | first candidate accepted | committed within 3 candidates | mean session time |
+|---|---|---|---|---|---|
+| `median` | 8 | 8 (8 properties) | 0 | 8/8 | 37.3 s |
+| `slugify` | 8 | 6 (6 tests) | 2 | 7/8 | 42.6 s |
+| `fibonacci` | 8 | 6 (6 invariants) | 2 | 7/8 | 42.7 s |
+| `orders` | 8 | 0 (n/a) | 8 | 8/8 | 22.2 s |
+
+- 2 of the 32 sessions ended without a commit, both an exhausted budget rather than a crash: `slugify` session 6 was
+  rejected by tests, then compile, then tests; `fibonacci` session 0 by the bounded check, then tests, then tests.
+  (`orders` has no tests, so its first candidate is accepted by construction; that row measures only that the data path
+  works, 8/8.)
+- A rejection on the first candidate is common for these three specs and **not guaranteed**: 2 of 8 `slugify` sessions and
+  2 of 8 `fibonacci` sessions passed first time. The shipped recordings are real sessions, kept only if the first candidate
+  was rejected (`npm run record` prints the tries it needed: median 1, slugify 1, fibonacci 2).
+- The same event showed up while recording: in both recording runs the first fibonacci session exhausted its budget and was
+  discarded (that is why the recording needed 2 tries).
+
+### 1b. Earlier, narrower sampling (kept for the record)
+
+`scripts/tune.tune.ts`, 8 samples per example, one candidate and **one** retry with the diagnostic: median 8/8 rejected →
+8/8 passed; slugify 8/8 → 7/8; fibonacci 8/8 → 8/8. The session-level numbers above are lower because a session can
+have a different first candidate each time and has to recover within the real budget. Before any tuning, **18 of 18**
+first attempts at tightly specified versions of these examples passed every gate: the model does not need help from the
+toolchain on a well-specified function, and the examples are built around specs that are honestly incomplete.
+
+### 1c. The decline rule (stubs versus honesty)
+
+`scripts/calibrate.tune.ts`: ~47 spec-less calls, 3 samples each, written vs. declined.
+
+| group | expected | result |
+|---|---|---|
+| names that describe a result (incl. `topCustomersByRevenue(rows)`, `monthlyTotals(rows)`, `dedupeByEmail(rows)`) | write | 78 of 78 written |
+| meaningless names (`clean`, `process`, `handle`, `transform`, `data`, `run`, `doIt`) | decline | 21 of 21 declined |
+| impure names (`now`, `uuid`, `shuffle`, `fetchUser`, `readFile`, …) | decline | 41 of 45 declined (the four writes: `getCookie`, `printReport` read as pure parsing/formatting) |
+
+The first draft of the rule declined `topCustomersByRevenue(rows)` ("which discount rules count?"); the calibration is why
+it no longer does. See `docs/HOSTILE.md` for the 54 stranger-style calls: 20 impure/ambiguous calls were committed as stubs
+before the rule, 2 after.
+
+## 2. How strong are the shipped tests? (mutation kill rates)
+
+Twelve deliberately broken copies of each committed function (operator swaps, flipped comparisons, boundary ±1,
+constants, negated conditions, returns replaced), run against the function's real tests and properties. Four buckets, never
+merged: killed, stopped by the time limit, survived (may be equivalent), did not compile.
+
+| function (body) | where measured | result |
+|---|---|---|
+| `median` (shipped good body 1) | Node, real gates (`src/core/engine.evidence.test.ts`) | 11 of 12 killed; the survivor is `0 → -1` on the empty-list guard, which changes nothing observable (an equivalent mutant: the empty list still yields NaN) |
+| `median` (good body 2) | same | 11 of 12 killed, same survivor |
+| `median` (the body recorded for replay) | browser, real watchdog | 12 of 12 killed |
+| `slugify` (regex chain) | Node and browser | 1 of 1 (the body has a single mutation site) |
+| `slugify` (loop version) | Node | 12 of 12 killed |
+| `fibonacci` (fast doubling) | Node | 12 of 12 killed |
+| `fibonacci` (the recorded body) | browser, real watchdog | 8 of 12 killed, 2 more stopped by the time limit, 2 survived |
+| `topCustomersByRevenue` | n/a | skipped: no tests, nothing could kill a mutant |
+| any function with no tests at all | all five bodies tested | 0 killed (and the app says so) |
+
+A weak median spec (one single-value test, no properties) kills 8 of 12 and lets 4 through, which is the point of the
+number: it separates a test suite that checks something from one that merely exists.
+
+## 3. Real session transcripts (verbatim, with the diagnostics the model received)
+
+Generated from the shipped recordings by `node scripts/transcripts.mjs`: every prompt exactly as sent, every body exactly
+as returned. The second prompt of each ends with the toolchain's diagnostics for the rejected candidate.
+
+- `docs/transcripts/median.md`, `docs/transcripts/slugify.md`, `docs/transcripts/fibonacci.md`
+- `docs/transcripts/orders.md` (the spec-less data call: what the model is told about the type and sample rows, and nothing else)
+
+The three diagnostics blocks, as the model received them:
+
+**median** (first candidate threw on `[]`; the model's note was: 'Sorts a copy and returns the middle value or the mean of the two middle values; assumes the list is non-empty.')
+
+```
+What the checks reported:
+passed: compile, tests
+PROPERTIES FAILED
+  - property "agrees with a sort-based reference"
+    counterexample (shrunk by fast-check in 0 steps, seed 356460707): median([])
+    expected: NaN
+    error:    Error: median requires a non-empty list
+
+Fix exactly what the diagnostics show. Keep what worked. Do not repeat an approach that was already rejected.
+```
+
+**slugify** (first candidate: 'Uses Unicode decomposition for accents, expands common special letters and ampersands, and joins remaining letter and digit runs with single hyphens.')
+
+```
+What the checks reported:
+passed: compile
+TESTS FAILED — 1 of 10
+  - test "apostrophes"
+    call:     slugify("Don't Stop")
+    expected: "dont-stop"
+    actual:   "don-t-stop"
+
+Fix exactly what the diagnostics show. Keep what worked. Do not repeat an approach that was already rejected.
+```
+
+**fibonacci** (first candidate: 'Uses an iterative exact BigInt calculation and rejects inputs outside the documented integer range.')
+
+```
+What the checks reported:
+passed: compile
+INVARIANTS FAILED
+  - bounded: fibonacci(1000000) did not return within 1500 ms
+    call:     fibonacci(1000000)
+    budget:   1500 ms, elapsed: 1518 ms
+    during:   tests
+    detail:   worker terminated by the watchdog
+    meaning:  the call was too slow; use an asymptotically faster algorithm
+
+Fix exactly what the diagnostics show. Keep what worked. Do not repeat an approach that was already rejected.
+```
+
+## 4. The honest limits (say these in the essay)
+
+- **One model, one day.** Rates are for `gpt-6-luna` at effort `low`. Another model, another effort, or another week may
+  differ. Nothing here claims otherwise.
+- **The rejections are built, then measured.** A strong model passes a well-specified function first time (18/18). The three
+  rejecting examples use honestly incomplete specs (median, slugify: the spec is silent and the tests choose) or a stated
+  limit the model does not time (fibonacci). The app labels which is which. The shipped recordings were kept only when
+  the first candidate was rejected.
+- **The spec-less path is gated only by Compile and Invariants.** With no tests, a wrong answer sails through (see
+  `docs/HOSTILE.md`: 2 of the 54 stranger calls are ❌ for that reason, and results vary run to run: `isPalindrome` of the
+  classic phrase was `true`, `false`, `true`). The UI says so under every spec-less result; pinning a result is the remedy.
+- **The sandbox is not a security boundary.** Candidates run in a Web Worker with the clock, `Math.random`, network and
+  timers shadowed and network APIs removed; a determined program can still reach the worker's global scope through
+  `Function`-constructor tricks. The model is not adversarial; the checks catch accidental impurity.
+- **Mutation testing finds weak tests, not wrong ones.** Survivors may be equivalent mutants; "12 of 12 killed" says the
+  tests notice changes, not that the spec is right.
+- **Replay is a recording, not a run.** The static site replays recorded candidates; only the gates run live in the visitor's
+  browser. It is labelled as such on screen.
+- **Not tested:** Safari/Firefox (Chrome only); Node versions other than 20.20, 22.23, 25.8 and 26.8; any model other than
+  `gpt-6-luna`; concurrent users (it is a local single-user tool).
+- **Data privacy:** in live mode a dataset's inferred type and up to 3 sample rows go to Codex (the user can turn the sample
+  rows off and send the type only); nothing else about the data does, and in replay mode nothing leaves the browser.
+
+## 5. Suggested outline for the essay (an outline, not the essay)
+
+1. **The inversion, in ten seconds.** The opening sequence: a call to a function that doesn't exist, a rejection card, a
+   retry, a commit. State the claim: the model is upstream, the toolchain is downstream and decides.
+2. **Who holds the contract?** The pivot of the piece. Median-of-nothing and the apostrophe are not model mistakes; the
+   spec was silent and the tests chose. Contrast with the fibonacci rejection, where everything was stated and the model
+   did not time its own loop. Use the 18/18 first-try pass rate to show a strong model needs no help on a well-specified
+   function: the toolchain's value is concentrated where specs are incomplete.
+3. **Making the verdict legible.** The rejection card: the headline, the "who decided" line, the fairness line. Why every
+   decision names its gate and its evidence.
+4. **What the toolchain can and cannot see.** The hostile-calls section: the faked stubs (20 → 2), the decline protocol,
+   then the residual: run-to-run variance and overfit-to-the-example that no gate catches without a test.
+5. **Tests that accrete from use.** Pin as test; the data scratchpad; why a pin is outside the hash and what re-certify does.
+6. **How much to trust a committed function.** The confidence line without a score; mutation kill rates as a way to ask
+   "did the gate check anything?" (the weak-spec 8-of-12 versus the shipped 12-of-12).
+7. **Honest limits and what was measured.** One model, one day; built rejections; the sandbox; the numbers in section 1.
+8. **Where it goes.** A program that is a log of accepted changes: revisions, rollback including live state, hot reload,
+   share a session as a file that replays with live gates.
+
+## 6. Assets and how to regenerate everything here
+
+| asset | command |
+|---|---|
+| session rates (1a) | `node scripts/sessions.mjs 8` |
+| single-retry sampling (1b) | `TUNE_N=8 npx vitest run -c scripts/vitest.tune.config.ts` |
+| decline calibration (1c) | `CAL_N=3 npx vitest run -c scripts/vitest.tune.config.ts scripts/calibrate.tune.ts` |
+| hostile calls | `node scripts/hostile.mjs` |
+| recordings | `npm run record` |
+| transcripts | `node scripts/transcripts.mjs` |
+| replay check on the production build | `npm run build && npm run check:replay` |
+| screenshots in both schemes and sizes | `node scripts/shots.mjs` |
+| `docs/opening.gif`, `docs/demo.mp4` | `node scripts/capture.mjs` |
