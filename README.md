@@ -16,7 +16,7 @@ revision of your running program. Everything runs in your browser except the mod
 
 ## Run it
 
-**Prerequisites:** Node 20+ (developed and tested on Node 25; Node 20 is untested), [Codex CLI](https://github.com/openai/codex) 0.157 or later (`npm i -g @openai/codex`), and
+**Prerequisites:** Node `^20.19 || >=22.12` (Vite 8's floor; typecheck, 532 tests and the build were run on Node 20.20, 22.23, 25.8 and 26.8; older 20.x releases fail Vite's own engine check), [Codex CLI](https://github.com/openai/codex) 0.157 or later (`npm i -g @openai/codex`), and
 `codex login` completed. No API keys, no cloud backend, nothing leaves your machine except the prompt to Codex.
 
 ```bash
