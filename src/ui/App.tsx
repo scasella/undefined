@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Engine } from '../types';
 import { CodePane } from './components/CodePane';
 import { Examples, Header, ModeBanner, RunLiveDialog, Toast } from './components/Chrome';
+import { DataDrawer } from './components/DataDrawer';
 import { PanelBoundary } from './components/common';
 import { GatePanel } from './components/GatePanel';
 import { Repl } from './components/Repl';
@@ -98,6 +99,9 @@ export function App({ engine, initError }: { engine: Engine; initError?: string 
         </div>
       </section>
       <RunLiveDialog state={state} engine={engine} open={runLive} onClose={() => setRunLive(false)} />
+      <PanelBoundary name="Data drawer">
+        <DataDrawer state={state} engine={engine} />
+      </PanelBoundary>
       <Toast state={state} />
     </>
   );

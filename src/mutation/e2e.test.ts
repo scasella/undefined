@@ -8,7 +8,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { compileCandidate, transpileUserCode, warmUp } from '../gates/compile';
 import { executeGates } from '../sandbox/gateExecutor';
 import { gateSeed, hashesFor } from '../shared/hash';
-import { exampleById } from '../examples';
+import { specExample } from '../examples';
 import type { FunctionSpec } from '../types';
 import { describeReport } from './classify';
 import { runMutation, type MutantRunner } from './run';
@@ -40,7 +40,7 @@ async function gateRunner(spec: FunctionSpec, opts: { withChecks: boolean }): Pr
 }
 
 async function compiled(id: string, bodyIndex: number): Promise<{ spec: FunctionSpec; js: string }> {
-  const ex = exampleById(id)!;
+  const ex = specExample(id);
   const out = await compileCandidate(ex.spec, ex.goodBodies[bodyIndex]!);
   expect(out.gate.status).toBe('pass');
   return { spec: ex.spec, js: out.js! };

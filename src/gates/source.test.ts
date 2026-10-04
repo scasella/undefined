@@ -39,3 +39,20 @@ describe('spec constructors', () => {
     expect(buildSource(spec, 'return [];').source.startsWith('function zip(arg0: number[], arg1: string[])\n{')).toBe(true);
   });
 });
+
+describe('typeDecls', () => {
+  it('prepends the declarations and moves bodyStartLine so lines stay body-relative', () => {
+    const spec = specFromCall('top', ['Row[]'], { typeDecls: 'type Row = {\r\n  a: number;\r\n}\n\n' });
+    expect(spec.typeDecls).toBe('type Row = {\r\n  a: number;\r\n}\n\n');
+    const { source, bodyStartLine } = buildSource(spec, 'return arg0;');
+    expect(source).toBe('type Row = {\n  a: number;\n}\nfunction top(arg0: Row[])\n{\nreturn arg0;\n}\n');
+    expect(bodyStartLine).toBe(BODY_START_LINE + 3);
+    expect(source.split('\n')[bodyStartLine - 1]).toBe('return arg0;');
+  });
+
+  it('specFromCall leaves typeDecls unset when absent or blank (hashes stay unchanged)', () => {
+    expect('typeDecls' in specFromCall('f', ['number'])).toBe(false);
+    expect('typeDecls' in specFromCall('f', ['number'], { typeDecls: '  ' })).toBe(false);
+    expect(buildSource({ ...emptySpec('f'), typeDecls: '' }, 'return 1;').bodyStartLine).toBe(BODY_START_LINE);
+  });
+});

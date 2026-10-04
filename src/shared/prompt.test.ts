@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FunctionSpec, GateResult } from '../types';
-import { buildPrompt, declarationLine, formatDiagnosticsForModel, honestySection, parseDecline } from './prompt';
+import { buildPrompt, dataSection, declarationLine, formatDiagnosticsForModel, honestySection, parseDecline } from './prompt';
 
 const median: FunctionSpec = {
   name: 'median',
@@ -339,5 +339,87 @@ describe('formatDiagnosticsForModel', () => {
     const b = formatDiagnosticsForModel([gate({ gate: 'compile', status: 'fail', ms: 999, headline: 'Rejected: x' })]);
     expect(a).toBe(b);
     expect(a).toBe('COMPILE FAILED — 0 errors\n  Rejected: x');
+  });
+});
+
+describe('buildPrompt: datasets (TYPES and DATA blocks)', () => {
+  const ROW = 'type Row = { customer: string; total: number }';
+  const spec: FunctionSpec = {
+    ...median,
+    name: 'topCustomers',
+    params: [{ name: 'arg0', type: 'Row[]' }],
+    returns: null,
+    doc: '',
+    tests: '',
+    properties: '',
+    origin: 'call',
+    typeDecls: ROW,
+  };
+  const SAMPLE = '[{"customer":"Ada","total":12.5},{"customer":"Lin","total":3}]';
+
+  it('declarationLine keeps working with Row[] params', () => {
+    expect(declarationLine(spec)).toBe('function topCustomers(arg0: Row[])');
+  });
+
+  it('shows the declarations in a TYPES block and in the compiled-as layout', () => {
+    const q = buildPrompt({ spec, callArgTypes: ['Row[]'], history: [] });
+    expect(q).toContain(`TYPES (declared before your function; use them, do not redeclare them)\n${ROW}`);
+    expect(q).toContain(`Your body is compiled exactly as:\n${ROW}\nfunction topCustomers(arg0: Row[]) {\n  <body>\n}`);
+    expect(q.indexOf('TYPES (')).toBeLessThan(q.indexOf('FUNCTION'));
+  });
+
+  it('has no TYPES block without typeDecls', () => {
+    const { typeDecls: _t, ...plain } = spec;
+    expect(buildPrompt({ spec: plain, history: [] })).not.toContain('TYPES (');
+  });
+
+  it('DATA with samples: count, type, exactly the sample text, and the ANY-rows rule', () => {
+    const q = buildPrompt({
+      spec,
+      callArgTypes: ['Row[]'],
+      history: [],
+      dataSamples: [{ name: 'rows', typeName: 'Row', rowCount: 1200, sampleText: SAMPLE }],
+    });
+    expect(q).toContain(
+      `DATA\n\`rows\` is bound to 1200 rows of Row.\nA few rows, spread across the data (exactly what you are being shown; nothing else is shared):\n${SAMPLE}\n`,
+    );
+    // the sample is evenly spaced across the data, so the prompt must not call it the first rows
+    expect(q).not.toContain('First rows');
+    expect(q).toContain('Your function must work for ANY rows of type Row, not just the sample');
+    expect(q).toContain('values are not shown, except the sample rows under DATA');
+    expect(q).not.toContain('chose not to share');
+    // DATA sits after the triggering call and before HONESTY
+    expect(q.indexOf('DATA\n')).toBeGreaterThan(q.indexOf('TRIGGERING CALL'));
+    expect(q.indexOf('DATA\n')).toBeLessThan(q.indexOf('HONESTY (when'));
+  });
+
+  it('DATA without samples: the type only, and says so', () => {
+    const d = { name: 'rows', typeName: 'Row', rowCount: 1, sampleText: undefined };
+    const q = buildPrompt({ spec, callArgTypes: ['Row[]'], history: [], dataSamples: [d] });
+    expect(q).toContain('`rows` is bound to 1 row of Row.\n(The user chose not to share sample rows; only the type is shared.)');
+    expect(q).toContain('Your function must work for ANY rows of type Row:');
+    expect(q).not.toContain('A few rows, spread across the data');
+    expect(q).toContain('values are not shown)');
+    expect(dataSection(d)).not.toMatch(/customer|Ada/);
+  });
+
+  it('leaks nothing but the sample text: extra fields on the input never reach the prompt', () => {
+    const sneaky = { name: 'rows', typeName: 'Row', rowCount: 2, sampleText: SAMPLE, rows: [{ customer: 'SECRET_ROW', total: 1 }] };
+    const q = buildPrompt({ spec, history: [], dataSamples: [sneaky] });
+    expect(q).not.toContain('SECRET_ROW');
+    expect(q.split('Ada').length).toBe(2); // the sample appears once, verbatim
+  });
+
+  it('one DATA block per dataset', () => {
+    const q = buildPrompt({
+      spec,
+      history: [],
+      dataSamples: [
+        { name: 'rows', typeName: 'Row', rowCount: 3, sampleText: '[]' },
+        { name: 'orders', typeName: 'Order', rowCount: 7 },
+      ],
+    });
+    expect(q.match(/^DATA$/gm)).toHaveLength(2);
+    expect(q).toContain('`orders` is bound to 7 rows of Order.');
   });
 });

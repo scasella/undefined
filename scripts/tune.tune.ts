@@ -47,8 +47,9 @@ it('tune', async () => {
   const only = (process.env.TUNE_EX ?? 'median,slugify').split(',');
   const broken = process.env.TUNE_BROKEN === '1';
   const out: unknown[] = [];
-  for (const ex of EXAMPLES.filter((e) => only.includes(e.id))) {
-    const base = broken ? brokenSpec(ex) : ex.spec;
+  // spec-less examples (orders) have nothing to tune until a call grows their spec
+  for (const ex of EXAMPLES.filter((e) => only.includes(e.id) && e.spec)) {
+    const base = broken ? brokenSpec(ex) : ex.spec!;
     const spec = process.env.TUNE_DOC ? { ...base, doc: process.env.TUNE_DOC } : base;
     const runs = await Promise.all(
       Array.from({ length: N }, async (_, i) => {

@@ -2,7 +2,7 @@
 import { useEffect, useRef } from 'preact/hooks';
 import type { Engine, EngineState } from '../../types';
 import { repoUrlFromPages } from '../format';
-import { dismissedNotice, downloadText, localNotice, noticeKey, showNotice } from '../uiState';
+import { dataDrawerOpen, dismissedNotice, downloadText, localNotice, noticeKey, showNotice } from '../uiState';
 import { CopyBlock, Ticks } from './common';
 
 function ModeBadge({ state }: { state: EngineState }) {
@@ -109,6 +109,21 @@ export function Header({ state, engine }: { state: EngineState; engine: Engine }
         <span class="rev-chip mono" title="Head revision">
           r{state.headRevision}
         </span>
+        <button
+          type="button"
+          class="btn btn-ghost data-btn"
+          aria-haspopup="dialog"
+          aria-expanded={dataDrawerOpen.value}
+          onClick={() => (dataDrawerOpen.value = true)}
+          title="Paste or drop CSV/JSON and bind it to a REPL variable"
+        >
+          Data
+          {state.datasets.length > 0 && (
+            <span class="badge-count" aria-label={`${state.datasets.length} bound`}>
+              {state.datasets.length}
+            </span>
+          )}
+        </button>
         <Menu state={state} engine={engine} />
       </div>
     </header>

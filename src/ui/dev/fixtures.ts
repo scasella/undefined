@@ -6,6 +6,7 @@ import type {
   Artifact,
   AttemptView,
   Candidate,
+  DatasetRef,
   Declined,
   EngineState,
   ExampleInfo,
@@ -20,12 +21,21 @@ import type {
   Revision,
 } from '../../types';
 import { EXAMPLES as REAL_EXAMPLES } from '../../examples';
-import { buildPrompt, declarationLine } from '../../shared/prompt';
+import { buildPrompt, declarationLine, type PromptInput } from '../../shared/prompt';
+import { ORDERS_GOOD, ordersCallSpec } from '../../examples/orders';
+import { bundledOrders } from '../../data/orders';
+import { inferDataset } from '../../data/infer';
+import { sampleForModel } from '../../data/sample';
+import { tablePreview } from '../../sandbox/replCore';
+import { encodeValue } from '../../shared/serialize';
 
 export const T0 = Date.UTC(2026, 9, 4, 9, 0, 0);
 const h = (seed: string): string => seed.repeat(64).slice(0, 64);
 
 // ───────── specs and bodies ─────────
+
+/** The executor's summary format: total runs, then each property's runs (names as JSON strings). */
+export const MEDIAN_PROPS_SUMMARY = '2/2 properties held (200 runs: "agrees with the sort-based reference" 100, "result is within min and max" 100)';
 
 export const MEDIAN_SPEC: FunctionSpec = {
   name: 'median',
@@ -155,7 +165,7 @@ export function medianAcceptedGates(): GateResult[] {
   return [
     gate('compile', 'pass', 'compiled, strict', { ms: 188 }),
     gate('tests', 'pass', '5/5 tests passed', { ms: 8, counts: { passed: 5, total: 5 } }),
-    gate('properties', 'pass', '2/2 properties held (200 runs)', { ms: 63, counts: { passed: 2, total: 2 } }),
+    gate('properties', 'pass', MEDIAN_PROPS_SUMMARY, { ms: 63, counts: { passed: 2, total: 2 } }),
     gate('invariants', 'pass', 'pure · bounded (26 calls replayed)', { ms: 17 }),
   ];
 }
@@ -236,7 +246,7 @@ function randomGates(): GateResult[] {
   return [
     gate('compile', 'pass', 'compiled, strict', { ms: 201 }),
     gate('tests', 'pass', '5/5 tests passed', { ms: 9, counts: { passed: 5, total: 5 } }),
-    gate('properties', 'pass', '2/2 properties held (200 runs)', { ms: 70, counts: { passed: 2, total: 2 } }),
+    gate('properties', 'pass', MEDIAN_PROPS_SUMMARY, { ms: 70, counts: { passed: 2, total: 2 } }),
     gate('invariants', 'fail', 'pure violated', {
       ms: 4,
       headline: "Rejected: candidate read global 'Math.random' (pure)",
@@ -259,6 +269,9 @@ function randomGates(): GateResult[] {
 export interface CandidateCtx {
   spec?: FunctionSpec;
   prior?: Candidate[];
+  /** A call-inferred spec: the argument types and the datasets the call ran over, as the engine sends them. */
+  callArgTypes?: string[];
+  dataSamples?: PromptInput['dataSamples'];
 }
 
 /** The real prompt builder, so "What the model saw" in a fixture is exactly what the engine would send. */
@@ -266,6 +279,8 @@ export function fixturePrompt(ctx: CandidateCtx = {}): string {
   return buildPrompt({
     spec: ctx.spec ?? MEDIAN_SPEC,
     history: (ctx.prior ?? []).map((c) => ({ attempt: c.attempt, body: c.body, gates: c.gates, ...(c.headline ? { headline: c.headline } : {}) })),
+    ...(ctx.callArgTypes ? { callArgTypes: ctx.callArgTypes } : {}),
+    ...(ctx.dataSamples ? { dataSamples: ctx.dataSamples } : {}),
   });
 }
 
@@ -377,6 +392,8 @@ export function baseState(): EngineState {
     generation: null,
     env: {},
     hints: { opener: true, takeaway: false },
+    datasets: [],
+    send: { samples: true, sampleRows: 3 },
     busy: false,
     examples: EXAMPLES,
     pacing: { typeCharMs: 14, gateDwellMs: 380, replayMaxMs: 4000 },
@@ -426,7 +443,7 @@ function committedState(): EngineState {
   s.replInput = '';
   s.repl = [
     ...openingTranscript(),
-    { kind: 'output', id: eid('out'), value: '2.5', ms: 0.4, label: 'generated', detail: 'revision 2' },
+    { kind: 'output', id: eid('out'), value: '2.5', ms: 0.4, label: 'generated', detail: 'revision 2', pinnable: medianPinnable('[3, 1, 4, 2]', 2.5) },
   ];
   s.generation = medianGeneration(
     doneAttempts(MEDIAN_SPEC, [
@@ -435,6 +452,114 @@ function committedState(): EngineState {
     ]),
     { phase: 'committed', attempt: 2, revision: 2 },
   );
+  return s;
+}
+
+/** What the engine attaches to a median result line (the outermost committed call and its result). */
+export function medianPinnable(list: string, expected: number): NonNullable<Extract<ReplEntry, { kind: 'output' }>['pinnable']> {
+  return { fn: 'median', call: `median(${list})`, args: [{ kind: 'value', encoded: JSON.parse(list) as number[] }], expected };
+}
+
+// ───────── the orders data (the bundled, fictional orders.csv) ─────────
+
+const ORDER_ROWS = bundledOrders();
+const ORDERS_INFERRED = inferDataset(ORDER_ROWS);
+export const ORDERS_REF: DatasetRef = {
+  name: 'rows',
+  hash: h('5e'),
+  typeName: 'Row',
+  typeDecl: ORDERS_INFERRED.typeDecl,
+  rowCount: ORDER_ROWS.length,
+  columns: ORDERS_INFERRED.columns,
+  source: 'bundled',
+  filename: 'orders.csv',
+  bytes: 61_204,
+};
+export const ORDERS_SPEC: FunctionSpec = ordersCallSpec(ORDERS_INFERRED.typeDecl);
+/** What ORDERS_GOOD returns on the bundled rows (examples.test.ts proves these numbers with the real gates). */
+export const ORDERS_RESULT = [
+  { customer: 'Puddlesworth Inc', revenue: 2507.13 },
+  { customer: 'Brambleskate Ltd', revenue: 2355.91 },
+  { customer: 'Chef Ravioli Starbright', revenue: 2252.07 },
+  { customer: 'Grommet & Gasket LLC', revenue: 2175.72 },
+  { customer: 'Kettlewhistle Farms', revenue: 2034.13 },
+];
+const ORDERS_NOTE = 'Skips refunded orders, applies the discount when present, rounds each total to cents, top 5 by revenue.';
+
+function ordersState(opts: { pinned: boolean }): EngineState {
+  const s = baseState();
+  s.hints.opener = false;
+  s.replInput = '';
+  s.datasets = [ORDERS_REF];
+  s.program.datasets = { rows: ORDERS_REF };
+  const gates = [
+    gate('compile', 'pass', 'compiled, strict', { ms: 214 }),
+    gate('tests', 'skipped', 'no tests yet', { note: 'no tests yet — add one to make the gate stricter' }),
+    gate('properties', 'skipped', 'no properties yet', { note: 'no properties yet — add one to make the gate stricter' }),
+    gate('invariants', 'pass', 'pure · bounded (1 sampled call replayed on frozen arguments)', { ms: 21 }),
+  ];
+  const call = 'topCustomersByRevenue(rows)';
+  const attempt = doneAttempt(1, ORDERS_GOOD, gates, ORDERS_NOTE, {
+    spec: ORDERS_SPEC,
+    callArgTypes: ['Row[]'],
+    dataSamples: [{ name: 'rows', typeName: 'Row', rowCount: ORDER_ROWS.length, sampleText: sampleForModel(ORDER_ROWS, { count: 3 }).text }],
+  });
+  const artifact: Artifact = {
+    body: ORDERS_GOOD,
+    source: `${ORDERS_INFERRED.typeDecl}\nfunction topCustomersByRevenue(arg0: Row[])\n{\n${ORDERS_GOOD}\n}`,
+    js: `function topCustomersByRevenue(arg0) {\n${ORDERS_GOOD}\n}`,
+    returnType: '{ customer: string; revenue: number; }[]',
+    specHash: h('3b'),
+    testsHash: h('e0'),
+    model: 'gpt-6-luna',
+    codexVersion: '0.157.2',
+    committedAt: T0 + 180_000,
+    candidates: [attempt.candidate!],
+    revision: 3,
+  };
+  const pin = { id: 'a1b2c3d4e5f6', label: call, args: [{ kind: 'dataset' as const, name: 'rows', hash: ORDERS_REF.hash }], expected: ORDERS_RESULT, pinnedAt: T0 + 200_000 };
+  const spec: FunctionSpec = opts.pinned ? { ...ORDERS_SPEC, pins: [pin] } : ORDERS_SPEC;
+  s.program.functions.topCustomersByRevenue = rec(spec, artifact, '3b', 'e0');
+  const rows: RevRow[] = [
+    R1,
+    revRow({ id: 2, kind: 'dataset', title: 'Loaded dataset rows: 332 rows × 10 columns', detail: 'bundled orders.csv · hash 5e5e…' }, 2, 0),
+    revRow({ id: 3, kind: 'commit', fn: 'topCustomersByRevenue', title: 'topCustomersByRevenue certified — first attempt' }, 3, 1),
+  ];
+  if (opts.pinned) rows.push(revRow({ id: 4, kind: 'pin', fn: 'topCustomersByRevenue', title: `Pinned: ${call}` }, 3, 1));
+  s.revisions = rows;
+  s.headRevision = rows.length;
+  const resultTable = tablePreview(ORDERS_RESULT)!;
+  const refunded = ORDER_ROWS.filter((r) => r.status === 'refunded');
+  s.repl = [
+    { kind: 'info', id: eid('if'), text: `\`rows\` is bound: \`${ORDERS_INFERRED.typeDecl}\` (332 rows)`, tone: 'muted' },
+    ...openingTranscript(call, 'topCustomersByRevenue'),
+    {
+      kind: 'output',
+      id: eid('out'),
+      value: '[{ customer: "Puddlesworth Inc", revenue: 2507.13 }, { customer: "Brambleskate Ltd", revenue: 2355.91 }, { customer: "Chef Ravioli Starbright", revenue: 2252.07 }, …]',
+      ms: 2.1,
+      label: 'generated',
+      detail: 'revision 3',
+      note: ORDERS_NOTE,
+      table: resultTable,
+      pinnable: { fn: 'topCustomersByRevenue', call, args: pin.args, expected: ORDERS_RESULT },
+      ...(opts.pinned ? { pinned: true } : {}),
+    },
+    ...(opts.pinned ? [{ kind: 'info' as const, id: eid('if'), text: 'Pinned. The next regeneration has to reproduce this result.', tone: 'accent' as const }] : []),
+    { kind: 'input', id: eid('in'), text: 'refunds = rows.filter((r) => r.status === "refunded")' },
+    { kind: 'output', id: eid('out'), value: `[{ id: ${String(refunded[0]?.id)}, … }, …]`, ms: 0.4, label: null, table: tablePreview(refunded)! },
+    { kind: 'input', id: eid('in'), text: 'rows' },
+    { kind: 'output', id: eid('out'), value: '[{ id: 1001, … }, …]', ms: 0.6, label: null, table: tablePreview(ORDER_ROWS)! },
+  ];
+  s.env = { rows: '[{ id: 1001, orderDate: "2024-01-02", … }, …]', refunds: `[… ${refunded.length} rows]` };
+  s.generation = {
+    ...medianGeneration([attempt], { phase: 'committed', attempt: 1, revision: 3 }),
+    id: 'g-orders',
+    fn: 'topCustomersByRevenue',
+    signature: declarationLine(ORDERS_SPEC),
+    call,
+    ungated: true,
+  };
   return s;
 }
 
@@ -571,7 +696,7 @@ export const SCENARIOS: Record<string, () => EngineState> = {
 
   // the spec was silent: a defensible first candidate, rejected by a test that says so (slugify's "special letters")
   'rejected-silent': () => {
-    const spec = REAL_EXAMPLES.find((e) => e.id === 'slugify')!.spec;
+    const spec = REAL_EXAMPLES.find((e) => e.id === 'slugify')!.spec!;
     const s = baseState();
     s.hints.opener = false;
     s.busy = true;
@@ -788,6 +913,22 @@ export const SCENARIOS: Record<string, () => EngineState> = {
     return s;
   },
 
+  // a spec-less call over the bundled orders: the result renders as a table, with "Pin as test" under it
+  'table-result': () => ordersState({ pinned: false }),
+
+  // the same result after "Pin as test": the line says what the pin became; the Repo tab lists the pinned test
+  pinned: () => ordersState({ pinned: true }),
+
+  // the data drawer open over a program with the orders bound (paste something to see the live preview)
+  'data-drawer-open': () => {
+    const s = baseState();
+    s.datasets = [ORDERS_REF];
+    s.program.datasets = { rows: ORDERS_REF };
+    s.revisions = [R1, revRow({ id: 2, kind: 'dataset', title: 'Loaded dataset rows: 332 rows × 10 columns' }, 2, 0)];
+    s.headRevision = 2;
+    return s;
+  },
+
   'replay-banner': () => {
     const s = baseState();
     s.mode = 'replay';
@@ -826,6 +967,12 @@ export const SCENARIOS: Record<string, () => EngineState> = {
     s.headRevision = rows.length;
     return s;
   },
+};
+
+/** Scenarios that open UI-only state (the data drawer, the Repo tab) when the fixture engine starts. */
+export const SCENARIO_UI: Record<string, { drawer?: boolean; tab?: 'revisions' | 'repo' }> = {
+  'data-drawer-open': { drawer: true },
+  pinned: { tab: 'repo' },
 };
 
 export const SCENARIO_NAMES = Object.keys(SCENARIOS);

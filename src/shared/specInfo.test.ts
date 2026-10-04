@@ -101,6 +101,7 @@ test("after matchesReference", () => {});
   it('the real example specs list every test and property', async () => {
     const { EXAMPLES } = await import('../examples');
     for (const ex of EXAMPLES) {
+      if (!ex.spec) continue; // spec-less examples (orders) have no tests to list
       const { tests, properties } = testNamesOf(ex.spec);
       const count = (src: string) => (src.match(/^\s*(test|property|matchesReference)\(/gm) ?? []).length;
       expect(tests.length, `${ex.id} tests`).toBe(count(ex.spec.tests));

@@ -17,6 +17,19 @@ import { gateSeed, hashesFor } from '../shared/hash';
 import { show } from '../shared/show';
 import { listTestNames } from '../shared/specInfo';
 import { brokenSpec, EXAMPLES, exampleById, INITIAL_EXAMPLE_ID, type ExampleDef } from './index';
+import { ORDERS_FN, ORDERS_GOOD, ORDERS_NAIVE, ordersCallSpec } from './orders';
+import { parseCsv } from '../data/csv';
+import { coerceCsvRows, inferDataset } from '../data/infer';
+import { BUNDLED_ORDERS_CSV } from '../data/orders';
+
+/** Examples that carry a spec (all but the spec-less orders example, tested on its own below). */
+type SpecExample = ExampleDef & { spec: FunctionSpec };
+const SPEC_EXAMPLES = EXAMPLES.filter((e): e is SpecExample => e.spec !== undefined);
+function specEx(id: string): SpecExample {
+  const ex = exampleById(id);
+  if (!ex?.spec) throw new Error(`${id} is not an example with a spec`);
+  return ex as SpecExample;
+}
 
 // ───────── helpers ─────────
 
@@ -112,14 +125,15 @@ afterAll(() => {
 });
 
 describe('EXAMPLES registry', () => {
-  it('lists median, slugify, fibonacci in order and starts with median', () => {
-    expect(EXAMPLES.map((e) => e.id)).toEqual(['median', 'slugify', 'fibonacci']);
+  it('lists median, slugify, fibonacci, orders in order and starts with median', () => {
+    expect(EXAMPLES.map((e) => e.id)).toEqual(['median', 'slugify', 'fibonacci', 'orders']);
+    expect(SPEC_EXAMPLES.map((e) => e.id)).toEqual(['median', 'slugify', 'fibonacci']);
     expect(INITIAL_EXAMPLE_ID).toBe('median');
     expect(exampleById(INITIAL_EXAMPLE_ID)).toBe(EXAMPLES[0]);
     expect(exampleById('nope')).toBeUndefined();
   });
 
-  for (const ex of EXAMPLES) {
+  for (const ex of SPEC_EXAMPLES) {
     describe(ex.id, () => {
       it('is a well-formed example spec', () => {
         expect(ex.fn).toBe(ex.spec.name);
@@ -231,18 +245,18 @@ describe('EXAMPLES registry', () => {
 
 describe('"the spec was silent" markers name only the case the doc did not cover', () => {
   const badBody = (id: string, pattern: RegExp): string => {
-    const matches = exampleById(id)!.badBodies.filter((b) => pattern.test(b.body));
+    const matches = specEx(id).badBodies.filter((b) => pattern.test(b.body));
     expect(matches).toHaveLength(1);
     return matches[0]!.body;
   };
   const rejection = async (spec: FunctionSpec, body: string) => {
-    const v = await runGates(spec, body, callArgs(exampleById(spec.exampleId!)!));
+    const v = await runGates(spec, body, callArgs(specEx(spec.exampleId!)));
     const gate = v.gates.find((g) => g.status === 'fail')!;
     return { headline: v.headline!, diag: gate.diagnostics[0]! as { silentOn?: string; reasonable?: string; call?: string; name: string } };
   };
 
   it('median: throwing on [] is labelled silent; the headline is unchanged', async () => {
-    const ex = exampleById('median')!;
+    const ex = specEx('median');
     const { headline, diag } = await rejection(ex.spec, badBody('median', /throw new Error\('empty list'\)/));
     expect(headline).toBe('Rejected: median([]) threw Error: empty list, expected NaN');
     expect(diag.silentOn).toBe('what the median of nothing is');
@@ -250,7 +264,7 @@ describe('"the spec was silent" markers name only the case the doc did not cover
   });
 
   it('median: the even-length bug is NOT labelled silent, even when the same reference property is what catches it', async () => {
-    const ex = exampleById('median')!;
+    const ex = specEx('median');
     const body = badBody('median', /return sorted\[Math\.floor\(sorted\.length \/ 2\)\];/);
     const viaTest = await rejection(ex.spec, body);
     expect(viaTest.diag.name).toBe('even-length list');
@@ -265,14 +279,14 @@ describe('"the spec was silent" markers name only the case the doc did not cover
   });
 
   it('median: sorting as strings, caught by the marked property at a non-empty list, is NOT labelled silent', async () => {
-    const ex = exampleById('median')!;
+    const ex = specEx('median');
     const { diag } = await rejection(ex.spec, badBody('median', /\.sort\(\);/));
     expect(diag.name).toBe('agrees with a sort-based reference');
     expect(diag.silentOn).toBeUndefined();
   });
 
   it('slugify: splitting on the apostrophe is labelled silent; never trimming is not', async () => {
-    const ex = exampleById('slugify')!;
+    const ex = specEx('slugify');
     const apostrophe = await rejection(ex.spec, badBody('slugify', /^(?![\s\S]*['’]\]\/g)[\s\S]*' and '\)/));
     expect(apostrophe.diag.name).toBe('apostrophes');
     expect(apostrophe.diag.silentOn).toBe('whether an apostrophe splits a word');
@@ -283,7 +297,7 @@ describe('"the spec was silent" markers name only the case the doc did not cover
   });
 
   it('fibonacci: no check is marked silent (the doc states what the tests check)', () => {
-    const ex = exampleById('fibonacci')!;
+    const ex = specEx('fibonacci');
     for (const src of [ex.spec.tests, ex.spec.properties, ex.breakPatch.tests ?? '', ex.breakPatch.properties ?? '']) {
       expect(src).not.toContain('silentOn');
     }
@@ -320,7 +334,7 @@ const FIB_TABLE: readonly bigint[] = [
  * Returns where it stopped and the slowest call that was allowed to run.
  */
 async function simulateWatchdog(body: string, maxN: number) {
-  const ex = exampleById('fibonacci')!;
+  const ex = specEx('fibonacci');
   const compiled = await compileCandidate(ex.spec, body);
   expect(compiled.gate.status).toBe('pass');
   const { specHash, testsHash } = await hashesFor(ex.spec);
@@ -358,7 +372,7 @@ async function simulateWatchdog(body: string, maxN: number) {
 
 describe('fibonacci browser-only bad bodies, simulated without hanging', () => {
   const bodyWith = (pattern: RegExp): string => {
-    const ex = exampleById('fibonacci')!;
+    const ex = specEx('fibonacci');
     const matches = ex.badBodies.filter((b) => b.browserOnly && pattern.test(b.body));
     expect(matches).toHaveLength(1);
     expect(matches[0]!.rejectedBy).toBe('invariants');
@@ -390,7 +404,7 @@ describe('fibonacci browser-only bad bodies, simulated without hanging', () => {
 
 describe('fibonacci good body', () => {
   it('is iterative fast-doubling BigInt code, matches the known table for n = 0..90 and handles n = 1,000,000 well within budget', async () => {
-    const ex = exampleById('fibonacci')!;
+    const ex = specEx('fibonacci');
     const body = ex.goodBodies[0]!;
     expect(body).toMatch(/\bfor\s*\(const bit of n\.toString\(2\)\)/); // fast doubling over the bits of n, O(log n) steps
     expect(body).toContain('0n');
@@ -409,11 +423,125 @@ describe('fibonacci good body', () => {
   });
 
   it('the browser-only O(n) loop is correct (only too slow): it matches the known table for n = 0..90', async () => {
-    const ex = exampleById('fibonacci')!;
+    const ex = specEx('fibonacci');
     const loop = ex.badBodies.find((b) => b.browserOnly && !/fibonacci\s*\(/.test(b.body))!;
     const compiled = await compileCandidate(ex.spec, loop.body);
     expect(compiled.gate.status).toBe('pass');
     const fib = evalMasked<(n: number) => bigint>(compiled.js!, 'fibonacci');
     for (let n = 0; n <= 90; n++) expect(fib(n), `fibonacci(${n})`).toBe(FIB_TABLE[n]);
   });
+});
+
+// ───────── orders: the spec-less example over the bundled data ─────────
+
+describe('orders (spec-less, over the bundled orders.csv)', () => {
+  const ex = exampleById('orders')!;
+  // exactly what the engine binds: CSV parsed, columns coerced, type inferred from every row
+  const rows = coerceCsvRows(parseCsv(BUNDLED_ORDERS_CSV()).rows).rows;
+  const { typeDecl } = inferDataset(rows);
+  const spec = ordersCallSpec(typeDecl);
+  const broken = brokenSpec(ex, spec);
+
+  // Computed by hand-independent means once (a plain JS run of each body over the 332 rows) and frozen here.
+  const RIGHT = [
+    { customer: 'Puddlesworth Inc', revenue: 2507.13 },
+    { customer: 'Brambleskate Ltd', revenue: 2355.91 },
+    { customer: 'Chef Ravioli Starbright', revenue: 2252.07 },
+    { customer: 'Grommet & Gasket LLC', revenue: 2175.72 },
+    { customer: 'Kettlewhistle Farms', revenue: 2034.13 },
+  ];
+  const NAIVE = [
+    { customer: 'Puddlesworth Inc', revenue: 2601.63 },
+    { customer: 'Madame Fizzlecrumb', revenue: 2595.18 },
+    { customer: 'Brambleskate Ltd', revenue: 2397.59 },
+    { customer: 'Kettlewhistle Farms', revenue: 2386.6 },
+    { customer: 'Chef Ravioli Starbright', revenue: 2277.27 },
+  ];
+
+  async function gateWith(s: FunctionSpec, body: string, pinned?: ExecGateInput['pinned']): Promise<Verdict & { result: unknown }> {
+    const compiled = await compileCandidate(s, body);
+    if (compiled.gate.status === 'fail' || compiled.js === null) {
+      return { gates: [compiled.gate], rejectedBy: 'compile', headline: compiled.gate.headline, js: null, result: undefined };
+    }
+    const { specHash, testsHash } = await hashesFor(s);
+    const input: ExecGateInput = {
+      name: s.name,
+      js: compiled.js,
+      testsJs: '',
+      propertiesJs: '',
+      budgetMs: s.budgetMs,
+      seed: gateSeed(specHash, testsHash),
+      callArgs: [rows],
+      ...(pinned ? { pinned } : {}),
+    };
+    const exec = executeGates(input, { phase: () => {}, enter: () => {}, leave: () => {} });
+    const gates = [compiled.gate, ...exec];
+    const failed = gates.find((g) => g.status === 'fail');
+    // the value the call really gives (only for candidates the gates let through: a rejected one may throw)
+    const result = failed && failed.gate === 'invariants' ? undefined : evalMasked<(r: unknown[]) => unknown>(compiled.js, s.name)(structuredClone(rows));
+    return { gates, rejectedBy: failed?.gate, headline: failed?.headline, js: compiled.js, result };
+  }
+
+  it('is spec-less, binds the bundled data to rows, and its call-derived spec is tagged for "Break it"', () => {
+    expect(ex.spec).toBeUndefined();
+    expect(ex.dataset).toEqual({ name: 'rows', filename: 'orders.csv' });
+    expect(ex.call).toBe('topCustomersByRevenue(rows)');
+    expect(ex.fn).toBe(ORDERS_FN);
+    expect(ex.breakIt.label).toMatch(/^Break it/);
+    expect(ex.blurb).toMatch(/no spec/i);
+    expect(rows).toHaveLength(332);
+    expect(typeDecl).toBe(
+      'type Row = { id: number; orderDate: string; customer: string; email: string; country: string; product: string; quantity: number; unitPrice: number; discount: number | null; status: string }',
+    );
+    expect(spec).toMatchObject({ name: ORDERS_FN, params: [{ name: 'arg0', type: 'Row[]' }], returns: null, doc: '', tests: '', properties: '', origin: 'call', exampleId: 'orders', typeDecls: typeDecl });
+    expect(() => brokenSpec(ex)).toThrow(/no spec until its call grows one/);
+  });
+
+  it('"break it" states the contract (doc only) and changes the spec hash', async () => {
+    expect(ex.breakPatch).toEqual({ doc: expect.stringContaining('"refunded" do not count') });
+    expect(broken.doc).toContain('quantity × unitPrice × (1 − discount)');
+    expect((await hashesFor(spec)).specHash).not.toBe((await hashesFor(broken)).specHash);
+    expect(broken.exampleId).toBe('orders');
+  });
+
+  it('without a spec only Compile and Invariants judge: both good bodies pass on the real rows', async () => {
+    for (const body of ex.goodBodies) {
+      const v = await gateWith(spec, body);
+      expect(statuses(v.gates), `${v.headline}\n${body}`).toEqual(['compile:pass', 'tests:skipped', 'properties:skipped', 'invariants:pass']);
+    }
+  }, 60_000);
+
+  it('rejects each bad body at the stated gate', async () => {
+    for (const bad of ex.badBodies) {
+      const v = await gateWith(spec, bad.body);
+      expect(v.rejectedBy, `${bad.why}\n${statuses(v.gates).join(' ')}`).toBe(bad.rejectedBy);
+      expect(v.headline).toMatch(/^Rejected: /);
+      printed.push(`  ${'orders'.padEnd(9)} ${bad.rejectedBy.padEnd(10)} ${v.headline}`);
+    }
+  }, 60_000);
+
+  it('after "break it": the good body computes the right top 5 on the real data; the naive one differs', async () => {
+    const good = await gateWith(broken, ORDERS_GOOD);
+    expect(statuses(good.gates)).toEqual(['compile:pass', 'tests:skipped', 'properties:skipped', 'invariants:pass']);
+    expect(good.result).toEqual(RIGHT);
+    const naive = await gateWith(broken, ORDERS_NAIVE);
+    expect(naive.result).toEqual(NAIVE);
+    expect(naive.result).not.toEqual(good.result);
+    // refunds and discounts change the ranking itself, not just the amounts
+    expect((naive.result as typeof NAIVE).map((r) => r.customer)).not.toEqual(RIGHT.map((r) => r.customer));
+  }, 60_000);
+
+  it('a pinned right answer makes the Tests gate reject the naive body with the pinned headline, and accept the good one', async () => {
+    const pinned = [{ label: 'topCustomersByRevenue(rows)', args: [rows], expected: RIGHT }];
+    const good = await gateWith(broken, ORDERS_GOOD, pinned);
+    expect(statuses(good.gates)).toEqual(['compile:pass', 'tests:pass', 'properties:skipped', 'invariants:pass']);
+    expect(good.gates[1]!.summary).toBe('1 pinned passed');
+    const naive = await gateWith(broken, ORDERS_NAIVE, pinned);
+    expect(naive.rejectedBy).toBe('tests');
+    expect(naive.headline).toMatch(/^Rejected: topCustomersByRevenue\(rows\) returned \[\{ customer: "Puddlesworth Inc", revenue: 2601\.63 \}/);
+    expect(naive.headline).toContain('expected [{ customer: "Puddlesworth Inc", revenue: 2507.13 }');
+    const d = naive.gates[1]!.diagnostics[0]!;
+    expect(d.kind === 'test' && d.name).toBe('pinned: topCustomersByRevenue(rows)');
+    printed.push(`  ${'orders'.padEnd(9)} after break, pinned: ${naive.headline}`);
+  }, 60_000);
 });

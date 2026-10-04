@@ -158,6 +158,10 @@ export async function compileCandidate(spec: FunctionSpec, body: string): Promis
   tc.oldProgram = program;
   const file = program.getSourceFile(CANDIDATE_FILE)!;
 
+  // The wrapper's `function` line (0-based line bodyStartLine - 3); everything before it is spec.typeDecls.
+  const fnLinePos = file.getPositionOfLineAndCharacter(bodyStartLine - 3, 0);
+  const inDecls = (pos: number | undefined): boolean => pos !== undefined && pos < fnLinePos;
+
   const toBody = (pos: number): { line: number; col: number } => {
     const lc = file.getLineAndCharacterOfPosition(pos);
     const line = lc.line + 1 - (bodyStartLine - 1);
@@ -192,8 +196,11 @@ export async function compileCandidate(spec: FunctionSpec, body: string): Promis
     });
   };
 
+  // The wrapper's function declaration: the first statement that starts at or after the `function` line.
+  const fnIndex = file.statements.findIndex((st) => st.getStart(file) >= fnLinePos);
   // Harness shape problems first: they explain the root cause of whatever tsc says next.
-  for (const h of shapeProblems(ts, file, spec.name)) add(HARNESS_CODE, h.message, h.start, h.length, 'error');
+  for (const h of declProblems(ts, file, fnIndex)) add(HARNESS_CODE, h.message, undefined, undefined, 'error');
+  for (const h of shapeProblems(ts, file, spec.name, fnIndex)) add(HARNESS_CODE, h.message, h.start, h.length, 'error');
   for (const h of moduleProblems(ts, file)) add(HARNESS_CODE, h.message, h.start, h.length, 'error');
   // getPreEmitDiagnostics sorts by position; put syntax errors first so the headline names the root cause.
   const key = (d: TS.Diagnostic) => `${d.code}:${d.start ?? -1}`;
@@ -205,10 +212,13 @@ export async function compileCandidate(spec: FunctionSpec, body: string): Promis
     if (d.category !== ts.DiagnosticCategory.Error && d.category !== ts.DiagnosticCategory.Warning) continue;
     const category = d.category === ts.DiagnosticCategory.Error ? 'error' : 'warning';
     const start = d.file === file ? d.start : undefined;
-    add(d.code, ts.flattenDiagnosticMessageText(d.messageText, '\n'), start, d.length, category);
+    const text = ts.flattenDiagnosticMessageText(d.messageText, '\n');
+    // An error inside spec.typeDecls is not on any body line: say where it is instead of pointing into the body.
+    if (inDecls(start)) add(d.code, `in the type declarations (typeDecls): ${text}`, undefined, undefined, category);
+    else add(d.code, text, start, d.length, category);
   }
 
-  const fn = file.statements[0];
+  const fn = fnIndex >= 0 ? file.statements[fnIndex] : undefined;
   let returnType = spec.returns ?? '';
   if (spec.returns === null && fn && ts.isFunctionDeclaration(fn)) {
     const checker = program.getTypeChecker();
@@ -252,9 +262,10 @@ export async function compileCandidate(spec: FunctionSpec, body: string): Promis
  * nested `function <name>(…) {…}` (the model returned a declaration instead of a body; with `returns: null` that
  * would otherwise compile as a function returning void).
  */
-function shapeProblems(ts: TsModule, file: TS.SourceFile, name: string): Array<{ message: string; start: number; length: number }> {
+function shapeProblems(ts: TsModule, file: TS.SourceFile, name: string, fnIndex: number): Array<{ message: string; start: number; length: number }> {
   const out: Array<{ message: string; start: number; length: number }> = [];
-  const [fn, ...rest] = file.statements;
+  if (fnIndex < 0) return out;
+  const [fn, ...rest] = file.statements.slice(fnIndex);
   if (!fn || !ts.isFunctionDeclaration(fn) || !fn.body) return out; // tsc already reports a syntax error
   if (fn.body.statements.length === 0) {
     out.push({ message: 'The body is empty: it has no statements.', start: fn.body.getStart(file) + 1, length: 0 });
@@ -277,6 +288,17 @@ function shapeProblems(ts: TsModule, file: TS.SourceFile, name: string): Array<{
     }
   }
   return out;
+}
+
+/**
+ * spec.typeDecls may hold only `type` aliases and `interface` declarations: anything else would be emitted as code that
+ * runs outside the function (and outside what the model wrote). Reported once, as a harness error on body line 1.
+ */
+function declProblems(ts: TsModule, file: TS.SourceFile, fnIndex: number): Array<{ message: string }> {
+  const decls = fnIndex < 0 ? [] : file.statements.slice(0, fnIndex);
+  const bad = decls.find((st) => !ts.isTypeAliasDeclaration(st) && !ts.isInterfaceDeclaration(st));
+  if (!bad) return [];
+  return [{ message: 'The type declarations (typeDecls) may contain only `type` and `interface` declarations.' }];
 }
 
 /**

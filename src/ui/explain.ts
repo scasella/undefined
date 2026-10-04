@@ -29,6 +29,9 @@ export function whoDecided(fail: GateResult, attempt: number): string[] {
     }
     return ['The model was told to be side-effect free. The candidate wasn\'t.'];
   }
+  if (d && d.kind === 'test' && d.name.startsWith(PINNED_TEST_PREFIX)) {
+    return [PINNED_WHO, PINNED_NEXT];
+  }
   if (d && (d.kind === 'test' || d.kind === 'property') && d.silentOn) {
     return [
       `The spec didn't say ${d.silentOn}. Your tests did.`,
@@ -39,7 +42,35 @@ export function whoDecided(fail: GateResult, attempt: number): string[] {
   return ['A check you wrote failed, with the evidence above.'];
 }
 
+/** Name prefix of a pinned result's test diagnostic (sandbox/gateExecutor.ts PINNED_PREFIX; not imported: fast-check). */
+export const PINNED_TEST_PREFIX = 'pinned: ';
+export const PINNED_WHO = 'You pinned this result from an earlier call. The candidate disagrees with it.';
+export const PINNED_NEXT = 'Remove the pin in the Repo tab if that result was wrong.';
+
 const count = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
+
+/** The DATA blocks of a prompt (shared/prompt.ts dataSection): which datasets, and how many sample rows were shown. */
+export function promptData(prompt: string): Array<{ name: string; samples: number | null }> {
+  const out: Array<{ name: string; samples: number | null }> = [];
+  const re = /^DATA\n`([^`]+)` is bound to [\d,]+ rows? of [^\n]*\n([^\n]*)(?:\n([^\n]*))?/gm;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(prompt)) !== null) {
+    const name = m[1]!;
+    if (/^A few rows, spread across the data|^First rows/.test(m[2]!)) {
+      let n = 0;
+      try {
+        const rows: unknown = JSON.parse(m[3] ?? '');
+        n = Array.isArray(rows) ? rows.length : 0;
+      } catch {
+        n = 0;
+      }
+      out.push({ name, samples: n });
+    } else {
+      out.push({ name, samples: null });
+    }
+  }
+  return out;
+}
 
 /** What the prompt itself contains, detected from its section markers (shared/prompt.ts). */
 export function promptFeatures(prompt: string): { budget: boolean; previous: boolean; runtimeFault: boolean; callTypes: boolean } {
@@ -67,12 +98,23 @@ export function modelSawSummary(spec: Pick<FunctionSpec, 'tests' | 'properties'>
       : `the names of ${count(tests, 'test', 'tests')} and ${count(props, 'property', 'properties')}`,
   );
   if (f.callTypes) parts.push("the types (not the values) of your call's arguments");
+  const data = promptData(prompt);
+  for (const d of data) {
+    parts.push(
+      d.samples === null
+        ? `the type of ${d.name} only (you chose not to share sample rows)`
+        : `the type of ${d.name} and ${count(d.samples, 'sample row', 'sample rows')}`,
+    );
+  }
   if (f.budget) parts.push('the time budget');
   if (f.runtimeFault) parts.push('the error a previous version hit at runtime');
   if (f.previous) parts.push('the previous attempt and its diagnostics');
   return {
     sent: `Sent: ${parts.join(', ')}.`,
-    notSent: 'Not sent: the bodies of the tests and properties, or the reference implementation.',
+    notSent:
+      data.length > 0
+        ? `Not sent: the bodies of the tests and properties, the reference implementation, or any other rows of ${data.map((d) => d.name).join(', ')}.`
+        : 'Not sent: the bodies of the tests and properties, or the reference implementation.',
   };
 }
 

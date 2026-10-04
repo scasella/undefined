@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Diagnostic, FunctionSpec, GateResult } from '../types';
 import { buildPrompt } from '../shared/prompt';
-import { declineCopy, modelSawSummary, promptFeatures, UNCHECKED_TEXT, whoDecided } from './explain';
+import { declineCopy, modelSawSummary, PINNED_NEXT, PINNED_WHO, promptData, promptFeatures, UNCHECKED_TEXT, whoDecided } from './explain';
 
 const fail = (gate: GateResult['gate'], diagnostics: Diagnostic[], extra: Partial<GateResult> = {}): GateResult => ({
   gate,
@@ -94,6 +94,13 @@ describe('whoDecided', () => {
     expect(whoDecided(runner, 1)[0]).toMatch(/^The gate runner failed before it could judge the candidate/);
   });
 
+  it('a pinned result the candidate disagrees with: the user pinned it, and where to remove it', () => {
+    const g = fail('tests', [test({ name: 'pinned: topCustomersByRevenue(rows)', call: 'topCustomersByRevenue(rows)' })]);
+    expect(whoDecided(g, 1)).toEqual([PINNED_WHO, PINNED_NEXT]);
+    expect(PINNED_WHO).toBe('You pinned this result from an earlier call. The candidate disagrees with it.');
+    expect(PINNED_NEXT).toBe('Remove the pin in the Repo tab if that result was wrong.');
+  });
+
   it('never uses jargon', () => {
     const all = [
       whoDecided(fail('properties', [prop({ silentOn: 'x' })]), 1),
@@ -158,6 +165,21 @@ describe('modelSawSummary', () => {
     expect(modelSawSummary(callSpec, prompt).sent).toBe(
       "Sent: the signature, your doc, the names of your tests and properties (there are none yet), the types (not the values) of your call's arguments, the time budget, the error a previous version hit at runtime.",
     );
+  });
+
+  it('a call over data: the type of rows and the number of sample rows actually in the prompt', () => {
+    const callSpec: FunctionSpec = { ...SPEC, name: 'top', params: [{ name: 'arg0', type: 'Row[]' }], tests: '', properties: '', origin: 'call', typeDecls: 'type Row = { a: number }' };
+    const sampleText = '[{"a":1},{"a":5},{"a":9}]';
+    const withSamples = buildPrompt({ spec: callSpec, callArgTypes: ['Row[]'], history: [], dataSamples: [{ name: 'rows', typeName: 'Row', rowCount: 332, sampleText }] });
+    expect(promptData(withSamples)).toEqual([{ name: 'rows', samples: 3 }]);
+    const sum = modelSawSummary(callSpec, withSamples);
+    expect(sum.sent).toContain('the type of rows and 3 sample rows');
+    expect(sum.notSent).toContain('or any other rows of rows');
+    const typeOnly = buildPrompt({ spec: callSpec, callArgTypes: ['Row[]'], history: [], dataSamples: [{ name: 'rows', typeName: 'Row', rowCount: 332 }] });
+    expect(modelSawSummary(callSpec, typeOnly).sent).toContain('the type of rows only (you chose not to share sample rows)');
+    expect(modelSawSummary(callSpec, typeOnly).sent).not.toContain('sample rows,');
+    // a prompt without data says nothing about rows
+    expect(modelSawSummary(SPEC, buildPrompt({ spec: SPEC, history: [] })).sent).not.toContain('rows');
   });
 
   it('an older recorded prompt without the budget line does not claim the budget was sent', () => {

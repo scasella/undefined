@@ -8,7 +8,7 @@ import type { Diagnostic, GateResult } from '../types';
 import { applyAttribution, EXEC_PHASES, invariantFailure, notReached, type ExecPhase } from './attribution';
 import type { ExecGateInput } from './gateExecutor';
 
-export type { ExecGateInput } from './gateExecutor';
+export type { ExecGateInput, PinnedCase } from './gateExecutor';
 
 // Declared here, not in gateWorker.ts: importing the worker module on the main thread would scrub its globals.
 export type ToWorker = { type: 'run'; input: ExecGateInput };
@@ -128,8 +128,85 @@ export function crashResults(reported: readonly GateResult[], phase: ExecPhase, 
 }
 
 /**
+ * Keep the results for the requested phases (all when `phases` is undefined), plus an Invariants failure even when
+ * 'invariants' was not requested (attribution rule: a pure/bounded violation is always reported). Same rule as
+ * gateExecutor.ts phaseWanted (duplicated so the main thread does not load the executor).
+ */
+export function selectPhases(results: readonly GateResult[], phases: readonly ExecPhase[] | undefined): GateResult[] {
+  if (!phases) return [...results];
+  return results.filter((r) => (phases as readonly string[]).includes(r.gate) || (r.gate === 'invariants' && r.status === 'fail'));
+}
+
+/** What actually ran against a candidate, derived from its gate results (Artifact.evidence without compile/mutation). */
+export interface GateEvidence {
+  unitTests: number;
+  pinnedTests: number;
+  properties: Array<{ name: string; runs: number }>;
+  sampledCalls: number;
+}
+
+/**
+ * Evidence counts from the results gateExecutor produces (their summary formats are documented there). Counts what
+ * RAN: a skipped/interrupted/not-requested gate contributes nothing; a spec error or load failure counts 0 tests.
+ * Summaries in an older format (no per-property breakdown) yield no property entries rather than guessed names.
+ */
+export function evidenceFrom(results: readonly GateResult[]): GateEvidence {
+  const out: GateEvidence = { unitTests: 0, pinnedTests: 0, properties: [], sampledCalls: 0 };
+  const ran = (r: GateResult): boolean => r.status === 'pass' || r.status === 'fail';
+  const tests = results.find((r) => r.gate === 'tests');
+  if (tests && ran(tests) && tests.counts) {
+    const split = parseTestsSummary(tests.summary);
+    if (split && split.unit + split.pinned === tests.counts.total) {
+      out.unitTests = split.unit;
+      out.pinnedTests = split.pinned;
+    } else {
+      out.unitTests = tests.counts.total;
+    }
+  }
+  const props = results.find((r) => r.gate === 'properties');
+  if (props && ran(props)) out.properties = parsePropertyRuns(props.summary);
+  const inv = results.find((r) => r.gate === 'invariants');
+  if (inv && inv.status === 'pass') {
+    const m = /\((\d+) sampled calls? replayed on frozen arguments\)/.exec(inv.summary);
+    out.sampledCalls = m ? Number(m[1]) : 0;
+  }
+  return out;
+}
+
+function parseTestsSummary(summary: string): { unit: number; pinned: number } | null {
+  let m = /^(\d+) unit tests? \+ (\d+) pinned passed$/.exec(summary);
+  if (m) return { unit: Number(m[1]), pinned: Number(m[2]) };
+  m = /^(\d+) pinned passed$/.exec(summary);
+  if (m) return { unit: 0, pinned: Number(m[1]) };
+  m = /^\d+\/\d+ tests? passed \((\d+) unit \+ (\d+) pinned\)$/.exec(summary);
+  if (m) return { unit: Number(m[1]), pinned: Number(m[2]) };
+  m = /^\d+\/(\d+) tests? passed$/.exec(summary);
+  if (m) return { unit: Number(m[1]), pinned: 0 };
+  return null;
+}
+
+/** `… (150 runs: "a" 100, "b \"x\"" 50)` → [{a,100},{b "x",50}]. Names are JSON strings, so a scanner is exact. */
+function parsePropertyRuns(summary: string): Array<{ name: string; runs: number }> {
+  const at = summary.indexOf(' runs: ');
+  if (at < 0 || !summary.endsWith(')')) return [];
+  const list = summary.slice(at + ' runs: '.length, -1);
+  const out: Array<{ name: string; runs: number }> = [];
+  const item = /\s*("(?:[^"\\]|\\.)*") (\d+)\s*(?:,|$)/y;
+  let m: RegExpExecArray | null;
+  while (item.lastIndex < list.length && (m = item.exec(list)) !== null) {
+    try {
+      out.push({ name: JSON.parse(m[1]!) as string, runs: Number(m[2]) });
+    } catch {
+      return [];
+    }
+  }
+  return item.lastIndex === list.length || list.length === 0 ? out : [];
+}
+
+/**
  * Run Tests, Properties and Invariants for one candidate in a fresh Worker with a hard per-call timeout.
- * Resolves with exactly three results (tests, properties, invariants); never rejects. `onGate` fires once per
+ * Resolves with one result per requested phase (`input.phases`, default all three: tests, properties, invariants),
+ * plus an Invariants failure whenever an invariant was violated; never rejects. `onGate` fires once per reported
  * gate as each one becomes final, so the UI can light them one at a time.
  */
 export function runExecutionGates(input: ExecGateInput, onGate?: (r: GateResult) => void): Promise<GateResult[]> {
@@ -150,11 +227,12 @@ export function runExecutionGates(input: ExecGateInput, onGate?: (r: GateResult)
         console.error('onGate callback threw', e);
       }
     };
-    const settle = (results: GateResult[]): void => {
+    const settle = (all: GateResult[]): void => {
       if (settled) return;
       settled = true;
       if (timer !== undefined) clearInterval(timer);
       worker?.terminate();
+      const results = selectPhases(all, input.phases);
       for (const r of results) report(r);
       resolve(results);
     };

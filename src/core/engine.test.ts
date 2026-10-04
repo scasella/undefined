@@ -47,6 +47,9 @@ const specFromCallFor = (name: string, argTypes: string[]): FunctionSpec => spec
 import { hashesFor } from '../shared/hash';
 import { isLive, isStale } from './program';
 import { _useBackend, memoryBackend } from './store';
+import { sampleForModel } from '../data/sample';
+import { DEFAULT_DATASET_NAME, PINNED_INFO, parseDataText, pinLabel, typeNameFor } from './engine';
+import { BUNDLED_ORDERS_CSV } from '../data/orders';
 
 // ───────────────────────── a median spec (inline; not the examples module) ─────────────────────────
 
@@ -157,7 +160,9 @@ function wrapRuntime(rt: Runtime, over: (rt: Runtime) => Partial<RuntimeLike>): 
     evaluate: (input) => rt.evaluate(input),
     snapshotEnv: () => rt.snapshotEnv(),
     envShown: () => rt.envShown(),
-    reset: (fns, env) => rt.reset(fns, env),
+    reset: (fns, env, datasets) => rt.reset(fns, env, datasets),
+    bindDataset: (name, hash, rows, typeName) => rt.bindDataset(name, hash, rows, typeName),
+    unbindDataset: (name) => rt.unbindDataset(name),
     dispose: () => rt.dispose(),
     ...over(rt),
   };
@@ -256,7 +261,8 @@ describe('engine: the opening story', () => {
       { kind: 'input', text: 'median([3, 1, 4, 2])' },
       { kind: 'error', name: 'ReferenceError', message: 'median is not defined' },
       { kind: 'info', text: 'Generating…', tone: 'accent' },
-      { kind: 'output', value: '2.5', ms: expect.any(Number), label: 'generated', detail: 'revision 2' },
+      // the re-evaluated call is the outermost committed call of the line: it can be pinned as a unit test
+      { kind: 'output', value: '2.5', ms: expect.any(Number), label: 'generated', detail: 'revision 2', pinnable: { fn: 'median', call: 'median([3, 1, 4, 2])', args: [{ kind: 'value', encoded: [3, 1, 4, 2] }], expected: 2.5 } },
     ]);
     expect(s().busy).toBe(false);
     expect(s().hints.opener).toBe(false);
@@ -299,14 +305,14 @@ describe('engine: the opening story', () => {
     const second = await run('median([5, 1, 3])');
     expect(strip(second)).toEqual([
       { kind: 'input', text: 'median([5, 1, 3])' },
-      { kind: 'output', value: '3', ms: expect.any(Number), label: 'cached artifact', detail: 'certified r2' },
+      { kind: 'output', value: '3', ms: expect.any(Number), label: 'cached artifact', detail: 'certified r2', pinnable: { fn: 'median', call: 'median([5, 1, 3])', args: [{ kind: 'value', encoded: [5, 1, 3] }], expected: 3 } },
       { kind: 'takeaway', text: TAKEAWAY_TEXT },
     ]);
     expect(s().hints.takeaway).toBe(true);
     const third = await run('median([10, 2, 38, 23])');
     expect(strip(third)).toEqual([
       { kind: 'input', text: 'median([10, 2, 38, 23])' },
-      { kind: 'output', value: '16.5', ms: expect.any(Number), label: 'cached artifact', detail: 'certified r2' },
+      { kind: 'output', value: '16.5', ms: expect.any(Number), label: 'cached artifact', detail: 'certified r2', pinnable: { fn: 'median', call: 'median([10, 2, 38, 23])', args: [{ kind: 'value', encoded: [10, 2, 38, 23] }], expected: 16.5 } },
     ]);
     const plain = await run('1 + 1');
     expect(strip(plain)[1]).toEqual({ kind: 'output', value: '2', ms: expect.any(Number), label: null });
@@ -714,7 +720,8 @@ describe('engine: images and persistence', () => {
     const out = await second.run('median(xs)');
     expect(strip(out)).toEqual([
       { kind: 'input', text: 'median(xs)' },
-      { kind: 'output', value: '3', ms: expect.any(Number), label: 'cached artifact', detail: 'certified r2' },
+      // xs is an ordinary variable (not a dataset), so the pin carries its value
+      { kind: 'output', value: '3', ms: expect.any(Number), label: 'cached artifact', detail: 'certified r2', pinnable: { fn: 'median', call: 'median([5, 1, 3])', args: [{ kind: 'value', encoded: [5, 1, 3] }], expected: 3 } },
     ]);
     expect(second.gen.requests).toHaveLength(0);
   }, 30_000);
@@ -982,7 +989,7 @@ describe('engine: artifact liveness', () => {
     const out = await run('median([5, 1, 3])');
     expect(strip(out)).toEqual([
       { kind: 'input', text: 'median([5, 1, 3])' },
-      { kind: 'output', value: '3', ms: expect.any(Number), label: null },
+      { kind: 'output', value: '3', ms: expect.any(Number), label: null, pinnable: { fn: 'median', call: 'median([5, 1, 3])', args: [{ kind: 'value', encoded: [5, 1, 3] }], expected: 3 } },
     ]);
   }, 30_000);
 
@@ -1462,4 +1469,304 @@ describe('engine: a spec-less accept is not an endorsement (E)', () => {
     expect(out[out.length - 1]).toMatchObject({ kind: 'output', value: '1.5', label: 'generated' });
     expect(out[out.length - 1]).not.toHaveProperty('note');
   }, 30_000);
+});
+
+// ───────────────────────── data scratchpad ─────────────────────────
+
+const ORDERS_CSV = `customer,amount,status
+Ada,10,paid
+Bob,5,refunded
+Ada,7,paid
+Cy,3,paid
+`;
+const ROW_DECL = 'type Row = { customer: string; amount: number; status: string }';
+/** Paid totals per customer, highest first. */
+const TOTALS_GOOD = `const t = new Map<string, number>();
+for (const r of arg0) if (r.status !== "refunded") t.set(r.customer, (t.get(r.customer) ?? 0) + r.amount);
+return [...t].map(([customer, total]) => ({ customer, total })).sort((a, b) => b.total - a.total);`;
+/** Counts refunds too: disagrees with a pinned paid-only result. */
+const TOTALS_WITH_REFUNDS = `const t = new Map<string, number>();
+for (const r of arg0) t.set(r.customer, (t.get(r.customer) ?? 0) + r.amount);
+return [...t].map(([customer, total]) => ({ customer, total })).sort((a, b) => b.total - a.total);`;
+/** Sorts the caller's rows in place: the Invariants replay on frozen rows rejects it. */
+const TOTALS_MUTATES = `arg0.sort((a, b) => b.amount - a.amount);
+return arg0.map((r) => ({ customer: r.customer, total: r.amount }));`;
+
+const outputs = (s: EngineState) => s.repl.filter((e): e is Extract<ReplEntry, { kind: 'output' }> => e.kind === 'output');
+
+describe('engine: data scratchpad (pure helpers)', () => {
+  it('parseDataText: CSV with coercion, TSV by sniffing, JSON by its first character or the filename', () => {
+    const csv = parseDataText(ORDERS_CSV);
+    expect(csv).toMatchObject({ ok: true, format: 'csv' });
+    expect(csv.ok && csv.rows[0]).toEqual({ customer: 'Ada', amount: 10, status: 'paid' });
+    const tsv = parseDataText('a\tb\n1\tx\n');
+    expect(tsv).toMatchObject({ ok: true, format: 'tsv', rows: [{ a: 1, b: 'x' }] });
+    expect(parseDataText('[{"a":1}]')).toMatchObject({ ok: true, format: 'json', rows: [{ a: 1 }] });
+    expect(parseDataText('{"a":1}\n{"a":2}\n', 'x.jsonl')).toMatchObject({ ok: true, format: 'json', rows: [{ a: 1 }, { a: 2 }] });
+    expect(parseDataText('   ')).toEqual({ ok: false, error: expect.stringContaining('Nothing to load') });
+    expect(parseDataText('a,b\n')).toEqual({ ok: false, error: expect.stringContaining('no data lines') });
+  });
+
+  it('typeNameFor and pinLabel', () => {
+    expect(DEFAULT_DATASET_NAME).toBe('rows');
+    expect(typeNameFor('rows')).toBe('Row');
+    expect(typeNameFor('orders')).toBe('OrdersRow');
+    expect(pinLabel('top', [{ kind: 'dataset', name: 'rows', hash: 'h' }, { kind: 'value', encoded: 3 }])).toBe('top(rows, 3)');
+    expect(pinLabel('median', [{ kind: 'value', encoded: [1, 2] }])).toBe('median([1, 2])');
+  });
+});
+
+describe('engine: data scratchpad', () => {
+  it('previewDataset: counts, the declared type, the first rows as a table, and exactly the sample text; never throws', async () => {
+    const { engine } = setup();
+    await engine.init();
+    const p = await engine.previewDataset({ text: ORDERS_CSV });
+    expect(p).toMatchObject({ ok: true, name: 'rows', rowCount: 4, typeName: 'Row', typeDecl: ROW_DECL, warnings: [] });
+    if (!p.ok) throw new Error('preview failed');
+    expect(p.columns).toEqual([
+      { name: 'customer', type: 'string' },
+      { name: 'amount', type: 'number' },
+      { name: 'status', type: 'string' },
+    ]);
+    expect(p.table).toEqual({ columns: ['customer', 'amount', 'status'], rows: [['"Ada"', '10', '"paid"'], ['"Bob"', '5', '"refunded"'], ['"Ada"', '7', '"paid"'], ['"Cy"', '3', '"paid"']], total: 4 });
+    expect(p.sampleText).toBe(sampleForModel([{ customer: 'Ada', amount: 10, status: 'paid' }, { customer: 'Bob', amount: 5, status: 'refunded' }, { customer: 'Ada', amount: 7, status: 'paid' }, { customer: 'Cy', amount: 3, status: 'paid' }], { count: 3 }).text);
+    expect(p.sendDescription).toContain('3 sample rows');
+    // 20 rows shown at most, the total says how many there are
+    const big = await engine.previewDataset({ text: BUNDLED_ORDERS_CSV(), filename: 'orders.csv' });
+    expect(big.ok && [big.table.rows.length, big.table.total, big.rowCount]).toEqual([20, 332, 332]);
+    // problems are values, not exceptions
+    expect(await engine.previewDataset({ text: '' })).toMatchObject({ ok: false });
+    expect(await engine.previewDataset({ text: ORDERS_CSV, name: 'class' })).toEqual({ ok: false, error: expect.stringContaining('reserved word') });
+    engine.setSendSamples(false);
+    const off = await engine.previewDataset({ text: ORDERS_CSV });
+    expect(off.ok && off.sendDescription).toContain('no sample rows');
+  });
+
+  it('loadDataset binds rows (a revision), a spec-less call over it gets the type and samples, runs the gates on the real rows, shows a table, and can be pinned', async () => {
+    const { engine, gen, s, run } = setup({ script: { totals: [TOTALS_MUTATES, TOTALS_GOOD] } });
+    await engine.init();
+    await engine.loadDataset({ text: ORDERS_CSV });
+    expect(s().revisions.map((r) => [r.id, r.kind, r.title])).toEqual([
+      [1, 'init', expect.any(String)],
+      [2, 'dataset', 'Loaded dataset rows: 4 rows × 3 columns'],
+    ]);
+    expect(s().datasets).toEqual([expect.objectContaining({ name: 'rows', typeName: 'Row', typeDecl: ROW_DECL, rowCount: 4, source: 'paste' })]);
+    expect(s().program.datasets?.rows?.hash).toMatch(/^[0-9a-f]{64}$/);
+    const bound = [...s().repl].reverse().find((e) => e.kind === 'info')!;
+    expect(bound).toMatchObject({ kind: 'info', text: `\`rows\` is bound: \`${ROW_DECL}\` (4 rows)` });
+    expect(s().env.rows).toContain('Ada');
+
+    const out = await run('totals(rows)');
+    // the prompt: the TYPES block, the DATA block with exactly the sample text, never "First rows"
+    const prompt = gen.requests[0]!.prompt;
+    expect(prompt).toContain(`TYPES (declared before your function; use them, do not redeclare them)\n${ROW_DECL}`);
+    expect(prompt).toContain('function totals(arg0: Row[])');
+    const sample = sampleForModel(
+      [{ customer: 'Ada', amount: 10, status: 'paid' }, { customer: 'Bob', amount: 5, status: 'refunded' }, { customer: 'Ada', amount: 7, status: 'paid' }, { customer: 'Cy', amount: 3, status: 'paid' }],
+      { count: 3 },
+    ).text;
+    expect(prompt).toContain(`DATA\n\`rows\` is bound to 4 rows of Row.\nA few rows, spread across the data (exactly what you are being shown; nothing else is shared):\n${sample}\n`);
+    expect(prompt).not.toContain('First rows');
+    // the gates ran on the REAL rows: the in-place sort is caught by the frozen replay of the triggering call
+    const g = s().generation!;
+    expect(g.call).toBe('totals(rows)');
+    expect(g.ungated).toBe(true);
+    expect(g.attempts[0]!.candidate!.rejectedBy).toBe('invariants');
+    expect(g.attempts[0]!.candidate!.headline).toContain('mutated its argument (pure)');
+    expect(g.attempts[1]!.status).toBe('accepted');
+    const rec = s().program.functions.totals!;
+    expect(rec.spec).toMatchObject({ params: [{ name: 'arg0', type: 'Row[]' }], typeDecls: ROW_DECL, origin: 'call' });
+    expect(rec.spec.exampleId).toBeUndefined();
+    // the result: a table, and pinnable with the dataset referenced (not inlined)
+    const o = out.find((e): e is Extract<ReplEntry, { kind: 'output' }> => e.kind === 'output')!;
+    expect(o.value).toBe('[{ customer: "Ada", total: 17 }, { customer: "Cy", total: 3 }]');
+    expect(o.table).toEqual({ columns: ['customer', 'total'], rows: [['"Ada"', '17'], ['"Cy"', '3']], total: 2 });
+    const hash = s().program.datasets!.rows!.hash;
+    expect(o.pinnable).toEqual({
+      fn: 'totals',
+      call: 'totals(rows)',
+      args: [{ kind: 'dataset', name: 'rows', hash }],
+      expected: [{ customer: 'Ada', total: 17 }, { customer: 'Cy', total: 3 }],
+    });
+    expect(o.pinned).toBeUndefined();
+
+    // pin it: a revision, the artifact stays certified, the entry is marked, the REPL says what it means
+    const artifactBefore = rec.artifact;
+    await engine.pinResult(o.id);
+    const head = s().revisions[s().revisions.length - 1]!;
+    expect(head).toMatchObject({ kind: 'pin', title: 'Pinned: totals(rows)', fn: 'totals' });
+    const after = s().program.functions.totals!;
+    expect(isLive(after)).toBe(true);
+    expect(after.artifact).toEqual(artifactBefore);
+    expect(after.specHash).toBe(rec.specHash);
+    expect(after.spec.pins).toEqual([
+      { id: expect.stringMatching(/^[0-9a-f]{12}$/), label: 'totals(rows)', args: [{ kind: 'dataset', name: 'rows', hash }], expected: o.pinnable!.expected, pinnedAt: expect.any(Number) },
+    ]);
+    expect(outputs(s()).find((e) => e.id === o.id)!.pinned).toBe(true);
+    expect(s().repl[s().repl.length - 1]).toMatchObject({ kind: 'info', text: PINNED_INFO });
+    // pinning the same result again does nothing; a later identical result is shown as already pinned
+    await engine.pinResult(o.id);
+    expect(s().program.functions.totals!.spec.pins).toHaveLength(1);
+    const again = await run('totals(rows)');
+    expect(again.find((e) => e.kind === 'output')).toMatchObject({ label: 'cached artifact', pinned: true });
+  }, 60_000);
+
+  it('a pin is a unit test at the next regeneration: a candidate that disagrees is rejected by Tests with the pinned headline; a good one passes it', async () => {
+    const { engine, gen, s, run } = setup({ script: { totals: [TOTALS_GOOD] } });
+    await engine.init();
+    await engine.loadDataset({ text: ORDERS_CSV });
+    await run('totals(rows)');
+    await engine.pinResult(outputs(s()).at(-1)!.id);
+    // change the meaning: the artifact goes stale, the next call regrows it, and the pin travels with the spec
+    await engine.editSpec('totals', { doc: 'Paid totals per customer, highest first.' });
+    expect(isStale(s().program.functions.totals!)).toBe(true);
+    gen.push('totals', TOTALS_WITH_REFUNDS, TOTALS_GOOD);
+    await run('totals(rows)');
+    const g = s().generation!;
+    expect(g.ungated).toBe(false); // the pin alone makes it gated
+    const [a1, a2] = g.attempts;
+    expect(a1!.candidate!.rejectedBy).toBe('tests');
+    expect(a1!.candidate!.headline).toBe(
+      'Rejected: totals(rows) returned [{ customer: "Ada", total: 17 }, { customer: "Bob", total: 5 }, { customer: "Cy", total: 3 }], expected [{ customer: "Ada", total: 17 }, { customer: "Cy", total: 3 }]',
+    );
+    const d = a1!.gates[1]!.diagnostics[0]!;
+    expect(d.kind === 'test' && d.name).toBe('pinned: totals(rows)');
+    expect(a2!.status).toBe('accepted');
+    expect(a2!.gates[1]).toMatchObject({ status: 'pass', summary: '1 pinned passed' });
+    // the result line no longer carries the "nothing checked" note: a pin checked it
+    expect(outputs(s()).at(-1)!.note).toBeUndefined();
+
+    // remove the pin: a revision, hashes unchanged, earlier entries unmarked
+    const pin = s().program.functions.totals!.spec.pins![0]!;
+    await engine.removePin('totals', pin.id);
+    expect(s().revisions.at(-1)).toMatchObject({ kind: 'pin', title: 'Unpinned: totals(rows)' });
+    expect(s().program.functions.totals!.spec.pins).toBeUndefined();
+    expect(isLive(s().program.functions.totals!)).toBe(true);
+    expect(outputs(s()).some((e) => e.pinned)).toBe(false);
+  }, 60_000);
+
+  it('samples off: the prompt carries the type only, never a row value', async () => {
+    const { engine, gen, s, run } = setup({ script: { totals: [TOTALS_GOOD] } });
+    await engine.init();
+    engine.setSendSamples(false);
+    expect(s().send).toEqual({ samples: false, sampleRows: 3 });
+    await engine.loadDataset({ text: ORDERS_CSV });
+    await run('totals(rows)');
+    const prompt = gen.requests[0]!.prompt;
+    expect(prompt).toContain('`rows` is bound to 4 rows of Row.\n(The user chose not to share sample rows; only the type is shared.)');
+    expect(prompt).not.toMatch(/Ada|Bob|refunded/);
+    expect(prompt).toContain(ROW_DECL); // the type is still shared
+  }, 60_000);
+
+  it('replay mode: nothing is sent, so the prompt has the type only even with samples on', async () => {
+    const { engine, gen, s, run } = setup({ service: { state: 'down' }, script: { totals: [TOTALS_GOOD] } });
+    await engine.init();
+    expect(s().mode).toBe('replay');
+    expect(s().send.samples).toBe(true);
+    await engine.loadDataset({ text: ORDERS_CSV });
+    await run('totals(rows)');
+    const prompt = gen.requests[0]!.prompt;
+    expect(prompt).toContain('(The user chose not to share sample rows; only the type is shared.)');
+    expect(prompt).not.toMatch(/Ada|Bob|refunded/);
+  }, 60_000);
+
+  it('the samples choice persists; datasets and pins survive a reload, export/import, and rollback rebinds rows', async () => {
+    const first = setup({ script: { totals: [TOTALS_GOOD] } });
+    await first.engine.init();
+    first.engine.setSendSamples(false);
+    await first.engine.loadDataset({ text: ORDERS_CSV });
+    await first.run('totals(rows)');
+    await first.engine.pinResult(outputs(first.s()).at(-1)!.id);
+    const hash = first.s().program.datasets!.rows!.hash;
+
+    // reload: same store
+    const second = setup();
+    await second.engine.init();
+    expect(second.s().send.samples).toBe(false);
+    expect(second.s().datasets.map((d) => d.name)).toEqual(['rows']);
+    expect(second.s().env.rows).toContain('Ada');
+    const cached = await second.run('totals(rows)');
+    expect(cached.find((e) => e.kind === 'output')).toMatchObject({ value: '[{ customer: "Ada", total: 17 }, { customer: "Cy", total: 3 }]', label: 'cached artifact', pinned: true });
+    expect(second.gen.requests).toHaveLength(0);
+
+    // export carries only referenced rows; import into a fresh store restores the binding
+    await second.engine.loadDataset({ text: 'n\n1\n2\n', name: 'nums' });
+    await second.engine.removeDataset('nums');
+    const image = JSON.parse(await second.engine.exportImage()) as { datasets: Record<string, unknown> };
+    // nums was bound in some revision, so it is still referenced (rollback can restore it)
+    expect(Object.keys(image.datasets)).toContain(hash);
+    expect(Object.keys(image.datasets)).toHaveLength(2);
+
+    _useBackend(memoryBackend());
+    const third = setup();
+    await third.engine.init();
+    expect(third.s().datasets).toEqual([]);
+    await third.engine.importImage(JSON.stringify(image));
+    expect(third.s().notice?.tone).toBe('info');
+    expect(third.s().datasets.map((d) => d.name)).toEqual(['rows']);
+    const viaImport = await third.run('totals(rows)');
+    expect(viaImport.find((e) => e.kind === 'output')).toMatchObject({ label: 'cached artifact', pinned: true });
+    expect(third.s().program.functions.totals!.spec.pins).toHaveLength(1);
+
+    // rollback to before the data was loaded: rows is gone; forward again: rows is bound again
+    const loadRev = third.s().revisions.find((r) => r.kind === 'dataset')!.id;
+    await third.engine.rollback(loadRev - 1);
+    expect(third.s().datasets).toEqual([]);
+    expect(third.s().env.rows).toBeUndefined();
+    await third.engine.rollback(loadRev);
+    expect(third.s().datasets.map((d) => d.name)).toEqual(['rows']);
+    expect(third.s().env.rows).toContain('Ada');
+  }, 60_000);
+
+  it('removeDataset unbinds the variable (a revision); a name taken by a function is refused', async () => {
+    const { engine, s, run } = setup({ script: { totals: [TOTALS_GOOD] } });
+    await engine.init();
+    await engine.loadDataset({ text: ORDERS_CSV });
+    await engine.removeDataset('rows');
+    expect(s().revisions.at(-1)).toMatchObject({ kind: 'dataset', title: 'Removed dataset rows' });
+    expect(s().datasets).toEqual([]);
+    expect(s().program.datasets).toBeUndefined();
+    const out = await run('rows');
+    expect(out[1]).toMatchObject({ kind: 'error', name: 'ReferenceError' });
+    await engine.loadDataset({ text: ORDERS_CSV, name: 'median' });
+    expect(s().notice).toEqual({ tone: 'error', text: expect.stringContaining('is a function in this program') });
+    await engine.loadDataset({ text: 'a,b\n' });
+    expect(s().notice).toEqual({ tone: 'error', text: expect.stringContaining('Could not load the data: No rows') });
+  }, 60_000);
+
+  it('the orders example: clicking it binds the bundled rows; "Break it" asks for the call first; the grown spec carries the example id', async () => {
+    const ordersExample: EngineExample = {
+      id: 'orders',
+      title: 'orders',
+      blurb: 'spec-less',
+      call: 'topCustomersByRevenue(rows)',
+      fn: 'topCustomersByRevenue',
+      dataset: { name: 'rows', filename: 'orders.csv' },
+      breakIt: { label: 'Break it: refunds and discounts', description: 'x' },
+      breakPatch: { doc: 'Refunded orders do not count.' },
+    };
+    const body = `const t = new Map<string, number>();
+for (const r of arg0) t.set(r.customer, (t.get(r.customer) ?? 0) + r.quantity * r.unitPrice);
+return [...t].map(([customer, revenue]) => ({ customer, revenue })).sort((a, b) => b.revenue - a.revenue).slice(0, 5);`;
+    const { engine, gen, s } = setup({ script: { topCustomersByRevenue: [body] }, deps: { examples: [EXAMPLE, ordersExample] } });
+    await engine.init();
+    await engine.breakIt('orders');
+    expect(s().notice).toEqual({ tone: 'info', text: expect.stringContaining('Run the call first') });
+    expect(s().datasets).toEqual([expect.objectContaining({ name: 'rows', source: 'bundled', filename: 'orders.csv', rowCount: 332, typeName: 'Row' })]);
+    expect(s().replInput).toBe('topCustomersByRevenue(rows)');
+    const revs = s().revisions.length;
+    await engine.loadExample('orders'); // already bound: not reloaded
+    expect(s().revisions).toHaveLength(revs);
+    await engine.submit();
+    const rec = s().program.functions.topCustomersByRevenue!;
+    expect(rec.spec.exampleId).toBe('orders');
+    expect(rec.spec.typeDecls).toContain('discount: number | null');
+    expect(gen.requests[0]!.prompt).toContain('`rows` is bound to 332 rows of Row.');
+    const o = outputs(s()).at(-1)!;
+    expect(o.table?.columns).toEqual(['customer', 'revenue']);
+    expect(o.pinnable?.call).toBe('topCustomersByRevenue(rows)');
+    await engine.breakIt('orders');
+    expect(s().program.functions.topCustomersByRevenue!.spec.doc).toBe('Refunded orders do not count.');
+    expect(isStale(s().program.functions.topCustomersByRevenue!)).toBe(true);
+  }, 60_000);
 });

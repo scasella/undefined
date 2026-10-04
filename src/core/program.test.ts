@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { hashesFor } from '../shared/hash';
+import * as P from './program';
 import type { Artifact, Candidate, FunctionSpec, GateId, Program } from '../types';
 import {
   describeCommit,
@@ -227,5 +228,33 @@ describe('describeCommit', () => {
 
   it('no candidates', () => {
     expect(describeCommit('median', [])).toBe('median certified');
+  });
+});
+
+describe('datasets and pins on a program', () => {
+  const [ws, ep, ir] = [P.withSpec, P.emptyProgram, P.initialRevision];
+  const { withDataset, withoutDataset, withPins, datasetHashes, referencedDatasets } = P;
+  const ref = { name: 'rows', hash: 'h1', typeName: 'Row', typeDecl: 'type Row = {}', rowCount: 0, columns: [], source: 'paste' as const, bytes: 2 };
+  const base = { name: 'f', params: [], returns: null, doc: '', tests: '', properties: '', budgetMs: 1000, maxAttempts: 3, origin: 'call' as const };
+
+  it('withDataset / withoutDataset, and spec operations keep the datasets', async () => {
+    const p = withDataset(ep(), ref);
+    expect(p.datasets).toEqual({ rows: ref });
+    const q = await ws(p, base);
+    expect(q.datasets).toEqual({ rows: ref });
+    expect(withoutDataset(q, 'rows').datasets).toBeUndefined();
+    expect(withoutDataset(q, 'rows').functions.f).toBeDefined();
+  });
+
+  it('withPins changes only the spec\'s pins (hashes untouched) and collects pin dataset hashes', async () => {
+    const q = await ws(withDataset(ep(), ref), base);
+    const pin = { id: 'p1', label: 'f(other)', args: [{ kind: 'dataset' as const, name: 'other', hash: 'h2' }], expected: 1, pinnedAt: 0 };
+    const pinned = withPins(q, 'f', [pin]);
+    expect(pinned.functions.f!.spec.pins).toEqual([pin]);
+    expect(pinned.functions.f!.specHash).toBe(q.functions.f!.specHash);
+    expect(withPins(pinned, 'f', []).functions.f!.spec.pins).toBeUndefined();
+    expect([...datasetHashes(pinned)].sort()).toEqual(['h1', 'h2']);
+    expect([...referencedDatasets([ir(ep()), { ...ir(pinned), id: 2 }])].sort()).toEqual(['h1', 'h2']);
+    expect(() => withPins(q, 'nope', [])).toThrow(/no function named nope/);
   });
 });

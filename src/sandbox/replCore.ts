@@ -28,11 +28,20 @@
  *   is kept for the inferred spec (`argsTrimmed: 'array-callback'`); the grown function ignores the extra arguments.
  * - A function passed directly as an argument (`compose(x => x + 1, f)`) is typed `(...args: any[]) => any` and
  *   passed through; it cannot be serialised, so the gates cannot replay that call.
+ *
+ * Datasets (docs/DESIGN.md "Datasets, tables and pins"):
+ * - bindDataset(name, hash, rows, typeName) binds a REPL variable to an array of rows and registers it. Identity is
+ *   what counts: a variable (or a call argument) that IS (===) a registered array is that dataset; an equal copy is
+ *   not. snapshotEnv() writes such a variable as the ref `{"$t":"dataset","name","hash","typeName"}` (rows are stored
+ *   once, outside the env); restoreEnv/reset resolve refs from a `hash → rows` map and drop (report as lost) the ones
+ *   they cannot resolve. Reassigning the dataset's own variable to another value (`rows = rows.slice(0, 5)`)
+ *   unregisters the dataset; an alias made earlier (`all = rows`) then encodes as an ordinary value.
+ * - Rows stay mutable in the REPL (a REPL line can change them); committed functions are gated on frozen clones.
  */
-import type { EvalOutcome, Json } from '../types';
+import type { CallRecord, EvalOutcome, Hash, Json, PinArg, TablePreview } from '../types';
 import { evalMasked, isInvariantViolation, MASKED_NAMES, takeViolations, violationMessage } from './mask';
 import { callString, isMap, isPlainObject, isSet, show } from '../shared/show';
-import { decodeEnv, encodeEnv, encodeValue } from '../shared/serialize';
+import { decodeEnv, encodeEnv, encodeReport, encodeValue } from '../shared/serialize';
 import { inferArgType } from '../shared/inferType';
 
 /** Masked for candidates, but harmless and necessary for ordinary REPL arithmetic. */
@@ -73,11 +82,44 @@ export interface ReplHooks {
 
 const now = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
+/** Encoded values (an evaluation's `encoded`, a call record's result or argument) larger than this are left out. */
+export const MAX_ENCODED_BYTES = 256 * 1024;
+/** At most this many call records per evaluation (the rest are not recorded, so they cannot be pinned). */
+export const MAX_CALL_RECORDS = 100;
+/** Table preview limits. */
+export const TABLE_MAX_ROWS = 100;
+export const TABLE_MAX_COLUMNS = 30;
+export const TABLE_MAX_CELL = 80;
+
+/** A dataset bound to a REPL variable, as the core knows it. */
+export interface DatasetBinding {
+  name: string;
+  hash: Hash;
+  typeName: string;
+}
+
+/** The env-snapshot form of a variable that IS a registered dataset. */
+export interface DatasetRefJson {
+  $t: 'dataset';
+  name: string;
+  hash: Hash;
+  typeName: string;
+}
+
+export function isDatasetRefJson(j: Json | undefined): j is Json & DatasetRefJson {
+  if (j === null || typeof j !== 'object' || Array.isArray(j)) return false;
+  return j.$t === 'dataset' && typeof j.name === 'string' && typeof j.hash === 'string' && typeof j.typeName === 'string';
+}
+
 export class ReplCore {
   private readonly functions = new Map<string, (...args: unknown[]) => unknown>();
   private env = new Map<string, unknown>();
   private readonly thunks = new WeakSet<object>();
   private calls: string[] = [];
+  private records: CallRecord[] = [];
+  /** Nesting depth of committed calls: only depth-0 calls are made "directly from the line". */
+  private depth = 0;
+  private bindings = new Map<string, DatasetBinding & { value: unknown[] }>();
   private readonly scope: object;
 
   constructor(private readonly hooks: ReplHooks = {}) {
@@ -99,19 +141,89 @@ export class ReplCore {
     return [...this.functions.keys()];
   }
 
+  /**
+   * Bind REPL variable `name` to `rows` and register it as a dataset (see the header). Rows are bound as given (the
+   * same array object, not a copy). Throws when `name` is a committed function.
+   */
+  bindDataset(name: string, hash: Hash, rows: unknown[], typeName: string): void {
+    if (!Array.isArray(rows)) throw new TypeError(`dataset ${name}: rows must be an array`);
+    this.assign(name, rows);
+    this.bindings.set(name, { name, hash, typeName, value: rows });
+  }
+
+  /** Forget dataset `name` and delete its variable if it still holds the rows. */
+  unbindDataset(name: string): void {
+    const b = this.bindings.get(name);
+    this.bindings.delete(name);
+    if (b && this.env.get(name) === b.value) this.env.delete(name);
+  }
+
+  /** The registered datasets, in binding order. */
+  datasets(): DatasetBinding[] {
+    return [...this.bindings.values()].map(({ name, hash, typeName }) => ({ name, hash, typeName }));
+  }
+
+  /** The registered dataset whose rows ARE `v` (identity), or null. */
+  private datasetOf(v: unknown): (DatasetBinding & { value: unknown[] }) | null {
+    if (!Array.isArray(v)) return null;
+    const own = [...this.bindings.values()];
+    return own.find((b) => b.value === v) ?? null;
+  }
+
+  /** Encoded env (encodeValue per var); a variable that IS a registered dataset becomes a dataset ref. */
   snapshotEnv(): Record<string, Json> {
-    return encodeEnv(Object.fromEntries(this.env)).env;
+    const plain: Record<string, unknown> = {};
+    const refs = new Map<string, Json>();
+    for (const [k, v] of this.env) {
+      const b = this.datasetOf(v);
+      if (b) refs.set(k, { $t: 'dataset', name: b.name, hash: b.hash, typeName: b.typeName });
+      else Object.defineProperty(plain, k, { value: v, enumerable: true, writable: true, configurable: true });
+    }
+    const encoded = encodeEnv(plain).env;
+    const out: Record<string, Json> = {};
+    for (const k of this.env.keys()) {
+      const value = refs.has(k) ? refs.get(k)! : encoded[k]!;
+      Object.defineProperty(out, k, { value, enumerable: true, writable: true, configurable: true });
+    }
+    return out;
   }
 
   /**
-   * Replace the env from an encoded snapshot. A variable whose encoding holds an `unserializable` placeholder (at any
-   * depth: a function, class instance, cycle…) is NOT bound to a lossy copy; it is dropped and its name returned.
+   * Replace the env (and the dataset registry) from an encoded snapshot. A variable whose encoding holds an
+   * `unserializable` placeholder (at any depth: a function, class instance, cycle…) is NOT bound to a lossy copy; it
+   * is dropped and its name returned. A dataset ref is resolved from `datasets` (hash → rows): every variable with
+   * that hash is bound to the SAME array object and the dataset is registered again; a ref whose hash is missing is
+   * dropped and reported the same way.
    */
-  restoreEnv(env: Record<string, Json>): string[] {
-    const { env: decoded, unserializable } = decodeEnv(env);
-    const lost = new Set(unserializable);
-    this.env = new Map(Object.entries(decoded).filter(([k]) => !lost.has(k)));
-    return unserializable;
+  restoreEnv(env: Record<string, Json>, datasets: Record<Hash, unknown[]> = {}): string[] {
+    const rest: Record<string, Json> = {};
+    for (const k of Object.keys(env)) {
+      if (!isDatasetRefJson(env[k])) Object.defineProperty(rest, k, { value: env[k], enumerable: true, writable: true, configurable: true });
+    }
+    const { env: decoded, unserializable } = decodeEnv(rest);
+    const bad = new Set(unserializable);
+    const lost: string[] = [];
+    const next = new Map<string, unknown>();
+    const bindings = new Map<string, DatasetBinding & { value: unknown[] }>();
+    for (const k of Object.keys(env)) {
+      const j = env[k];
+      if (isDatasetRefJson(j)) {
+        const rows = Object.prototype.hasOwnProperty.call(datasets, j.hash) ? datasets[j.hash] : undefined;
+        if (!Array.isArray(rows)) {
+          lost.push(k);
+          continue;
+        }
+        next.set(k, rows);
+        if (!bindings.has(j.name) || k === j.name) bindings.set(j.name, { name: j.name, hash: j.hash, typeName: j.typeName, value: rows });
+      } else if (bad.has(k)) {
+        lost.push(k);
+      } else {
+        next.set(k, decoded[k]);
+      }
+    }
+    this.env = next;
+    this.bindings = bindings;
+    return lost;
   }
 
   envShown(): Record<string, string> {
@@ -123,14 +235,16 @@ export class ReplCore {
   }
 
   /** Replace functions and env wholesale. Returns the variables that could not be restored (see restoreEnv). */
-  reset(functions: Record<string, string>, env: Record<string, Json>): string[] {
+  reset(functions: Record<string, string>, env: Record<string, Json>, datasets?: Record<Hash, unknown[]>): string[] {
     this.functions.clear();
     for (const [name, js] of Object.entries(functions)) this.define(name, js);
-    return this.restoreEnv(env);
+    return this.restoreEnv(env, datasets);
   }
 
   evaluate(input: string): EvalOutcome {
     this.calls = [];
+    this.records = [];
+    this.depth = 0;
     takeViolations();
     const start = now();
     const src = input.trim().replace(/;+\s*$/, '');
@@ -140,7 +254,14 @@ export class ReplCore {
       const value = this.run(bind ? bind[2]! : src);
       this.rejectThunk(value);
       if (bind) this.assign(bind[1]!, value);
-      return { kind: 'value', shown: show(value), ms: now() - start, calls: [...this.calls] };
+      const ms = now() - start;
+      const out: EvalOutcome = { kind: 'value', shown: show(value), ms, calls: [...this.calls] };
+      const encoded = encodeCapped(value);
+      if (encoded.ok) out.encoded = encoded.json;
+      const table = tablePreview(value);
+      if (table) out.table = table;
+      if (this.records.length > 0) out.callRecords = [...this.records];
+      return out;
     } catch (e) {
       return this.outcomeFor(e, src);
     } finally {
@@ -169,6 +290,23 @@ export class ReplCore {
     if (this.functions.has(name)) throw new ReplError('TypeError', `${name} is a committed function; pick another variable name`);
     this.rejectThunk(value);
     this.env.set(name, value);
+    // the dataset's own variable now holds something else: it is no longer a dataset
+    const b = this.bindings.get(name);
+    if (b && b.value !== value) this.bindings.delete(name);
+  }
+
+  private deleteVariable(name: string): void {
+    this.env.delete(name);
+    this.bindings.delete(name);
+  }
+
+  /** A committed call's argument as a pin argument: a dataset by reference, anything else encoded. */
+  private pinArg(a: unknown): { arg: PinArg; pinnable: boolean } {
+    const b = this.datasetOf(a);
+    if (b) return { arg: { kind: 'dataset', name: b.name, hash: b.hash }, pinnable: true };
+    const e = encodeCapped(a);
+    // an oversized argument is not carried (the record could never be pinned anyway)
+    return { arg: { kind: 'value', encoded: e.ok ? e.json : null }, pinnable: e.ok && !e.lossy };
   }
 
   /** Throws the plain ReferenceError if an undefined-name thunk occurs anywhere inside `v`. */
@@ -247,7 +385,11 @@ export class ReplCore {
         this.assign(key, value);
         return true;
       },
-      deleteProperty: (_t, key) => (typeof key === 'string' ? this.env.delete(key) || true : false),
+      deleteProperty: (_t, key) => {
+        if (typeof key !== 'string') return false;
+        this.deleteVariable(key);
+        return true;
+      },
     });
   }
 
@@ -282,21 +424,33 @@ export class ReplCore {
       core.rejectThunk(args); // an undefined name anywhere in the arguments is the REPL line's error, not a fault
       const call = callString(name, args);
       core.calls.push(name);
+      // A call made directly from the REPL line (not from inside another committed call) is recorded for "Pin as
+      // test"; its arguments are captured BEFORE the call.
+      const direct = core.depth === 0 && core.records.length < MAX_CALL_RECORDS;
+      const pinArgs = direct ? args.map((a) => core.pinArg(a)) : null;
       takeViolations();
       core.hooks.onEnter?.(name, call);
+      core.depth++;
+      let result: unknown;
       try {
-        const result = fn.apply(undefined, args);
+        result = fn.apply(undefined, args);
         const violations = takeViolations();
         if (violations.length > 0) {
           throw new CommittedFault(name, call, new ReplError('InvariantViolation', violationMessage(violations[0]!)));
         }
-        return result;
       } catch (e) {
         if (e instanceof CommittedFault) throw e; // tag only once: the innermost wrapper wins
         throw new CommittedFault(name, call, e);
       } finally {
+        core.depth--;
         core.hooks.onLeave?.(name);
       }
+      if (pinArgs && core.records.length < MAX_CALL_RECORDS) {
+        const r = encodeCapped(result);
+        const pinnable = r.ok && !r.lossy && pinArgs.every((p) => p.pinnable);
+        core.records.push({ fn: name, call, args: pinArgs.map((p) => p.arg), result: pinnable && r.ok ? r.json : null });
+      }
+      return result;
     };
     return wrapper;
   }
@@ -308,8 +462,15 @@ export class ReplCore {
       const trimmed = isArrayCallbackCall(e.name, e.args, src);
       const args = trimmed ? e.args.slice(0, 1) : e.args;
       const argTypes: string[] = [];
+      const argDatasets: Array<string | null> = [];
       for (let i = 0; i < args.length; i++) {
         const a = args[i];
+        const b = this.datasetOf(a);
+        argDatasets.push(b ? b.name : null);
+        if (b) {
+          argTypes.push(`${b.typeName}[]`);
+          continue;
+        }
         try {
           argTypes.push(inferArgType(a));
         } catch (err) {
@@ -326,6 +487,7 @@ export class ReplCore {
         call: callString(e.name, args),
       };
       if (trimmed) out.argsTrimmed = 'array-callback';
+      if (argDatasets.some((d) => d !== null)) out.argDatasets = argDatasets;
       return out;
     }
     if (e instanceof CommittedFault) {
@@ -417,6 +579,69 @@ function unclosed(src: string): string | null {
   return top ? `a \`${top}\` is never closed (missing \`${close[top]}\`)` : null;
 }
 
+// ───────────────────────── encoded values and table previews ─────────────────────────
+
+const utf8 = new TextEncoder();
+
+/** encodeReport, or `ok: false` when the encoded JSON is over MAX_ENCODED_BYTES (UTF-8). */
+export function encodeCapped(v: unknown): { ok: true; json: Json; lossy: boolean } | { ok: false } {
+  const { json, lossy } = encodeReport(v);
+  const text = JSON.stringify(json);
+  // cheap reject first: the UTF-8 byte count is never smaller than the UTF-16 length
+  if (text.length > MAX_ENCODED_BYTES || utf8.encode(text).length > MAX_ENCODED_BYTES) return { ok: false };
+  return { ok: true, json, lossy };
+}
+
+/**
+ * The table rendering of a non-empty array whose elements are all plain objects (not arrays, Maps, class instances…),
+ * else null. Columns: union of own keys over the first TABLE_MAX_ROWS rows in first-seen order, at most
+ * TABLE_MAX_COLUMNS. Cells: show() of the value cut to TABLE_MAX_CELL characters; '' for a missing key; getters are
+ * never invoked (`[Getter]`). `total` is the full array length.
+ */
+export function tablePreview(v: unknown): TablePreview | null {
+  try {
+    if (!Array.isArray(v) || v.length === 0) return null;
+    const arr = v as unknown[];
+    for (let i = 0; i < arr.length; i++) {
+      const d = Object.getOwnPropertyDescriptor(arr, i);
+      const x: unknown = d && 'value' in d ? d.value : undefined;
+      if (typeof x !== 'object' || x === null || Array.isArray(x) || !isPlainObject(x)) return null;
+    }
+    const rows = arr.slice(0, TABLE_MAX_ROWS) as object[];
+    const columns: string[] = [];
+    const seen = new Set<string>();
+    for (const r of rows) {
+      for (const k of Object.keys(r)) {
+        if (seen.has(k)) continue;
+        seen.add(k);
+        columns.push(k);
+      }
+    }
+    const shownColumns = columns.slice(0, TABLE_MAX_COLUMNS);
+    return {
+      columns: shownColumns,
+      rows: rows.map((r) =>
+        shownColumns.map((c) => {
+          const d = Object.getOwnPropertyDescriptor(r, c);
+          if (!d) return '';
+          return cutCell('value' in d ? show(d.value) : '[Getter]');
+        }),
+      ),
+      total: arr.length,
+    };
+  } catch {
+    return null; // hostile values (revoked proxies…) simply get no table
+  }
+}
+
+function cutCell(s: string): string {
+  if (s.length <= TABLE_MAX_CELL) return s;
+  let end = TABLE_MAX_CELL - 1;
+  const code = s.charCodeAt(end - 1);
+  if (code >= 0xd800 && code <= 0xdbff) end--;
+  return s.slice(0, end) + '…';
+}
+
 const THUNK_SCAN_DEPTH = 64;
 const THUNK_SCAN_NODES = 100_000;
 
@@ -443,9 +668,15 @@ export type RuntimeRequest =
   | { id: number; type: 'evaluate'; input: string }
   | { id: number; type: 'snapshot' }
   | { id: number; type: 'envShown' }
-  | { id: number; type: 'reset'; functions: Record<string, string>; env: Record<string, Json> };
+  | { id: number; type: 'reset'; functions: Record<string, string>; env: Record<string, Json>; datasets?: Record<Hash, unknown[]> }
+  | { id: number; type: 'bindDataset'; name: string; hash: Hash; rows: unknown[]; typeName: string }
+  | { id: number; type: 'unbindDataset'; name: string }
+  | { id: number; type: 'datasets' };
 
-/** `evaluate` replies carry the env snapshot taken right after the evaluation (the main thread's last good env). */
+/**
+ * `evaluate`, `bindDataset` and `unbindDataset` replies carry the env snapshot taken right after the change (the main
+ * thread's last good env).
+ */
 export type RuntimeMessage =
   | { type: 'reply'; id: number; ok: true; result: unknown; env?: Record<string, Json> }
   | { type: 'reply'; id: number; ok: false; error: string }
@@ -476,7 +707,15 @@ export function createDispatcher(emit: (m: RuntimeMessage) => void): (req: Runti
         case 'envShown':
           return emit({ type: 'reply', id: req.id, ok: true, result: core.envShown() });
         case 'reset':
-          return emit({ type: 'reply', id: req.id, ok: true, result: { lost: core.reset(req.functions, req.env) } });
+          return emit({ type: 'reply', id: req.id, ok: true, result: { lost: core.reset(req.functions, req.env, req.datasets) } });
+        case 'bindDataset':
+          core.bindDataset(req.name, req.hash, req.rows, req.typeName);
+          return emit({ type: 'reply', id: req.id, ok: true, result: null, env: core.snapshotEnv() });
+        case 'unbindDataset':
+          core.unbindDataset(req.name);
+          return emit({ type: 'reply', id: req.id, ok: true, result: null, env: core.snapshotEnv() });
+        case 'datasets':
+          return emit({ type: 'reply', id: req.id, ok: true, result: core.datasets() });
       }
     } catch (e) {
       emit({ type: 'reply', id: req.id, ok: false, error: e instanceof Error ? `${e.name}: ${e.message}` : String(e) });

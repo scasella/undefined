@@ -476,3 +476,281 @@ describe('ReplCore — review fixes', () => {
     expect(msgs).toEqual([{ type: 'reply', id: 1, ok: true, result: { lost: ['f'] } }]);
   });
 });
+
+// ───────────────────────── datasets, tables, call records ─────────────────────────
+
+const ROWS = (): Array<{ customer: string; total: number }> => [
+  { customer: 'Ada', total: 12 },
+  { customer: 'Lin', total: 3 },
+  { customer: 'Ada', total: 5 },
+];
+const REF = { $t: 'dataset', name: 'rows', hash: 'h1', typeName: 'Row' };
+const TOTAL = 'function total(rows) { let t = 0; for (const r of rows) t += r.total; return t; }';
+const TOP = 'function top(rows) { return [...rows].sort((a, b) => b.total - a.total).slice(0, 2); }';
+const BIG = 'function big(n) { return "x".repeat(n); }';
+const APPLY = 'function apply(f, x) { return f(x); }';
+
+describe('ReplCore datasets', () => {
+  it('bindDataset binds the SAME array; snapshotEnv writes a ref; datasets() lists the binding', () => {
+    const core = new ReplCore();
+    const rows = ROWS();
+    core.bindDataset('rows', 'h1', rows, 'Row');
+    core.evaluate('n = rows.length');
+    expect(core.snapshotEnv()).toEqual({ rows: REF, n: 3 });
+    expect(core.datasets()).toEqual([{ name: 'rows', hash: 'h1', typeName: 'Row' }]);
+    // rows stay mutable in the REPL; the binding is still the same object
+    core.evaluate('rows.push({ customer: "Zed", total: 1 })');
+    expect(rows).toHaveLength(4);
+    expect(core.snapshotEnv().rows).toEqual(REF);
+  });
+
+  it('an alias IS the dataset (ref); reassigning the dataset variable unregisters it and both encode as values', () => {
+    const core = new ReplCore();
+    core.bindDataset('rows', 'h1', ROWS(), 'Row');
+    core.evaluate('all = rows');
+    expect(core.snapshotEnv()).toEqual({ rows: REF, all: REF });
+    core.evaluate('rows = rows.slice(0, 1)');
+    expect(core.datasets()).toEqual([]);
+    const snap = core.snapshotEnv();
+    expect(snap.rows).toEqual([{ customer: 'Ada', total: 12 }]);
+    expect(snap.all).toEqual(ROWS());
+  });
+
+  it('a user object shaped like a ref is escaped by the encoder, never mistaken for a dataset', () => {
+    const core = new ReplCore();
+    core.evaluate('fake = { $t: "dataset", name: "rows", hash: "h1", typeName: "Row" }');
+    const snap = core.snapshotEnv();
+    expect(snap.fake).toEqual({ $t: 'object', v: { $t: 'dataset', name: 'rows', hash: 'h1', typeName: 'Row' } });
+    const other = new ReplCore();
+    expect(other.restoreEnv(snap, { h1: ROWS() })).toEqual([]);
+    expect(other.evaluate('fake.hash')).toMatchObject({ shown: '"h1"' });
+    expect(other.datasets()).toEqual([]);
+  });
+
+  it('restoreEnv resolves refs to the SAME array (aliases too) and re-registers the dataset', () => {
+    const rows = ROWS();
+    const core = new ReplCore();
+    const lost = core.restoreEnv({ rows: REF, all: REF, n: 3 }, { h1: rows });
+    expect(lost).toEqual([]);
+    expect(core.datasets()).toEqual([{ name: 'rows', hash: 'h1', typeName: 'Row' }]);
+    expect(core.evaluate('rows === all')).toMatchObject({ shown: 'true' });
+    core.evaluate('rows[0].total = 99');
+    expect(rows[0]!.total).toBe(99); // the variable IS the given array
+    expect(core.snapshotEnv()).toEqual({ rows: REF, all: REF, n: 3 });
+  });
+
+  it('restoreEnv drops refs whose hash is missing and reports them like unserializable variables', () => {
+    const core = new ReplCore();
+    const lost = core.restoreEnv({ rows: REF, f: { $t: 'unserializable', show: '[Function]' }, n: 1 }, {});
+    expect(lost).toEqual(['rows', 'f']);
+    expect(core.snapshotEnv()).toEqual({ n: 1 });
+    expect(core.evaluate('rows')).toMatchObject({ kind: 'error', errorName: 'ReferenceError' });
+    expect(core.datasets()).toEqual([]);
+    // a later reset replaces the registry too
+    core.reset({}, { rows: REF }, { h1: ROWS() });
+    expect(core.datasets()).toHaveLength(1);
+    core.reset({}, {});
+    expect(core.datasets()).toEqual([]);
+  });
+
+  it('undefined-call: an argument that IS the dataset is typed `Row[]` and named; an equal copy is inferred normally', () => {
+    const core = new ReplCore();
+    core.bindDataset('rows', 'h1', ROWS(), 'Row');
+    expect(core.evaluate('summarize(rows, 2)')).toMatchObject({
+      kind: 'undefined-call',
+      argTypes: ['Row[]', 'number'],
+      argDatasets: ['rows', null],
+    });
+    const copy = core.evaluate('summarize(rows.slice(), 2)');
+    expect(copy).toMatchObject({ kind: 'undefined-call', argTypes: ['{ customer: string; total: number }[]', 'number'] });
+    expect(copy).not.toHaveProperty('argDatasets');
+    const json = core.evaluate('summarize(JSON.parse(JSON.stringify(rows)))');
+    expect(json).not.toHaveProperty('argDatasets');
+  });
+
+  it('unbindDataset deletes the variable and the binding', () => {
+    const core = new ReplCore();
+    core.bindDataset('rows', 'h1', ROWS(), 'Row');
+    core.unbindDataset('rows');
+    expect(core.snapshotEnv()).toEqual({});
+    expect(core.datasets()).toEqual([]);
+  });
+
+  it('bindDataset refuses a committed function name and non-arrays', () => {
+    const core = coreWith({ total: TOTAL });
+    expect(() => core.bindDataset('total', 'h1', ROWS(), 'Row')).toThrow(/committed function/);
+    expect(() => core.bindDataset('x', 'h1', {} as unknown as unknown[], 'Row')).toThrow(/array/);
+  });
+});
+
+describe('ReplCore value outcomes: encoded and table', () => {
+  it('carries the encoded value', () => {
+    const core = new ReplCore();
+    expect(core.evaluate('[1n, NaN, "a"]')).toMatchObject({ encoded: [{ $t: 'bigint', v: '1' }, { $t: 'number', v: 'NaN' }, 'a'] });
+    expect(core.evaluate('undefined')).toMatchObject({ encoded: { $t: 'undefined' } });
+  });
+
+  it('omits encoded when it is over 256 KB', () => {
+    const core = new ReplCore();
+    const small = core.evaluate('"x".repeat(1000)');
+    expect(small).toHaveProperty('encoded');
+    const big = core.evaluate('"x".repeat(300 * 1024)');
+    expect(big.kind).toBe('value');
+    expect(big).not.toHaveProperty('encoded');
+    // multi-byte characters count in UTF-8 bytes
+    expect(core.evaluate('"é".repeat(150 * 1024)')).not.toHaveProperty('encoded');
+  });
+
+  it('renders an array of plain objects as a table; missing keys are empty cells; columns in first-seen order', () => {
+    const core = new ReplCore();
+    const out = core.evaluate('[{ a: 1, b: "x" }, { b: "y", c: [1, 2] }, { a: null }]');
+    expect(out).toMatchObject({
+      kind: 'value',
+      table: {
+        columns: ['a', 'b', 'c'],
+        rows: [
+          ['1', '"x"', ''],
+          ['', '"y"', '[1, 2]'],
+          ['null', '', ''],
+        ],
+        total: 3,
+      },
+    });
+  });
+
+  it('truncates to 100 rows (total keeps the full length), 30 columns, and 80 characters per cell', () => {
+    const core = new ReplCore();
+    const out = core.evaluate('Array.from({ length: 150 }, (_, i) => ({ i, s: "z".repeat(200) }))');
+    if (out.kind !== 'value' || !out.table) throw new Error('expected a table');
+    expect(out.table.rows).toHaveLength(100);
+    expect(out.table.total).toBe(150);
+    expect(out.table.rows[99]![0]).toBe('99');
+    expect(out.table.rows[0]![1]).toHaveLength(80);
+    expect(out.table.rows[0]![1]!.endsWith('…')).toBe(true);
+    const wide = core.evaluate('[Object.fromEntries(Array.from({ length: 40 }, (_, i) => ["k" + i, i]))]');
+    if (wide.kind !== 'value' || !wide.table) throw new Error('expected a table');
+    expect(wide.table.columns).toHaveLength(30);
+    expect(wide.table.columns[29]).toBe('k29');
+    expect(wide.table.rows[0]).toHaveLength(30);
+  });
+
+  it('columns are the union over the first 100 rows only', () => {
+    const core = new ReplCore();
+    const out = core.evaluate('Array.from({ length: 120 }, (_, i) => i < 110 ? { a: i } : { a: i, late: 1 })');
+    if (out.kind !== 'value' || !out.table) throw new Error('expected a table');
+    expect(out.table.columns).toEqual(['a']);
+  });
+
+  it('no table for empty arrays, primitives, nested arrays, Maps, class instances or mixed arrays', () => {
+    const core = new ReplCore();
+    for (const expr of ['[]', '[1, 2]', '[[1, 2], [3, 4]]', '[new Map()]', '[new Date(0)]', '[{ a: 1 }, 2]', '[{ a: 1 }, null]', '{ a: 1 }', '"s"']) {
+      expect(core.evaluate(expr), expr).not.toHaveProperty('table');
+    }
+  });
+
+  it('never invokes a getter while building a table', () => {
+    const core = new ReplCore();
+    core.evaluate('hits = { n: 0 }');
+    const out = core.evaluate('[Object.defineProperty({ a: 1 }, "g", { get() { hits.n++; return 1; }, enumerable: true })]');
+    expect(out).toMatchObject({ table: { columns: ['a', 'g'], rows: [['1', '[Getter]']] } });
+    expect(core.evaluate('hits.n')).toMatchObject({ shown: '0' });
+  });
+
+  it('the dataset itself renders as a table', () => {
+    const core = new ReplCore();
+    core.bindDataset('rows', 'h1', ROWS(), 'Row');
+    expect(core.evaluate('rows')).toMatchObject({ table: { columns: ['customer', 'total'], total: 3 } });
+  });
+});
+
+describe('ReplCore value outcomes: callRecords', () => {
+  it('records a call over the dataset by reference, with the encoded result', () => {
+    const core = coreWith({ total: TOTAL, top: TOP });
+    core.bindDataset('rows', 'h1', ROWS(), 'Row');
+    const out = core.evaluate('top(rows)');
+    expect(out).toMatchObject({
+      kind: 'value',
+      table: { columns: ['customer', 'total'], total: 2 },
+      callRecords: [
+        {
+          fn: 'top',
+          call: expect.stringMatching(/^top\(\[/),
+          args: [{ kind: 'dataset', name: 'rows', hash: 'h1' }],
+          result: [
+            { customer: 'Ada', total: 12 },
+            { customer: 'Ada', total: 5 },
+          ],
+        },
+      ],
+    });
+  });
+
+  it('an equal-but-copied array is a value argument, not a dataset ref', () => {
+    const core = coreWith({ total: TOTAL });
+    core.bindDataset('rows', 'h1', ROWS(), 'Row');
+    const out = core.evaluate('total(rows.slice())');
+    expect(out).toMatchObject({ callRecords: [{ fn: 'total', args: [{ kind: 'value', encoded: ROWS() }], result: 20 }] });
+  });
+
+  it('nested f(g(x)) records both, in completion order (inner first)', () => {
+    const core = coreWith({ median: MEDIAN, double: DOUBLE });
+    const out = core.evaluate('double(median([3, 1, 2]))');
+    expect(out).toMatchObject({
+      calls: ['median', 'double'],
+      callRecords: [
+        { fn: 'median', call: 'median([3, 1, 2])', args: [{ kind: 'value', encoded: [3, 1, 2] }], result: 2 },
+        { fn: 'double', call: 'double(2)', args: [{ kind: 'value', encoded: 2 }], result: 4 },
+      ],
+    });
+  });
+
+  it('records arguments as they were BEFORE the call', () => {
+    const core = coreWith({ push: 'function push(xs) { xs.push(9); return xs.length; }' });
+    const out = core.evaluate('push([1])');
+    expect(out).toMatchObject({ callRecords: [{ args: [{ kind: 'value', encoded: [1] }], result: 2 }] });
+  });
+
+  it('a committed call made from inside another committed call is not recorded (not directly from the line)', () => {
+    const core = coreWith({ apply: APPLY, double: DOUBLE });
+    const out = core.evaluate('apply(double, 3)');
+    if (out.kind !== 'value') throw new Error(out.kind);
+    expect(out.callRecords).toHaveLength(1);
+    // a function argument cannot be pinned
+    expect(out.callRecords![0]).toMatchObject({ fn: 'apply', result: null, args: [{ kind: 'value', encoded: { $t: 'unserializable' } }, { kind: 'value', encoded: 3 }] });
+  });
+
+  it('calls made from a REPL callback are direct; records stop at 100', () => {
+    const core = coreWith({ double: DOUBLE });
+    const out = core.evaluate('[1, 2, 3].map((x) => double(x))');
+    expect(out).toMatchObject({ callRecords: [{ call: 'double(1)', result: 2 }, { call: 'double(2)' }, { call: 'double(3)', result: 6 }] });
+    const many = core.evaluate('Array.from({ length: 150 }, (_, i) => double(i)).length');
+    if (many.kind !== 'value') throw new Error(many.kind);
+    expect(many.callRecords).toHaveLength(100);
+  });
+
+  it('result is null when it is over 256 KB, or contains a function or an unserializable value', () => {
+    const core = coreWith({ big: BIG, fnOut: 'function fnOut(x) { return { f: () => x }; }', ok: 'function ok(x) { return x; }' });
+    expect(core.evaluate('big(10)')).toMatchObject({ callRecords: [{ fn: 'big', result: 'xxxxxxxxxx' }] });
+    const huge = core.evaluate('big(300 * 1024).length');
+    expect(huge).toMatchObject({ callRecords: [{ fn: 'big', args: [{ kind: 'value', encoded: 300 * 1024 }], result: null }] });
+    expect(core.evaluate('fnOut(1)')).toMatchObject({ callRecords: [{ fn: 'fnOut', result: null }] });
+    expect(core.evaluate('ok({ when: new (class K {})() })')).toMatchObject({ callRecords: [{ fn: 'ok', result: null }] });
+  });
+
+  it('an oversized non-dataset argument is not carried and makes the call unpinnable', () => {
+    const core = coreWith({ ok: 'function ok(s) { return s.length; }' });
+    const out = core.evaluate('ok("y".repeat(300 * 1024))');
+    expect(out).toMatchObject({ callRecords: [{ fn: 'ok', args: [{ kind: 'value', encoded: null }], result: null }] });
+  });
+
+  it('a binding line still carries the call records; plain lines carry none', () => {
+    const core = coreWith({ double: DOUBLE });
+    expect(core.evaluate('y = double(4)')).toMatchObject({ callRecords: [{ fn: 'double', result: 8 }] });
+    expect(core.evaluate('1 + 1')).not.toHaveProperty('callRecords');
+  });
+
+  it('a faulting line carries no records (the outcome is a fault)', () => {
+    const core = coreWith({ median: MEDIAN });
+    expect(core.evaluate('median([])')).toMatchObject({ kind: 'fault' });
+  });
+});

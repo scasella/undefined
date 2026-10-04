@@ -13,9 +13,12 @@
  *   class instances…): they are dropped, not bound to undefined, and named in the timeout outcome's `lost` (and in
  *   the `{ lost }` that reset() resolves to).
  * - Messages from a worker that has been replaced are ignored, so a late reply cannot be mistaken for a new one.
+ * - Datasets: bindDataset() binds a variable to rows in the worker and keeps the rows here, by hash. The env record
+ *   holds only a dataset ref for such a variable, so every rebuild (timeout, crash) re-sends the rows with the env and
+ *   the worker rebinds the variable to them. reset(functions, env, datasets) replaces that store (hash → rows).
  */
-import type { EvalOutcome, Json } from '../types';
-import type { RuntimeMessage, RuntimeRequest } from './replCore';
+import type { EvalOutcome, Hash, Json } from '../types';
+import { isDatasetRefJson, type DatasetBinding, type RuntimeMessage, type RuntimeRequest } from './replCore';
 
 /** The part of a Worker the runtime uses. Injectable so the queue/timeout/rebuild logic is testable in Node. */
 export interface RuntimeWorkerLike {
@@ -76,6 +79,8 @@ export class Runtime {
   private nextId = 1;
   private functions = new Map<string, FnEntry>();
   private env: Record<string, Json> = {};
+  /** Dataset rows by hash: re-sent to every new worker so the env's dataset refs resolve. */
+  private datasetRows = new Map<Hash, unknown[]>();
   private tail: Promise<unknown> = Promise.resolve();
   private disposed = false;
   /** Set while an evaluate is in flight: receives the worker's enter/leave events. */
@@ -99,6 +104,38 @@ export class Runtime {
     return this.enqueue(async () => {
       this.functions.delete(name);
       if (this.worker) await this.request({ type: 'undefine', name });
+    });
+  }
+
+  /**
+   * Bind REPL variable `name` to `rows` (as the dataset `hash` of type `typeName`) in the live worker. The rows are
+   * kept here so a rebuilt worker gets them back. Rejects when `name` is a committed function.
+   */
+  bindDataset(name: string, hash: Hash, rows: unknown[], typeName: string): Promise<void> {
+    return this.enqueue(async () => {
+      await this.ensureWorker();
+      const { env } = await this.request({ type: 'bindDataset', name, hash, rows, typeName });
+      this.datasetRows.set(hash, rows);
+      if (env) this.env = env;
+      this.pruneDatasets();
+    });
+  }
+
+  /** Forget dataset `name` (its variable is deleted if it still holds the rows). */
+  unbindDataset(name: string): Promise<void> {
+    return this.enqueue(async () => {
+      await this.ensureWorker();
+      const { env } = await this.request({ type: 'unbindDataset', name });
+      if (env) this.env = env;
+      this.pruneDatasets();
+    });
+  }
+
+  /** The datasets registered in the worker right now. */
+  datasets(): Promise<DatasetBinding[]> {
+    return this.enqueue(async () => {
+      await this.ensureWorker();
+      return (await this.request({ type: 'datasets' })).result as DatasetBinding[];
     });
   }
 
@@ -132,23 +169,33 @@ export class Runtime {
   }
 
   /**
-   * Replace functions + env wholesale (rollback / import / reload) in a fresh worker. Resolves with the variables that
-   * could not be restored (unserializable placeholders); they are dropped from the env.
+   * Replace functions + env wholesale (rollback / import / reload) in a fresh worker. `datasets` (hash → rows, already
+   * decoded) resolves the env's dataset refs and replaces the runtime's dataset store. Resolves with the variables
+   * that could not be restored (unserializable placeholders, dataset refs whose hash is not in `datasets`); they are
+   * dropped from the env.
    */
-  reset(functions: Record<string, RuntimeFunction>, env: Record<string, Json>): Promise<{ lost: string[] }> {
+  reset(
+    functions: Record<string, RuntimeFunction>,
+    env: Record<string, Json>,
+    datasets: Record<Hash, unknown[]> = {},
+  ): Promise<{ lost: string[] }> {
     return this.enqueue(async () => {
-      const previous = { functions: this.functions, env: this.env };
+      const previous = { functions: this.functions, env: this.env, datasetRows: this.datasetRows };
       this.kill(new Error('runtime reset'));
       this.functions = new Map(
         Object.entries(functions).map(([name, f]): [string, FnEntry] => [name, typeof f === 'string' ? { js: f } : { ...f }]),
       );
       this.env = env;
+      this.datasetRows = new Map(Object.entries(datasets));
       try {
-        return { lost: await this.ensureWorker() };
+        const lost = await this.ensureWorker();
+        this.pruneDatasets();
+        return { lost };
       } catch (e) {
         this.kill(e instanceof Error ? e : new Error(String(e)));
         this.functions = previous.functions;
         this.env = previous.env;
+        this.datasetRows = previous.datasetRows;
         throw e;
       }
     });
@@ -183,7 +230,7 @@ export class Runtime {
     this.worker = live;
     const functions: Record<string, string> = {};
     for (const [name, f] of this.functions) functions[name] = f.js;
-    const { result } = await this.request({ type: 'reset', functions, env: this.env });
+    const { result } = await this.request({ type: 'reset', functions, env: this.env, datasets: Object.fromEntries(this.datasetRows) });
     const lost = Array.isArray((result as { lost?: unknown } | null)?.lost) ? (result as { lost: string[] }).lost : [];
     if (lost.length > 0) {
       // The worker dropped them; keep the record in step so they are not reported again on the next rebuild.
@@ -192,6 +239,13 @@ export class Runtime {
       this.env = env;
     }
     return lost;
+  }
+
+  /** Keep only the rows some variable of the env record still refers to. */
+  private pruneDatasets(): void {
+    const used = new Set<Hash>();
+    for (const j of Object.values(this.env)) if (isDatasetRefJson(j)) used.add(j.hash);
+    for (const h of [...this.datasetRows.keys()]) if (!used.has(h)) this.datasetRows.delete(h);
   }
 
   private handle(m: RuntimeMessage): void {

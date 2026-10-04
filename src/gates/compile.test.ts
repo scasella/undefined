@@ -248,3 +248,62 @@ for (const c of cases) test('case ' + c.out, () => eq(median(c.input), c.out as 
     expect(transpileUserCode('export const y = 2;').error).toMatch(/^line 1: /);
   });
 });
+
+describe('compileCandidate with spec.typeDecls', () => {
+  beforeAll(async () => {
+    await warmUp();
+  }, 30_000);
+
+  const ROW_DECL = 'type Row = {\n  customer: string;\n  total: number;\n}';
+  const topCustomer: FunctionSpec = {
+    ...specFromCall('topCustomer', ['Row[]'], { typeDecls: ROW_DECL }),
+    returns: 'string',
+  };
+
+  it('compiles a body that uses the declared Row type and emits JS without the declaration', async () => {
+    const body = 'let best: Row | undefined;\nfor (const r of arg0) if (!best || r.total > best.total) best = r;\nreturn best ? best.customer : "";';
+    const r = await compileCandidate(topCustomer, body);
+    expect(r.gate.status).toBe('pass');
+    expect(r.source.startsWith(`${ROW_DECL}\nfunction topCustomer(arg0: Row[]): string\n{\n`)).toBe(true);
+    expect(r.js).not.toMatch(/type Row|customer: string/);
+    const fn = load<(rows: Array<{ customer: string; total: number }>) => string>(r.js!, 'topCustomer');
+    expect(fn([{ customer: 'a', total: 1 }, { customer: 'b', total: 5 }])).toBe('b');
+  });
+
+  it('keeps diagnostics BODY-relative when declarations are prepended', async () => {
+    const body = 'const first = arg0[0];\n  const n: number = first.customer;\n  return String(n);';
+    const r = await compileCandidate(topCustomer, body);
+    expect(r.gate.status).toBe('fail');
+    const [d] = diags(r.gate.diagnostics);
+    expect(d).toMatchObject({ code: 2322, line: 2, col: 9, snippet: '  const n: number = first.customer;' });
+    expect(r.gate.headline).toBe("Rejected: line 2: Type 'string' is not assignable to type 'number'.");
+  });
+
+  it('infers the return type of the function, not of the declaration', async () => {
+    const r = await compileCandidate({ ...topCustomer, returns: null }, 'return arg0.map((r) => r.total);');
+    expect(r.gate.status).toBe('pass');
+    expect(r.returnType).toBe('number[]');
+  });
+
+  it('reports an error inside typeDecls as such, never on a body line it does not belong to', async () => {
+    const spec = { ...topCustomer, typeDecls: 'type Row = { customer: string; total: Missing }' };
+    const r = await compileCandidate(spec, 'return arg0[0]!.customer;');
+    expect(r.gate.status).toBe('fail');
+    const [d] = diags(r.gate.diagnostics);
+    expect(d!.message).toMatch(/^in the type declarations \(typeDecls\): Cannot find name 'Missing'/);
+    expect(d!.line).toBe(1);
+  });
+
+  it('rejects typeDecls that contain code, not only types', async () => {
+    const spec = { ...topCustomer, typeDecls: 'type Row = { customer: string; total: number }\nconst leak = 1;' };
+    const r = await compileCandidate(spec, 'return arg0[0]!.customer;');
+    expect(r.gate.status).toBe('fail');
+    expect(diags(r.gate.diagnostics)[0]!.message).toMatch(/only `type` and `interface`/);
+  });
+
+  it('still flags code after an early-closing body when declarations are present', async () => {
+    const r = await compileCandidate(topCustomer, 'return "";\n}\nfunction other() {');
+    expect(r.gate.status).toBe('fail');
+    expect(diags(r.gate.diagnostics).some((d) => /closes the function early/.test(d.message))).toBe(true);
+  });
+});

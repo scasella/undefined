@@ -228,6 +228,52 @@ export interface ExampleDef extends ExampleInfo {
 }
 ```
 
+## Datasets, tables and pins
+
+A dataset is an array of row objects bound to a REPL variable (`rows` by default). Rows are stored once,
+content-addressed (`Image.datasets[hash]`); revisions and env snapshots only refer to them.
+
+- **Runtime / replCore.** `bindDataset(name, hash, rows, typeName)` binds the variable to that exact array and registers
+  it; `unbindDataset(name)`, `datasets()` (core and `Runtime`). Identity decides: a variable whose value IS (`===`) a
+  registered array snapshots as `{"$t":"dataset","name","hash","typeName"}`; an equal copy encodes as an ordinary value
+  (a user object with a `$t` key is escaped by serialize.ts, so it can't pass for a ref). Reassigning the dataset's own
+  variable (`rows = rows.slice(0, 5)`) unregisters it. `restoreEnv(env, datasets?)` / `reset(functions, env, datasets?)`
+  take `hash → rows` (decoded): refs resolve to the SAME array object and re-register; a ref whose hash is missing is
+  dropped and reported in `lost` like an unserializable variable. `Runtime` keeps the rows by hash and re-sends them
+  on every worker rebuild (timeouts), so bindings survive. Rows stay mutable in the REPL.
+- **`value` outcomes.** `encoded` (encodeValue of the result; omitted over 256 KB of UTF-8 JSON). `table` when the
+  value is a non-empty array whose elements are all plain objects: columns = union of own keys over the first 100 rows,
+  first-seen order, max 30; ≤ 100 rows; cells are `show()` cut to 80 chars, `''` for a missing key, `[Getter]` for
+  accessors (never invoked); `total` = full length. `callRecords`: one per call of a committed function made directly
+  from the line (not from inside another committed call), in completion order, max 100 per evaluation; arguments are
+  captured before the call; an argument that IS a dataset is `{kind:'dataset', name, hash}`, anything else
+  `{kind:'value', encoded}` (`encoded: null` when over 256 KB); `result` is null (not pinnable) when it is over
+  256 KB or when any argument or the result contains an unserializable value or a function.
+- **`undefined-call`.** An argument that IS a dataset is typed `` `${typeName}[]` `` and named in `argDatasets[i]`
+  (null elsewhere; the field is present only when some argument is a dataset). `args` still carries the encoded rows.
+- **Compile.** `buildSource` prepends `spec.typeDecls` (CRLF normalised, trailing whitespace trimmed) before the
+  function; `bodyStartLine` moves down by its line count, so diagnostics stay body-relative. `typeDecls` may contain
+  only `type`/`interface` declarations (else a harness error); an error inside them is reported as
+  `in the type declarations (typeDecls): …` on line 1. `specFromCall(name, argTypes, { typeDecls })`.
+- **Hashes.** `specHash` appends `typeDecls` only when non-empty, so every existing hash is unchanged. Pins are in
+  neither hash: pinning invalidates nothing.
+- **Prompt.** `PromptInput.dataSamples?: Array<{ name; typeName; rowCount; sampleText? }>`. With `typeDecls` the prompt
+  has a TYPES block and shows them in the "compiled exactly as" layout. Per dataset a DATA block: the row count and type,
+  then either `sampleText` verbatim or "(The user chose not to share sample rows; only the type is shared.)", and the
+  rule that the function must work for ANY rows of that type. Nothing else from the rows ever reaches the prompt.
+- **Pins in the gates.** `ExecGateInput.pinned?: Array<{ label; args; expected }>` (decoded; dataset args are the real
+  rows). They run in the Tests phase after the user's tests, each as unit test `pinned: <label>` on deep-cloned
+  arguments with `eq()` equality; a failure is an ordinary `test` diagnostic (`call` = label, expected/actual/error,
+  same headline style). Pins alone make the Tests gate run. Summaries: `4/4 tests passed` (no pins, unchanged),
+  `5 unit tests + 2 pinned passed`, `2 pinned passed`, failing `5/7 tests passed (5 unit + 2 pinned)`. Properties:
+  `2/2 properties held (150 runs: "a" 100, "b" 50)`. Because pin calls are sampled, the Invariants replay re-runs them
+  on frozen clones: an in-place sort of `rows` is rejected and the caller's rows are never touched.
+- **Phases.** `ExecGateInput.phases?: Array<'tests'|'properties'|'invariants'>` (default all). The result array holds
+  only requested phases, in order, plus an Invariants failure whenever an invariant was violated (attribution rule,
+  also for watchdog timeouts in `runExecutionGates`).
+- **Evidence.** `evidenceFrom(results)` (sandbox/gateRunner.ts) → `{ unitTests, pinnedTests, properties: [{name, runs}],
+  sampledCalls }`, parsed from the summaries above; gates that did not run count 0.
+
 ## UI contract
 
 The UI is a pure function of `Engine.state` plus calls on `Engine`. It owns no business logic. Panels: REPL, code pane, gate panel (+ the big rejection headline), retry strip, revision log, repo view, mode banner. See the UI task brief.

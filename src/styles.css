@@ -1909,3 +1909,337 @@ textarea.mono {
     display: none;
   }
 }
+
+/* ─────────── data scratchpad: Data button, drawer, result tables, pins ─────────── */
+
+.data-btn {
+  gap: 6px;
+}
+.badge-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 9px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--bg);
+  background: var(--info);
+}
+
+/* the one primary action after a result: phosphor green, filled, bold */
+.btn-primary {
+  border-color: var(--pass);
+  background: var(--pass-dim);
+  color: var(--pass);
+  font-weight: 700;
+}
+.btn-primary:hover:not(:disabled) {
+  border-color: var(--pass);
+  background: color-mix(in srgb, var(--pass) 24%, transparent);
+}
+
+/* "Pin as test": one compact line under a result, never more */
+.r-actions {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 22px;
+  font-size: 12px;
+}
+.r-unchecked .r-actions {
+  margin-top: 3px;
+}
+.btn-pin {
+  padding: 1px 10px;
+  font-size: 12px;
+  line-height: 18px;
+}
+.pin-done {
+  color: var(--pass);
+  font-weight: 600;
+}
+.linkish {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--info);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+/* tables (REPL results, data preview) */
+.r-table {
+  flex-basis: 100%;
+  min-width: 0;
+}
+.r-table .dtable-scroll {
+  max-height: 200px;
+}
+.dtable {
+  min-width: 0;
+}
+.dtable-scroll {
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--inset);
+}
+.dtable.is-compact .dtable-scroll {
+  max-height: 220px;
+}
+.dtable table {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  width: max-content;
+  min-width: 100%;
+}
+.dtable th,
+.dtable td {
+  padding: 3px 10px;
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--line);
+}
+.dtable th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+.dtable .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.dtable tbody tr:last-child td {
+  border-bottom: 0;
+}
+.dtable-note {
+  margin: 3px 0 0;
+}
+
+/* the drawer: right side, full-screen sheet on narrow screens */
+.drawer {
+  position: fixed;
+  inset: 0 0 0 auto;
+  margin: 0;
+  height: 100%;
+  max-height: 100%;
+  width: min(560px, 100vw);
+  max-width: 100vw;
+  overflow-y: auto;
+  background: var(--panel);
+  color: var(--text);
+  border: 0;
+  border-left: 1px solid var(--line-2);
+  padding: 14px 18px 24px;
+  box-shadow: -30px 0 80px -20px rgba(0, 0, 0, 0.7);
+}
+.drawer::backdrop {
+  background: rgba(5, 7, 6, 0.55);
+}
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.drawer h2 {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 17px;
+}
+.drawer h3 {
+  margin: 0 0 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.drawer > * + * {
+  margin-top: 12px;
+}
+.drawer-intro {
+  margin-bottom: 0;
+}
+.drop {
+  border: 1px dashed var(--line-2);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+}
+.drop.is-dragging {
+  border-color: var(--run);
+  background: var(--run-dim);
+}
+.drop-hint {
+  margin: 6px 0 0;
+}
+.data-label {
+  display: block;
+  margin: 0 0 4px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.data-name {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--muted);
+  max-width: 260px;
+}
+.data-preview-body > * + * {
+  margin-top: 8px;
+}
+.data-stats {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.data-cols {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+.data-type,
+.send-sample {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--inset);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.data-type code,
+.send-sample code {
+  min-width: 0;
+}
+.data-warnings {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--run);
+  font-size: 12px;
+}
+.send-box {
+  border: 1px solid color-mix(in srgb, var(--info) 45%, var(--line));
+  background: color-mix(in srgb, var(--info) 6%, transparent);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+.send-box p {
+  margin: 6px 0 0;
+  font-size: 13px;
+}
+.send-toggle {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 13px;
+  cursor: pointer;
+}
+.send-toggle input {
+  width: auto;
+  margin-top: 2px;
+}
+.bound ul,
+.repo-datasets ul,
+.pinned ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pinned li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0;
+  border-top: 1px solid var(--line);
+}
+.pin-head,
+.bound li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.ok-line {
+  color: var(--pass);
+}
+
+/* repo: datasets and pinned tests */
+.repo-datasets {
+  margin-bottom: 14px;
+}
+.repo-datasets h3 {
+  margin: 0 0 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.dataset-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 8px 10px;
+}
+.dataset-card p {
+  margin: 0 0 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.dataset-card .code {
+  padding: 6px 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.dataset-card .code code {
+  min-width: 0;
+}
+.pinned {
+  margin-top: 12px;
+}
+.pinned h4 {
+  margin: 0 0 2px;
+}
+.pinned p {
+  margin: 0 0 6px;
+}
+.pin-expected {
+  color: var(--pass);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 699px) {
+  .drawer {
+    width: 100vw;
+    border-left: 0;
+    padding: 12px 16px 24px;
+  }
+}

@@ -9,7 +9,7 @@ import type { Diagnostic, FunctionSpec, GateId, GateResult, Program } from '../t
 import { compileCandidate, transpileUserCode, warmUp } from '../gates/compile';
 import { executeGates, type ExecGateInput } from '../sandbox/gateExecutor';
 import { gateSeed, hashesFor } from '../shared/hash';
-import { exampleById } from '../examples/index';
+import { specExample } from '../examples/index';
 import { appendProperty } from './apply';
 import { makeRecord, makeSpec, programOf } from './fixtures';
 import { suggestProperties, type Suggestion, type SuggestionKind } from './suggest';
@@ -103,7 +103,7 @@ describe('every suggestion kind passes a good candidate and rejects a bad one th
   });
 
   it('shape: slugify (shipped good body passes; the \\w-based body that keeps "_" is rejected)', async () => {
-    const ex = exampleById('slugify')!;
+    const ex = specExample('slugify');
     const spec = { ...ex.spec, properties: '' };
     const s = pick(spec, programOf(makeRecord(spec)), 'shape');
     const full = withOnly(spec, s);
@@ -113,7 +113,7 @@ describe('every suggestion kind passes a good candidate and rejects a bad one th
   });
 
   it('idempotence: slugify (good body passes; a slugify that re-hyphenates its own hyphens is rejected)', async () => {
-    const ex = exampleById('slugify')!;
+    const ex = specExample('slugify');
     const spec = { ...ex.spec, properties: '' };
     const s = pick(spec, programOf(makeRecord(spec)), 'idempotence');
     const full = withOnly(spec, s);
@@ -209,7 +209,7 @@ return out;`;
   });
 
   it('bounds: median (good example body passes; summing the two middles instead of averaging is rejected)', async () => {
-    const ex = exampleById('median')!;
+    const ex = specExample('median');
     const spec = { ...ex.spec, properties: '' };
     const s = pick(spec, programOf(makeRecord(spec)), 'bounds');
     const full = withOnly(spec, s);

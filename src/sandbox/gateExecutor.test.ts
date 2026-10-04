@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { GateResult } from '../types';
 import { INTERRUPTED_NOTE } from './attribution';
 import { executeGates, NEVER_CALLED_NOTE, NO_PROPERTIES_NOTE, NO_TESTS_NOTE, type ExecGateInput, type ExecHooks } from './gateExecutor';
+import { evidenceFrom } from './gateRunner';
 
 // ───────── real candidates (strict JS as the compile gate would emit it) ─────────
 
@@ -110,7 +111,9 @@ describe('executeGates', () => {
     expect(statuses(results)).toEqual(['tests:pass', 'properties:pass', 'invariants:pass']);
     expect(results[0].summary).toBe('4/4 tests passed');
     expect(results[0].counts).toEqual({ passed: 4, total: 4 });
-    expect(results[1].summary).toBe('2/2 properties held (200 runs)');
+    expect(results[1].summary).toBe(
+      '2/2 properties held (200 runs: "agrees with the sort-based reference" 100, "result is within min and max" 100)',
+    );
     expect(results[2].summary).toMatch(/^pure ✓ bounded ✓ \(\d+ sampled calls replayed on frozen arguments\)$/);
     const replayed = Number(/\((\d+) sampled/.exec(results[2].summary)![1]);
     expect(replayed).toBeGreaterThan(1);
@@ -132,7 +135,7 @@ describe('executeGates', () => {
     expect(statuses(results)).toEqual(['tests:skipped', 'properties:fail', 'invariants:skipped']);
     const props = results[1];
     expect(props.headline).toBe('Rejected: median([0, 1]) returned 0, expected 0.5');
-    expect(props.summary).toBe('1/2 properties failed');
+    expect(props.summary).toBe('1/2 properties failed (101 runs: "agrees with the sort-based reference" 1, "result is within min and max" 100)');
     expect(props.counts).toEqual({ passed: 1, total: 2 });
     const d = props.diagnostics[0];
     expect(d).toMatchObject({
@@ -509,5 +512,164 @@ describe('executeGates — "the spec was silent" markers', () => {
     expect(bad.headline).toMatch(/^Spec error: test\("t"\): when only applies to properties/);
     const notString = props(MEDIAN, `property('p', [fc.nat()], () => true, { silentOn: 3 });`)[1];
     expect(notString.headline).toMatch(/silentOn must be a non-empty string/);
+  });
+});
+
+// ───────────────────────── pins, phases, evidence ─────────────────────────
+
+const ROWS = (): Array<{ customer: string; total: number }> => [
+  { customer: 'Ada', total: 12 },
+  { customer: 'Lin', total: 3 },
+  { customer: 'Bo', total: 7 },
+];
+const TOTAL = `function total(rows) { let t = 0; for (const r of rows) t += r.total; return t; }`;
+const TOTAL_WRONG = `function total(rows) { let t = 0; for (const r of rows) t += r.total; return t + 1; }`;
+const TOTAL_SORTS_IN_PLACE = `function total(rows) { rows.sort((a, b) => a.total - b.total); let t = 0; for (const r of rows) t += r.total; return t; }`;
+const TOTAL_ZEROES_ROWS = `function total(rows) { let t = 0; for (const r of rows) { t += r.total; r.total = 0; } return t; }`;
+const TOTAL_THROWS = `function total(rows) { throw new RangeError('no rows'); }`;
+const TOTAL_TESTS = `test('empty', () => eq(total([]), 0));\ntest('one', () => eq(total([{ customer: 'x', total: 2 }]), 2));`;
+
+function totalInput(over: Partial<ExecGateInput> & Pick<ExecGateInput, 'js'>): ExecGateInput {
+  return { name: 'total', testsJs: '', propertiesJs: '', budgetMs: 1500, seed: 7, ...over };
+}
+
+describe('executeGates: pinned results', () => {
+  it('runs pins after the unit tests, counts them, and keeps the old summary when there are none', () => {
+    const rows = ROWS();
+    const { results } = run(totalInput({ js: TOTAL, testsJs: TOTAL_TESTS, pinned: [{ label: 'total(rows)', args: [rows], expected: 22 }] }));
+    expect(statuses(results)).toEqual(['tests:pass', 'properties:skipped', 'invariants:pass']);
+    expect(results[0]).toMatchObject({ summary: '2 unit tests + 1 pinned passed', counts: { passed: 3, total: 3 } });
+    const plain = run(totalInput({ js: TOTAL, testsJs: TOTAL_TESTS })).results;
+    expect(plain[0]!.summary).toBe('2/2 tests passed');
+  });
+
+  it('pins alone make the Tests gate run (not skipped)', () => {
+    const { results } = run(totalInput({ js: TOTAL, pinned: [{ label: 'total(rows)', args: [ROWS()], expected: 22 }, { label: 'total([])', args: [[]], expected: 0 }] }));
+    expect(results[0]).toMatchObject({ status: 'pass', summary: '2 pinned passed', counts: { passed: 2, total: 2 } });
+    expect(results[0]!.note).toBeUndefined();
+  });
+
+  it('a failing pin is a standard test diagnostic named `pinned: <label>`, with call/expected/actual and a headline', () => {
+    const { results } = run(totalInput({ js: TOTAL_WRONG, testsJs: TOTAL_TESTS.split('\n')[0], pinned: [{ label: 'total(rows)', args: [ROWS()], expected: 22 }] }));
+    expect(statuses(results)).toEqual(['tests:fail', 'properties:skipped', 'invariants:skipped']);
+    const t = results[0]!;
+    expect(t.summary).toBe('0/2 tests passed (1 unit + 1 pinned)');
+    expect(t.headline).toBe('Rejected: total([]) returned 1, expected 0'); // the unit test ran first
+    expect(t.diagnostics[1]).toEqual({
+      kind: 'test',
+      name: 'pinned: total(rows)',
+      call: 'total(rows)',
+      expected: '22',
+      actual: '23',
+      message: 'expected 22, got 23',
+    });
+    const only = run(totalInput({ js: TOTAL_WRONG, pinned: [{ label: 'total(rows)', args: [ROWS()], expected: 22 }] })).results[0]!;
+    expect(only.headline).toBe('Rejected: total(rows) returned 23, expected 22');
+    expect(only.diagnostics[0]).not.toHaveProperty('silentOn');
+  });
+
+  it('a pin whose call throws reports the error and what was expected', () => {
+    const { results } = run(totalInput({ js: TOTAL_THROWS, pinned: [{ label: 'total(rows)', args: [ROWS()], expected: 22 }] }));
+    expect(results[0]!.headline).toBe('Rejected: total(rows) threw RangeError: no rows, expected 22');
+    expect(results[0]!.diagnostics[0]).toMatchObject({ kind: 'test', name: 'pinned: total(rows)', call: 'total(rows)', expected: '22', error: 'RangeError: no rows' });
+  });
+
+  it('compares with eq() equality (NaN equals NaN, -0 differs from 0, deep objects)', () => {
+    const id = 'function total(x) { return x; }';
+    const pass = run(totalInput({ js: id, pinned: [{ label: 'a', args: [{ v: [NaN, 1n] }], expected: { v: [NaN, 1n] } }] })).results[0]!;
+    expect(pass.status).toBe('pass');
+    const fail = run(totalInput({ js: id, pinned: [{ label: 'b', args: [-0], expected: 0 }] })).results[0]!;
+    expect(fail.status).toBe('fail');
+  });
+
+  it('a candidate cannot corrupt the dataset rows: pins run on deep clones and the frozen replay catches the mutation', () => {
+    for (const js of [TOTAL_SORTS_IN_PLACE, TOTAL_ZEROES_ROWS]) {
+      const rows = ROWS();
+      const before = JSON.stringify(rows);
+      const { results } = run(totalInput({ js, pinned: [{ label: 'total(rows)', args: [rows], expected: 22 }], callArgs: [rows] }));
+      expect(JSON.stringify(rows)).toBe(before);
+      expect(statuses(results)).toEqual(['tests:pass', 'properties:skipped', 'invariants:fail']);
+      expect(results[2]!.diagnostics[0]).toMatchObject({ kind: 'invariant', invariant: 'pure', message: 'mutated its argument' });
+    }
+  });
+});
+
+describe('executeGates: phases', () => {
+  it("phases ['tests', 'properties'] omits Invariants (no replay runs)", () => {
+    const { results, events } = run(input({ js: MEDIAN_IN_PLACE, phases: ['tests', 'properties'] }));
+    expect(statuses(results)).toEqual(['tests:pass', 'properties:pass']);
+    expect(events.filter((e) => e[0] === 'phase').map((e) => e[1])).toEqual(['tests', 'properties']);
+    expect(events.filter((e) => e[0] === 'gate').map((e) => e[1])).toEqual(['tests', 'properties']);
+  });
+
+  it('a failure in a requested phase still ends the run', () => {
+    const { results } = run(input({ js: MEDIAN_LOWER, phases: ['tests', 'properties'] }));
+    expect(statuses(results)).toEqual(['tests:fail', 'properties:skipped']);
+    const props = run(input({ js: MEDIAN_LOWER, testsJs: '', phases: ['tests', 'properties'] })).results;
+    expect(statuses(props)).toEqual(['tests:skipped', 'properties:fail']);
+  });
+
+  it('an invariant violation is still reported by Invariants when it was not requested (attribution rule)', () => {
+    const { results } = run(input({ js: MEDIAN_RANDOM, phases: ['tests', 'properties'] }));
+    expect(results.map((r) => r.gate)).toContain('invariants');
+    const inv = results.find((r) => r.gate === 'invariants')!;
+    expect(inv).toMatchObject({ status: 'fail', diagnostics: [{ kind: 'invariant', invariant: 'pure' }] });
+    expect(results.every((r) => r.gate !== 'invariants' || r.status === 'fail')).toBe(true);
+  });
+
+  it("phases ['properties'] skips the unit tests and pins entirely", () => {
+    const { results } = run(input({ js: MEDIAN, phases: ['properties'], pinned: [{ label: 'median([1])', args: [[1]], expected: 99 }] }));
+    expect(statuses(results)).toEqual(['properties:pass']);
+  });
+});
+
+describe('evidenceFrom (against real executor output)', () => {
+  it('counts unit tests, properties with runs, and sampled calls of a passing run', () => {
+    const { results } = run(input({ js: MEDIAN, callArgs: [[1, 2]] }));
+    const ev = evidenceFrom(results);
+    expect(ev.unitTests).toBe(4);
+    expect(ev.pinnedTests).toBe(0);
+    expect(ev.properties).toEqual([
+      { name: 'agrees with the sort-based reference', runs: 100 },
+      { name: 'result is within min and max', runs: 100 },
+    ]);
+    expect(ev.sampledCalls).toBe(Number(/\((\d+) sampled/.exec(results[2]!.summary)![1]));
+    expect(ev.sampledCalls).toBeGreaterThan(1);
+  });
+
+  it('splits unit and pinned tests (pass, pins only, and fail)', () => {
+    const pin = { label: 'total(rows)', args: [ROWS()], expected: 22 };
+    expect(evidenceFrom(run(totalInput({ js: TOTAL, testsJs: TOTAL_TESTS, pinned: [pin] })).results)).toMatchObject({ unitTests: 2, pinnedTests: 1, properties: [] });
+    expect(evidenceFrom(run(totalInput({ js: TOTAL, pinned: [pin, pin] })).results)).toMatchObject({ unitTests: 0, pinnedTests: 2 });
+    expect(evidenceFrom(run(totalInput({ js: TOTAL_WRONG, testsJs: TOTAL_TESTS, pinned: [pin] })).results)).toMatchObject({ unitTests: 2, pinnedTests: 1, sampledCalls: 0 });
+    const single = run(totalInput({ js: TOTAL, testsJs: TOTAL_TESTS.split('\n')[0] })).results;
+    expect(single[0]!.summary).toBe('1/1 test passed');
+    expect(evidenceFrom(single)).toMatchObject({ unitTests: 1, pinnedTests: 0 });
+  });
+
+  it('nothing ran: skipped gates, never-called candidate, interrupted phases', () => {
+    expect(evidenceFrom(run(totalInput({ js: TOTAL })).results)).toEqual({ unitTests: 0, pinnedTests: 0, properties: [], sampledCalls: 0 });
+    // impure on long inputs: tests completed, properties interrupted
+    const { results } = run(input({ js: MEDIAN_CLOCK_ON_LONG }));
+    expect(statuses(results)).toEqual(['tests:pass', 'properties:skipped', 'invariants:fail']);
+    expect(evidenceFrom(results)).toEqual({ unitTests: 4, pinnedTests: 0, properties: [], sampledCalls: 0 });
+  });
+
+  it('property names with quotes, commas and the word "runs" parse exactly', () => {
+    const props = `property('a "quoted", runs: 3', [fc.integer()], () => true, { numRuns: 7 });\nproperty('b', [fc.integer()], () => true);`;
+    const { results } = run(totalInput({ js: TOTAL, propertiesJs: props }));
+    expect(evidenceFrom(results).properties).toEqual([
+      { name: 'a "quoted", runs: 3', runs: 7 },
+      { name: 'b', runs: 100 },
+    ]);
+  });
+
+  it('legacy summaries without the per-property breakdown yield no guessed names', () => {
+    const legacy: GateResult[] = [
+      { gate: 'tests', status: 'pass', ms: 1, summary: '5/5 tests passed', diagnostics: [], counts: { passed: 5, total: 5 } },
+      { gate: 'properties', status: 'pass', ms: 1, summary: '2/2 properties held (200 runs)', diagnostics: [], counts: { passed: 2, total: 2 } },
+      { gate: 'invariants', status: 'pass', ms: 1, summary: 'pure ✓ bounded ✓ (1 sampled call replayed on frozen arguments)', diagnostics: [] },
+    ];
+    expect(evidenceFrom(legacy)).toEqual({ unitTests: 5, pinnedTests: 0, properties: [], sampledCalls: 1 });
   });
 });

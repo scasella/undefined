@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import type { Artifact, Engine, EngineState, ExampleInfo, FunctionRecord, FunctionSpec, GenerationView } from '../../types';
+import type { Artifact, DatasetRef, Engine, EngineState, ExampleInfo, FunctionRecord, FunctionSpec, GenerationView } from '../../types';
+import { datasetLine, expectedSummary, formatBytes, pinDatasets } from '../data';
 import { isValidFnName, paramsText, parseParams, shortHash } from '../format';
 import { draftOf, functionStatus, functionStatusText, newSpecPrefill, signatureOf, specPatch } from '../select';
 import { focusFn } from '../uiState';
@@ -195,6 +196,75 @@ function ArtifactView({ a, spec, stale }: { a: Artifact; spec: FunctionSpec; sta
   );
 }
 
+/** The results pinned as unit tests on one function: they are part of its checks, but outside both hashes. */
+function PinnedTests({ rec, engine, busy }: { rec: FunctionRecord; engine: Engine; busy: boolean }) {
+  const pins = rec.spec.pins ?? [];
+  if (pins.length === 0) return null;
+  return (
+    <section class="pinned" aria-labelledby={`pinned-${rec.spec.name}`}>
+      <h4 id={`pinned-${rec.spec.name}`}>Pinned tests ({pins.length})</h4>
+      <p class="muted small">Results you pinned from real calls. Every regeneration has to reproduce them; pinning changed no hash.</p>
+      <ul>
+        {pins.map((p) => {
+          const data = pinDatasets(p);
+          return (
+            <li key={p.id}>
+              <div class="pin-head">
+                <code class="mono">{p.label}</code>
+                {data.length > 0 && <span class="muted small">on the stored {data.join(', ')}</span>}
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs"
+                  disabled={busy}
+                  aria-label={`Remove the pinned test ${p.label}`}
+                  onClick={() => void engine.removePin(rec.spec.name, p.id)}
+                >
+                  remove
+                </button>
+              </div>
+              <code class="mono pin-expected" title="expected result">
+                <span class="muted" aria-label="expected">
+                  ={' '}
+                </span>
+                {expectedSummary(p.expected, 140)}
+              </code>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+function Datasets({ datasets, engine, busy }: { datasets: DatasetRef[]; engine: Engine; busy: boolean }) {
+  if (datasets.length === 0) return null;
+  return (
+    <section class="repo-datasets" aria-labelledby="repo-datasets-title">
+      <h3 id="repo-datasets-title">Datasets</h3>
+      <ul>
+        {datasets.map((d) => (
+          <li key={d.name} class="dataset-card">
+            <p>
+              <strong class="mono">{datasetLine(d)}</strong>
+              <span class="muted small">
+                {' '}
+                · {d.source === 'bundled' ? `bundled ${d.filename ?? ''}` : d.filename ? d.filename : 'pasted'} · {formatBytes(d.bytes)} · hash{' '}
+                <span class="mono">{shortHash(d.hash)}</span>
+              </span>
+              <button type="button" class="btn btn-ghost btn-xs" disabled={busy} onClick={() => void engine.removeDataset(d.name)}>
+                remove
+              </button>
+            </p>
+            <pre class="code small">
+              <code>{d.typeDecl}</code>
+            </pre>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function FunctionCard({
   rec,
   engine,
@@ -260,6 +330,7 @@ function FunctionCard({
         <div>
           <h4>Spec</h4>
           <SpecEditor key={JSON.stringify(draftOf(spec))} rec={rec} engine={engine} busy={busy} />
+          <PinnedTests rec={rec} engine={engine} busy={busy} />
         </div>
         <div>
           {rec.artifact ? (
@@ -373,6 +444,7 @@ export function Repo({ state, engine }: { state: EngineState; engine: Engine }) 
   const recs = Object.values(state.program.functions);
   return (
     <div class="repo">
+      <Datasets datasets={state.datasets} engine={engine} busy={state.busy} />
       {recs.length === 0 && <p class="empty">No functions yet. Call one in the REPL, or add a spec below.</p>}
       {recs.map((rec) => (
         <FunctionCard

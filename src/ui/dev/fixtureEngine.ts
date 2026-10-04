@@ -4,13 +4,17 @@
  * opening → generating → rejected by properties → second candidate → committed.
  */
 import { signal } from '@preact/signals';
-import type { AttemptView, Engine, EngineState, FunctionSpec, GateResult, RestartId, SpecPatch } from '../../types';
+import type { AttemptView, DatasetRef, Engine, EngineState, FunctionSpec, GateResult, RestartId, SpecPatch } from '../../types';
+import { buildData, datasetPreview, PINNED_INFO } from '../../core/engine';
+import { dataDrawerOpen, lowerTab } from '../uiState';
 import {
   EXAMPLES,
   MEDIAN_BAD,
   MEDIAN_GOOD,
   SCENARIOS,
+  SCENARIO_UI,
   TAKEAWAY,
+  medianPinnable,
   candidate,
   eid,
   medianAcceptedGates,
@@ -38,6 +42,9 @@ export function createFixtureEngine(scenario: string): Engine {
   const make = SCENARIOS[scenario] ?? SCENARIOS.opening;
   const state = signal<EngineState>(make());
   let epoch = 0; // bumped by reset so a running script stops
+  const ui = SCENARIO_UI[scenario];
+  if (ui?.drawer) dataDrawerOpen.value = true;
+  if (ui?.tab) lowerTab.value = ui.tab;
 
   const update = (recipe: (s: EngineState) => void): void => {
     const next = structuredClone(state.value);
@@ -126,7 +133,7 @@ export function createFixtureEngine(scenario: string): Engine {
       pushRevision(s, 'commit', 'median certified (attempt 2 of 3, rejected by properties first)', { fn: 'median' });
       g.phase = 'committed';
       g.revision = s.headRevision;
-      s.repl.push({ kind: 'output', id: eid('out'), value: '2.5', ms: 0.4, label: 'generated', detail: `revision ${s.headRevision}` });
+      s.repl.push({ kind: 'output', id: eid('out'), value: '2.5', ms: 0.4, label: 'generated', detail: `revision ${s.headRevision}`, pinnable: medianPinnable(call.slice('median('.length, -1), 2.5) });
       s.busy = false;
     });
   }
@@ -154,7 +161,15 @@ export function createFixtureEngine(scenario: string): Engine {
           } catch {
             /* fixture: leave NaN */
           }
-          s.repl.push({ kind: 'output', id: eid('out'), value, ms: 0.1, label: 'cached artifact', detail: `certified r${median.artifact.revision}` });
+          s.repl.push({
+            kind: 'output',
+            id: eid('out'),
+            value,
+            ms: 0.1,
+            label: 'cached artifact',
+            detail: `certified r${median.artifact.revision}`,
+            ...(value !== 'NaN' ? { pinnable: medianPinnable(m[1], Number(value)) } : {}),
+          });
           if (!s.repl.some((e) => e.kind === 'takeaway')) s.repl.push({ kind: 'takeaway', id: eid('tk'), text: TAKEAWAY });
         } else {
           s.repl.push({ kind: 'info', id: eid('if'), text: `fixture engine: only median(...) is scripted (scenario "${scenario}")`, tone: 'muted' });
@@ -230,6 +245,60 @@ export function createFixtureEngine(scenario: string): Engine {
     async resetImage() {
       epoch++;
       state.value = SCENARIOS.opening();
+    },
+    // data: the real parsing/typing/preview (pure engine functions); binding is simulated on the fixture state
+    previewDataset(input) {
+      return datasetPreview(input, state.value.send);
+    },
+    async loadDataset(input) {
+      const b = await buildData(input);
+      if (!b.ok) return notice('error', `Could not load the data: ${b.error}`);
+      const ref: DatasetRef = b.ref;
+      update((s) => {
+        s.program.datasets = { ...(s.program.datasets ?? {}), [ref.name]: ref };
+        s.datasets = Object.values(s.program.datasets);
+        s.env[ref.name] = `[… ${ref.rowCount} rows]`;
+        pushRevision(s, 'dataset', `Loaded dataset ${ref.name}: ${ref.rowCount} rows × ${ref.columns.length} columns`);
+        s.repl.push({ kind: 'info', id: eid('if'), text: `\`${ref.name}\` is bound: \`${ref.typeDecl}\` (${ref.rowCount} rows)`, tone: 'muted' });
+      });
+    },
+    async removeDataset(name) {
+      update((s) => {
+        if (!s.program.datasets?.[name]) return;
+        const { [name]: _gone, ...rest } = s.program.datasets;
+        s.program.datasets = rest;
+        s.datasets = Object.values(rest);
+        delete s.env[name];
+        pushRevision(s, 'dataset', `Removed dataset ${name}`);
+      });
+    },
+    setSendSamples(on) {
+      update((s) => void (s.send = { ...s.send, samples: on }));
+    },
+    async pinResult(entryId) {
+      update((s) => {
+        const e = s.repl.find((x) => x.id === entryId);
+        if (e?.kind !== 'output' || !e.pinnable || e.pinned) return;
+        const rec = s.program.functions[e.pinnable.fn];
+        if (!rec) return;
+        const pins = rec.spec.pins ?? [];
+        rec.spec = { ...rec.spec, pins: [...pins, { id: `pin${pins.length + 1}`, label: e.pinnable.call, args: e.pinnable.args, expected: e.pinnable.expected, pinnedAt: Date.now() }] };
+        e.pinned = true;
+        pushRevision(s, 'pin', `Pinned: ${e.pinnable.call}`, { fn: e.pinnable.fn });
+        s.repl.push({ kind: 'info', id: eid('if'), text: PINNED_INFO, tone: 'accent' });
+      });
+    },
+    async removePin(fn, pinId) {
+      update((s) => {
+        const rec = s.program.functions[fn];
+        const pin = rec?.spec.pins?.find((p) => p.id === pinId);
+        if (!rec || !pin) return;
+        const left = rec.spec.pins!.filter((p) => p.id !== pinId);
+        rec.spec = { ...rec.spec, pins: left };
+        if (left.length === 0) delete rec.spec.pins;
+        for (const e of s.repl) if (e.kind === 'output' && e.pinnable?.fn === fn && e.pinnable.call === pin.label) delete e.pinned;
+        pushRevision(s, 'pin', `Unpinned: ${pin.label}`, { fn });
+      });
     },
   };
   return engine;

@@ -5,6 +5,8 @@ import type { AttemptSelection } from './select';
 
 export const selection = signal<AttemptSelection | null>(null);
 export const lowerTab = signal<'revisions' | 'repo'>('revisions');
+/** The data drawer (paste/drop data, bind it to a REPL variable). */
+export const dataDrawerOpen = signal(false);
 /**
  * Function whose spec card should be expanded, scrolled into view and focused. Mirrors the engine's
  * state.focusSpec (set by the "Edit the spec" restart); cleared by whoever consumed it.

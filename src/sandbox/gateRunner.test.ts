@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { GateResult } from '../types';
 import { INTERRUPTED_NOTE } from './attribution';
-import { crashResults, timeoutResults, Watchdog } from './gateRunner';
+import { crashResults, selectPhases, timeoutResults, Watchdog } from './gateRunner';
 
 const pass = (gate: GateResult['gate']): GateResult => ({ gate, status: 'pass', ms: 3, summary: 'ok', diagnostics: [] });
 
@@ -108,5 +108,28 @@ describe('crashResults', () => {
   it('fails Tests when the worker dies before reporting anything', () => {
     const rs = crashResults([], 'tests', 'failed to load module');
     expect(rs.map((r) => r.status)).toEqual(['fail', 'skipped', 'skipped']);
+  });
+});
+
+describe('selectPhases (input.phases on the main thread)', () => {
+  it('keeps everything when phases is undefined', () => {
+    const all = [pass('tests'), pass('properties'), pass('invariants')];
+    expect(selectPhases(all, undefined)).toEqual(all);
+  });
+
+  it("a watchdog timeout with phases ['tests', 'properties'] still reports the bounded violation via Invariants", () => {
+    const dog = new Watchdog(100, 15000, 0);
+    dog.onPhase('properties', 50);
+    dog.onEnter('fib(90)', 60);
+    const o = dog.check(200)!;
+    const results = selectPhases(timeoutResults([pass('tests')], o, 100, 15000), ['tests', 'properties']);
+    expect(results.map((r) => `${r.gate}:${r.status}`)).toEqual(['tests:pass', 'properties:skipped', 'invariants:fail']);
+    expect(results[2]!.diagnostics[0]).toMatchObject({ invariant: 'bounded', call: 'fib(90)', phase: 'properties' });
+  });
+
+  it('drops a non-failing Invariants result and unrequested phases', () => {
+    const crashed = crashResults([pass('tests')], 'properties', 'boom');
+    expect(selectPhases(crashed, ['tests', 'properties']).map((r) => `${r.gate}:${r.status}`)).toEqual(['tests:pass', 'properties:fail']);
+    expect(selectPhases([pass('tests'), pass('properties'), pass('invariants')], ['properties']).map((r) => r.gate)).toEqual(['properties']);
   });
 });

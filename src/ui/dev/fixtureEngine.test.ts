@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GATE_ORDER, type EngineState } from '../../types';
 import { createFixtureEngine } from './fixtureEngine';
-import { SCENARIO_NAMES, SCENARIOS } from './fixtures';
+import { MEDIAN_PROPS_SUMMARY, SCENARIO_NAMES, SCENARIOS } from './fixtures';
+import { dataDrawerOpen, lowerTab } from '../uiState';
 
 const REQUIRED = [
   'opening', 'generating', 'rejected-properties', 'committed', 'cached', 'compile-rejected', 'invariant-timeout',
   'no-tests', 'budget-exhausted', 'rejected-silent', 'service-error', 'fault-restart', 'replay-banner', 'repo-stale', 'many-revisions',
-  'declined-pure', 'declined-spec', 'spec-less-accept',
+  'declined-pure', 'declined-spec', 'spec-less-accept', 'table-result', 'pinned', 'data-drawer-open',
 ];
 
 function checkInvariants(s: EngineState): void {
@@ -55,6 +56,24 @@ describe('fixture scenarios', () => {
       const err = s.repl[s.repl.length - 1]!;
       expect(err).toMatchObject({ kind: 'error', name: 'Declined' });
     }
+  });
+
+  it('table-result / pinned: a table under a pinnable spec-less result over the bound orders; pinned adds the pin', () => {
+    const t = SCENARIOS['table-result']();
+    const out = t.repl.find((e) => e.kind === 'output' && e.pinnable)!;
+    expect(out).toMatchObject({ kind: 'output', label: 'generated', pinnable: { fn: 'topCustomersByRevenue', call: 'topCustomersByRevenue(rows)' } });
+    expect(out.kind === 'output' && out.table?.columns).toEqual(['customer', 'revenue']);
+    const all = t.repl.filter((e) => e.kind === 'output' && e.table && e.table.rows.length < e.table.total);
+    expect(all.length).toBeGreaterThan(0); // "showing 100 of 332 rows"
+    expect(t.datasets.map((d) => d.name)).toEqual(['rows']);
+    expect(t.generation!.attempts[0]!.candidate!.prompt).toContain('A few rows, spread across the data');
+    const p = SCENARIOS.pinned();
+    expect(p.program.functions.topCustomersByRevenue!.spec.pins).toHaveLength(1);
+    expect(p.repl.some((e) => e.kind === 'output' && e.pinned)).toBe(true);
+  });
+
+  it('property summaries use the executor format (total runs, then runs per named property)', () => {
+    expect(MEDIAN_PROPS_SUMMARY).toMatch(/^2\/2 properties held \(200 runs: "[^"]+" 100, "[^"]+" 100\)$/);
   });
 
   it('returns fresh state objects per call', () => {
@@ -131,6 +150,36 @@ describe('fixture engine', () => {
     expect(rec.specHash).not.toBe(rec.artifact!.specHash);
     expect(e.state.value.revisions.at(-1)).toMatchObject({ kind: 'spec-edit', id: 3 });
     expect(e.state.value.headRevision).toBe(3);
+  });
+
+  it('data-drawer-open opens the drawer; pinned opens the Repo tab', () => {
+    dataDrawerOpen.value = false;
+    lowerTab.value = 'revisions';
+    createFixtureEngine('data-drawer-open');
+    expect(dataDrawerOpen.value).toBe(true);
+    createFixtureEngine('pinned');
+    expect(lowerTab.value).toBe('repo');
+    dataDrawerOpen.value = false;
+    lowerTab.value = 'revisions';
+  });
+
+  it('previews and loads pasted data with the real parser, pins and unpins a result', async () => {
+    vi.useRealTimers();
+    const e = createFixtureEngine('table-result');
+    const p = await e.previewDataset({ text: 'a,b\n1,x\n2,y\n' });
+    expect(p).toMatchObject({ ok: true, rowCount: 2, typeDecl: 'type Row = { a: number; b: string }' });
+    await e.loadDataset({ text: 'a,b\n1,x\n', name: 'small' });
+    expect(e.state.value.datasets.map((d) => d.name)).toEqual(['rows', 'small']);
+    await e.removeDataset('small');
+    expect(e.state.value.datasets.map((d) => d.name)).toEqual(['rows']);
+    const out = e.state.value.repl.find((x) => x.kind === 'output' && x.pinnable)!;
+    await e.pinResult(out.id);
+    const fn = e.state.value.program.functions.topCustomersByRevenue!;
+    expect(fn.spec.pins).toHaveLength(1);
+    await e.removePin('topCustomersByRevenue', fn.spec.pins![0]!.id);
+    expect(e.state.value.program.functions.topCustomersByRevenue!.spec.pins).toBeUndefined();
+    e.setSendSamples(false);
+    expect(e.state.value.send.samples).toBe(false);
   });
 
   it('invokeRestart resolves the entry', async () => {

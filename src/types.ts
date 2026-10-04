@@ -449,6 +449,8 @@ export type EvalOutcome =
       argShown: string[];
       /** Set when the arguments were reduced to the first one because the call looks like an Array callback (value, index, array). */
       argsTrimmed?: string;
+      /** Per argument: the name of the dataset variable it IS (identity), or null. The engine types it as `<typeName>[]`. */
+      argDatasets?: Array<string | null>;
       /** The evaluated argument values, encoded with shared/serialize.ts, so the gates can replay the real call. */
       args: Json[];
       call: string;
@@ -587,6 +589,10 @@ export interface EngineState {
   /** The REPL variables right now (shown values). */
   env: Record<string, string>;
   hints: { opener: boolean; takeaway: boolean };
+  /** Datasets bound to REPL variables (data drawer). */
+  datasets: DatasetRef[];
+  /** What leaves the browser. `samples` = type + a few sample rows go to Codex (live mode only); false = type only. */
+  send: { samples: boolean; sampleRows: number };
   busy: boolean;
   examples: ExampleInfo[];
   pacing: Pacing;
@@ -595,6 +601,26 @@ export interface EngineState {
   /** Transient message for the UI (import failed, etc.). */
   notice?: { tone: 'info' | 'error'; text: string };
 }
+
+/** Result of parsing pasted/dropped data before it is loaded (drives the data drawer preview). */
+export type DatasetPreview =
+  | {
+      ok: true;
+      name: string;
+      rowCount: number;
+      columns: ColumnInfo[];
+      typeName: string;
+      typeDecl: string;
+      bytes: number;
+      warnings: string[];
+      /** Exactly the text that would be sent to Codex as sample rows (live mode, samples on). */
+      sampleText: string;
+      /** Plain-English sentence: what leaves the browser. */
+      sendDescription: string;
+      /** First rows rendered as a table. */
+      table: TablePreview;
+    }
+  | { ok: false; error: string };
 
 export interface SpecPatch {
   params?: ParamSpec[];
@@ -630,4 +656,14 @@ export interface Engine {
   exportRecording(): Recording | null;
   /** Discard persisted state and reseed r1. */
   resetImage(): Promise<void>;
+  /** Parse data without loading it (CSV or JSON/JSONL text). Never throws. */
+  previewDataset(input: { text: string; filename?: string; name?: string }): Promise<DatasetPreview>;
+  /** Bind a dataset to a REPL variable (default name `rows`); a revision of kind 'dataset'. Errors become a notice. */
+  loadDataset(input: { text: string; filename?: string; name?: string; source?: DatasetRef['source'] }): Promise<void>;
+  removeDataset(name: string): Promise<void>;
+  /** Whether sample rows (not just the type) are sent to Codex in live mode. */
+  setSendSamples(on: boolean): void;
+  /** Turn the call and result of a REPL output entry into a pinned unit test on that function. */
+  pinResult(entryId: string): Promise<void>;
+  removePin(fn: string, pinId: string): Promise<void>;
 }

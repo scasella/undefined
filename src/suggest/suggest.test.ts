@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { FunctionSpec, Program } from '../types';
-import { brokenSpec, exampleById } from '../examples/index';
+import { brokenSpec, specExample } from '../examples/index';
 import { appendProperty, isAdded } from './apply';
 import { makeRecord, makeSpec, programOf } from './fixtures';
 import {
@@ -68,14 +68,14 @@ describe('every rule fires on a realistic spec', () => {
   });
 
   it('shape + idempotence: slugify with its properties removed', () => {
-    const spec = { ...exampleById('slugify')!.spec, properties: '' };
+    const spec = { ...specExample('slugify').spec, properties: '' };
     const ss = suggest(spec);
     expect(kinds(ss)).toEqual(['shape', 'idempotence']);
     expect(ss[0]!.source).toContain('/^([a-z0-9]+(-[a-z0-9]+)*)?$/');
   });
 
   it('shape follows the doc when it says underscores, and is skipped when the doc names both separators', () => {
-    const broken = { ...brokenSpec(exampleById('slugify')!), properties: '' };
+    const broken = { ...brokenSpec(specExample('slugify')), properties: '' };
     const shape = suggest(broken).find((s) => s.kind === 'shape')!;
     expect(shape.source).toContain('/^([a-z0-9]+(_[a-z0-9]+)*)?$/');
     expect(shape.title).toContain('underscores');
@@ -108,7 +108,7 @@ describe('every rule fires on a realistic spec', () => {
   });
 
   it('bounds: median without its properties, mean, max over a list', () => {
-    const median = { ...exampleById('median')!.spec, properties: '' };
+    const median = { ...specExample('median').spec, properties: '' };
     expect(kinds(suggest(median))).toEqual(['bounds']);
     expect(kinds(suggest(makeSpec('mean', [['values', 'number[]']], 'number')))).toEqual(['bounds']);
     expect(kinds(suggest(makeSpec('maxOf', [['values', 'number[]']], 'number')))).toEqual(['bounds']);
@@ -196,18 +196,18 @@ describe('every rule fires on a realistic spec', () => {
 
 describe('rules do NOT fire without real evidence', () => {
   it('median never gets idempotence (number[] → number) and its shipped bounds property suppresses bounds', () => {
-    const ss = suggest(exampleById('median')!.spec);
+    const ss = suggest(specExample('median').spec);
     expect(ss).toEqual([]);
-    expect(kinds(suggest({ ...exampleById('median')!.spec, properties: '' }))).not.toContain('idempotence');
+    expect(kinds(suggest({ ...specExample('median').spec, properties: '' }))).not.toContain('idempotence');
   });
 
   it('fibonacci gets nothing: no evidence words, and bigint is not a non-negative-by-name result', () => {
-    expect(suggest(exampleById('fibonacci')!.spec)).toEqual([]);
-    expect(suggest({ ...exampleById('fibonacci')!.spec, properties: '' })).toEqual([]);
+    expect(suggest(specExample('fibonacci').spec)).toEqual([]);
+    expect(suggest({ ...specExample('fibonacci').spec, properties: '' })).toEqual([]);
   });
 
   it('shipped slugify already has the shape and idempotence properties', () => {
-    expect(suggest(exampleById('slugify')!.spec)).toEqual([]);
+    expect(suggest(specExample('slugify').spec)).toEqual([]);
   });
 
   it('unrelated or look-alike names stay silent', () => {
@@ -243,7 +243,7 @@ describe('rules do NOT fire without real evidence', () => {
     const all = [
       suggest(makeSpec('sortDescending', [['xs', 'number[]']], 'number[]')),
       suggest(makeSpec('add', [['a', 'number'], ['b', 'number']], 'number')),
-      suggest({ ...exampleById('slugify')!.spec, properties: '' }),
+      suggest({ ...specExample('slugify').spec, properties: '' }),
     ].flat();
     for (const s of all) expect(s.title).not.toMatch(/same input|twice gives|not modified|mutat|determin/i);
   });
@@ -271,7 +271,7 @@ describe('cap, markers and de-duplication', () => {
   it('every source starts with its // suggested:<id> marker and has a title, why and applies', () => {
     const ss = [
       ...suggest(makeSpec('sortDescending', [['xs', 'number[]']], 'number[]')),
-      ...suggest({ ...exampleById('slugify')!.spec, properties: '' }),
+      ...suggest({ ...specExample('slugify').spec, properties: '' }),
       ...suggest(makeSpec('add', [['a', 'number'], ['b', 'number']], 'number')),
     ];
     for (const s of ss) {
@@ -300,7 +300,7 @@ describe('cap, markers and de-duplication', () => {
       [makeSpec('add', [['a', 'number'], ['b', 'number']], 'number'), undefined],
       [makeSpec('abs', [['x', 'number']], 'number'), undefined],
       [makeSpec('lowercaseSlug', [['t', 'string']], 'string'), undefined],
-      [{ ...exampleById('slugify')!.spec, properties: '' }, undefined],
+      [{ ...specExample('slugify').spec, properties: '' }, undefined],
       [dec, programOf(makeRecord(dec), makeRecord(enc, { js: ENCODE_JS, returnType: 'string' }))],
     ];
     for (const [spec, program] of cases) {

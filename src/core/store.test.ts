@@ -224,6 +224,23 @@ describe('persistence', () => {
     expect(p!.liveEnv).toEqual({ xs: [1, 2, 3] });
   });
 
+  it('the sendSamples flag round-trips when it is a boolean and is dropped otherwise', async () => {
+    await appendRevision(initialRevision(emptyProgram()), 1);
+    await saveFlags({ takeawayShown: false, openerDismissed: true, sendSamples: false });
+    expect((await loadPersisted())!.flags).toEqual({ takeawayShown: false, openerDismissed: true, sendSamples: false });
+    await saveFlags({ takeawayShown: false, openerDismissed: true, sendSamples: 'no' as unknown as boolean });
+    expect((await loadPersisted())!.flags).toEqual({ takeawayShown: false, openerDismissed: true });
+  });
+
+  it('reverify keeps a revision\'s bound datasets', async () => {
+    const ref = { name: 'rows', hash: 'a'.repeat(64), typeName: 'Row', typeDecl: 'type Row = { a: number }', rowCount: 1, columns: [{ name: 'a', type: 'number' }], source: 'paste' as const, bytes: 7 };
+    const r1 = initialRevision({ ...emptyProgram(), datasets: { rows: ref } });
+    const image = toImage([r1], 1, { [ref.hash]: [{ a: 1 }] });
+    const again = await reverify(image);
+    expect(again.revisions[0]!.program.datasets).toEqual({ rows: ref });
+    expect(validateImage(JSON.parse(JSON.stringify(again)))).toMatchObject({ ok: true });
+  });
+
   it('defaults flags/env and falls back to the last id for an unknown head', async () => {
     const r1 = initialRevision(emptyProgram());
     await appendRevision(r1, 99);

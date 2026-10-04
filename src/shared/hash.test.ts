@@ -81,6 +81,45 @@ describe('specHash / testsHash', () => {
   });
 });
 
+describe('typeDecls and pins', () => {
+  // Frozen from the implementation BEFORE typeDecls existed: these must never change.
+  it('a spec without typeDecls hashes exactly as before (frozen values)', async () => {
+    expect(await hashesFor(base)).toEqual({
+      specHash: 'd0115347a595cef2d2876f879ca67bcd4d84ef37ecbbd6e9cd7e19f8afecfa54',
+      testsHash: '017e660283124a7fc1247f1c4a3db635b32c903471478d2cbfdba75a828481cc',
+    });
+    const callSpec: FunctionSpec = { ...base, returns: null, params: [{ name: 'arg0', type: 'Row[]' }], doc: '', tests: '', budgetMs: 1000 };
+    const frozen = {
+      specHash: '5fbaece3a14deb2dea24775553ac308a499ca49e83de3a335fd63c712e9a9753',
+      testsHash: '439083f38956ba51ece90631552c6ea23c5c29570d3d5710e408e77e01ba7375',
+    };
+    expect(await hashesFor(callSpec)).toEqual(frozen);
+    // an empty typeDecls is the same as none
+    expect(await hashesFor({ ...callSpec, typeDecls: '' })).toEqual(frozen);
+  });
+
+  it('a non-empty typeDecls changes specHash only', async () => {
+    const h = await hashesFor(base);
+    const a = await hashesFor({ ...base, typeDecls: 'type Row = { a: number }' });
+    const b = await hashesFor({ ...base, typeDecls: 'type Row = { a: string }' });
+    expect(a.testsHash).toBe(h.testsHash);
+    expect(a.specHash).not.toBe(h.specHash);
+    expect(b.specHash).not.toBe(a.specHash);
+    expect(a.specHash).toBe(
+      await sha256Hex(JSON.stringify(['median', [['numbers', 'number[]']], 'number', base.doc, 1500, 'type Row = { a: number }'])),
+    );
+  });
+
+  it('pins are outside both hashes', async () => {
+    const h = await hashesFor(base);
+    const pinned: FunctionSpec = {
+      ...base,
+      pins: [{ id: 'p1', label: 'median([1, 2])', args: [{ kind: 'value', encoded: [1, 2] }], expected: 1.5, pinnedAt: 1 }],
+    };
+    expect(await hashesFor(pinned)).toEqual(h);
+  });
+});
+
 describe('gateSeed', () => {
   it('xors the first 32 bits into an int32', () => {
     expect(gateSeed('00000001' + 'f'.repeat(56), '00000003' + '0'.repeat(56))).toBe(2);

@@ -15,7 +15,10 @@ import { signal, type ReadonlySignal } from '@preact/signals';
 import type {
   Artifact,
   AttemptView,
+  CallRecord,
   Candidate,
+  DatasetPreview,
+  DatasetRef,
   Declined,
   Engine,
   EngineState,
@@ -29,8 +32,11 @@ import type {
   GenerateResult,
   GenerationView,
   Generator,
+  Hash,
   Json,
   Pacing,
+  Pin,
+  PinArg,
   Program,
   Recording,
   ReplEntry,
@@ -43,13 +49,20 @@ import type {
 import { GATE_ORDER } from '../types';
 import { compileCandidate, transpileUserCode, warmUp, type CompileOutput } from '../gates/compile';
 import { specFromCall } from '../gates/source';
-import { runExecutionGates, type ExecGateInput } from '../sandbox/gateRunner';
+import { runExecutionGates, type ExecGateInput, type PinnedCase } from '../sandbox/gateRunner';
 import { MASKED_NAMES } from '../sandbox/mask';
 import { Runtime } from '../sandbox/runtime';
-import { gateSeed, hashesFor } from '../shared/hash';
+import { gateSeed, hashesFor, sha256Hex } from '../shared/hash';
 import { buildPrompt, declarationLine, parseDecline, type PromptInput } from '../shared/prompt';
 import { FUNCTION_ARG_TYPE } from '../shared/inferType';
-import { decodeEnv } from '../shared/serialize';
+import { decodeEnv, decodeValue } from '../shared/serialize';
+import { show } from '../shared/show';
+import { tablePreview } from '../sandbox/replCore';
+import { parseCsv } from '../data/csv';
+import { parseJsonData } from '../data/json';
+import { coerceCsvRows } from '../data/infer';
+import { buildDataset, canonicalJson } from '../data/dataset';
+import { describeSend, sampleForModel } from '../data/sample';
 import {
   GenerationFailure,
   LiveGenerator,
@@ -67,9 +80,13 @@ import {
   isLive,
   jsFunctions,
   newRevision,
+  referencedDatasets,
   rollbackRevision,
   summarize,
   withArtifact,
+  withDataset,
+  withoutDataset,
+  withPins,
   withSpec,
 } from './program';
 import * as store from './store';
@@ -78,16 +95,20 @@ import * as store from './store';
 
 /** What the engine needs from an example (src/examples ExampleDef satisfies it structurally). */
 export interface EngineExample extends ExampleInfo {
-  spec: FunctionSpec;
+  /** Absent for a spec-less example (the call grows the function from its argument types alone). */
+  spec?: FunctionSpec;
   breakPatch: SpecPatch;
+  /** Bundled data bound to a REPL variable when the example is clicked (deps.bundledData supplies the text). */
+  dataset?: { name: string; filename: string };
 }
 
 /**
  * The part of sandbox/runtime.ts Runtime the engine uses. `reset` may resolve to nothing (older runtimes) or to
  * `{ lost }`, the REPL variables that could not be restored in the rebuilt worker; both are handled.
  */
-export type RuntimeLike = Pick<Runtime, 'define' | 'undefine' | 'evaluate' | 'snapshotEnv' | 'envShown' | 'dispose'> & {
-  reset(functions: Parameters<Runtime['reset']>[0], env: Record<string, Json>): Promise<void | { lost?: string[] }>;
+export type RuntimeLike = Pick<Runtime, 'define' | 'undefine' | 'evaluate' | 'snapshotEnv' | 'envShown' | 'dispose' | 'bindDataset' | 'unbindDataset'> & {
+  /** `datasets` (hash → decoded rows) resolves the env's dataset refs, so dataset variables are rebound. */
+  reset(functions: Parameters<Runtime['reset']>[0], env: Record<string, Json>, datasets?: Record<Hash, unknown[]>): Promise<void | { lost?: string[] }>;
 };
 
 export interface EngineStore {
@@ -95,6 +116,8 @@ export interface EngineStore {
   appendRevision(rev: Revision, head: number): Promise<void>;
   saveFlags(flags: store.Persisted['flags']): Promise<void>;
   saveLiveEnv(env: Record<string, Json>): Promise<void>;
+  /** Dataset rows, encoded, by hash (only the ones some revision still refers to). Optional for older stores. */
+  saveDatasets?(datasets: Record<Hash, Json>): Promise<void>;
   clearAll(): Promise<void>;
 }
 
@@ -122,6 +145,8 @@ export interface EngineDeps {
   pacing: Pacing;
   /** Remembers the last REPL input across reloads (best effort). */
   inputMemory: { load(): string | null; save(text: string): void };
+  /** Text of a bundled data file (e.g. `orders.csv` for the orders example); null when there is none. */
+  bundledData(filename: string): Promise<string | null>;
 }
 
 export const DEFAULT_PACING: Pacing = { typeCharMs: 6, gateDwellMs: 450, replayMaxMs: 5000 };
@@ -271,6 +296,7 @@ function defaultDeps(): EngineDeps {
       appendRevision: store.appendRevision,
       saveFlags: store.saveFlags,
       saveLiveEnv: store.saveLiveEnv,
+      saveDatasets: store.saveDatasets,
       clearAll: store.clearAll,
     },
     now: () => Date.now(),
@@ -278,6 +304,11 @@ function defaultDeps(): EngineDeps {
     newId: (prefix) => `${prefix}${++idCounter}-${Math.random().toString(36).slice(2, 7)}`,
     pacing: DEFAULT_PACING,
     inputMemory: defaultInputMemory(),
+    async bundledData(filename) {
+      if (filename !== 'orders.csv') return null;
+      const m = await import('../data/orders');
+      return m.BUNDLED_ORDERS_CSV();
+    },
   };
 }
 
@@ -330,6 +361,134 @@ export function decodeCallArgs(args: unknown): unknown[] | undefined {
   }
 }
 
+// ───────────────────────── data ─────────────────────────
+
+/** Default REPL variable for loaded data. */
+export const DEFAULT_DATASET_NAME = 'rows';
+/** Rows shown in the data drawer's preview table. */
+export const PREVIEW_ROWS = 20;
+/** Sample rows sent with the type (live mode, samples on). */
+export const SAMPLE_ROWS = 3;
+export const PINNED_INFO = 'Pinned. The next regeneration has to reproduce this result.';
+
+export type ParsedData =
+  | { ok: true; rows: Array<Record<string, unknown>>; warnings: string[]; format: 'csv' | 'tsv' | 'json' }
+  | { ok: false; error: string };
+
+/**
+ * Pasted or dropped text → rows. JSON / JSON Lines when the text starts with `[` or `{` or the filename ends in
+ * .json/.jsonl/.ndjson; otherwise CSV (the delimiter, TAB included, is sniffed) with numbers, booleans and empty
+ * cells coerced per column. Never throws.
+ */
+export function parseDataText(text: string, filename?: string): ParsedData {
+  try {
+    const t = typeof text === 'string' ? text : '';
+    const body = t.charCodeAt(0) === 0xfeff ? t.slice(1) : t;
+    if (body.trim() === '') return { ok: false, error: 'Nothing to load: paste CSV or JSON, or drop a file.' };
+    const json = /^\s*[[{]/.test(body) || /\.(json|jsonl|ndjson)$/i.test(filename ?? '');
+    if (json) {
+      const r = parseJsonData(body);
+      if ('error' in r) return { ok: false, error: r.error };
+      if (r.rows.length === 0) return { ok: false, error: 'No rows: the JSON holds an empty list.' };
+      return { ok: true, rows: r.rows, warnings: r.warnings, format: 'json' };
+    }
+    const csv = parseCsv(body);
+    if (csv.rows.length === 0) return { ok: false, error: 'No rows: the text has a header line but no data lines.' };
+    const { rows } = coerceCsvRows(csv.rows);
+    return { ok: true, rows, warnings: csv.warnings, format: csv.delimiter === '\t' ? 'tsv' : 'csv' };
+  } catch (e) {
+    return { ok: false, error: `Could not read the data: ${errorText(e)}` };
+  }
+}
+
+/** The row type's name for a dataset variable: `rows` → `Row`, `orders` → `OrdersRow` (distinct per variable). */
+export function typeNameFor(name: string): string {
+  if (name === DEFAULT_DATASET_NAME) return 'Row';
+  return `${name.charAt(0).toUpperCase()}${name.slice(1)}Row`;
+}
+
+/** `fn(rows, 3)`: a call as the user would write it, with dataset arguments named rather than inlined. */
+export function pinLabel(fn: string, args: readonly PinArg[]): string {
+  const parts = args.map((a) => {
+    if (a.kind === 'dataset') return a.name;
+    try {
+      return show(decodeValue(a.encoded));
+    } catch {
+      return '…';
+    }
+  });
+  return `${fn}(${parts.join(', ')})`;
+}
+
+// ───────────────────────── data (pure) ─────────────────────────
+
+type BuiltData =
+  | { ok: true; ref: DatasetRef; encoded: Json; rows: Array<Record<string, unknown>>; warnings: string[] }
+  | { ok: false; error: string };
+
+/** Parse, coerce, type and content-address `input` (no binding, nothing stored). Never throws. */
+export async function buildData(input: { text: string; filename?: string; name?: string; source?: DatasetRef['source'] }): Promise<BuiltData> {
+  const parsed = parseDataText(input.text, input.filename);
+  if (!parsed.ok) return parsed;
+  const name = input.name ?? DEFAULT_DATASET_NAME;
+  const source = input.source ?? (input.filename !== undefined ? 'file' : 'paste');
+  const built = await buildDataset(name, parsed.rows, {
+    source,
+    typeName: typeNameFor(name),
+    ...(input.filename !== undefined ? { filename: input.filename } : {}),
+  });
+  if ('error' in built) return { ok: false, error: built.message };
+  return { ok: true, ref: built.ref, encoded: built.encoded, rows: parsed.rows, warnings: parsed.warnings };
+}
+
+/**
+ * The data drawer's preview: counts, columns, the declared type, the first PREVIEW_ROWS rows as a table (with the
+ * real total), parse warnings, exactly the sample text that would be sent, and the plain sentence about what leaves
+ * the browser under the current `send` choice. Never throws.
+ */
+export async function datasetPreview(input: { text: string; filename?: string; name?: string }, send: { samples: boolean; sampleRows: number }): Promise<DatasetPreview> {
+  try {
+    const b = await buildData(input);
+    if (!b.ok) return b;
+    const { ref } = b;
+    const sample = sampleForModel(b.rows, { count: send.sampleRows });
+    const shared = send.samples ? sample : { ...sample, rows: [], text: '[]', truncated: true, valuesCut: false };
+    const table = tablePreview(b.rows.slice(0, PREVIEW_ROWS)) ?? { columns: ref.columns.map((c) => c.name), rows: [], total: 0 };
+    return {
+      ok: true,
+      name: ref.name,
+      rowCount: ref.rowCount,
+      columns: ref.columns,
+      typeName: ref.typeName,
+      typeDecl: ref.typeDecl,
+      bytes: ref.bytes,
+      warnings: b.warnings,
+      sampleText: sample.text,
+      sendDescription: describeSend(ref, shared),
+      table: { ...table, total: ref.rowCount },
+    };
+  } catch (e) {
+    return { ok: false, error: `Could not read the data: ${errorText(e)}` };
+  }
+}
+
+/** Whether a pin already holds exactly this call and result (labels and canonical JSON compared). */
+function samePin(p: Pick<Pin, 'label' | 'args' | 'expected'>, q: Pick<Pin, 'label' | 'args' | 'expected'>): boolean {
+  return (
+    p.label === q.label &&
+    canonicalJson(p.args as unknown as Json) === canonicalJson(q.args as unknown as Json) &&
+    canonicalJson(p.expected) === canonicalJson(q.expected)
+  );
+}
+
+/** A dataset argument of the triggering call (what the DATA block of the prompt describes). */
+interface DataArg {
+  name: string;
+  hash: Hash;
+  typeName: string;
+  rowCount: number;
+}
+
 /** `lost` from a runtime reset result or a timeout outcome; [] when absent (older runtimes resolve to nothing). */
 function lostOf(r: unknown): string[] {
   if (typeof r !== 'object' || r === null) return [];
@@ -355,6 +514,8 @@ interface RestartContext {
   fault?: { errorName: string; message: string; previousBody: string };
   /** Revision the faulting artifact was committed in. */
   artifactRevision?: number;
+  /** Datasets the triggering call ran over. */
+  dataArgs?: DataArg[];
 }
 
 interface GrowRequest {
@@ -367,6 +528,8 @@ interface GrowRequest {
   /** An argument of the triggering call was a function: callArgs is absent, and the Invariants note says why. */
   functionArgs?: boolean;
   runtimeFault?: PromptInput['runtimeFault'];
+  /** Datasets the triggering call ran over: the prompt describes them (type, count, and samples when allowed). */
+  dataArgs?: DataArg[];
 }
 
 /** A function grown during one REPL input (for the "nothing checked that this is what you meant" note). */
@@ -402,6 +565,8 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     generation: null,
     env: {},
     hints: { opener: true, takeaway: false },
+    datasets: [],
+    send: { samples: true, sampleRows: SAMPLE_ROWS },
     busy: false,
     examples: [],
     pacing,
@@ -428,6 +593,11 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
   let opsPending = 0;
   /** Number of REPL evaluations (submit / retry) requested and not finished: `busy` is `busyCount > 0`. */
   let busyCount = 0;
+  /**
+   * Dataset rows, stored once by content hash (revisions, env snapshots and pins only refer to them): the encoded
+   * form (persisted / exported) and the decoded rows (gates, samples). Garbage-collected to what some revision uses.
+   */
+  const content = new Map<Hash, { encoded: Json; rows: unknown[] }>();
 
   // ── state plumbing ──
 
@@ -445,8 +615,43 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
 
   const publishHistory = (): void => {
     const h = headRev();
-    set({ program: h.program, headRevision: h.id, revisions: rowsOf(history) });
+    set({ program: h.program, headRevision: h.id, revisions: rowsOf(history), datasets: Object.values(h.program.datasets ?? {}) });
   };
+
+  const decodeRows = (encoded: Json): unknown[] => {
+    try {
+      const v = decodeValue(encoded);
+      return Array.isArray(v) ? v : [];
+    } catch {
+      return [];
+    }
+  };
+  const addContent = (hash: Hash, encoded: Json): void => {
+    if (!content.has(hash)) content.set(hash, { encoded, rows: decodeRows(encoded) });
+  };
+  const replaceContent = (datasets: Record<Hash, Json> | undefined): void => {
+    content.clear();
+    for (const [h, enc] of Object.entries(datasets ?? {})) addContent(h, enc);
+  };
+  /** Fresh decoded copies for the runtime (it binds them as live, mutable REPL values; the store keeps its own). */
+  const runtimeDatasets = (): Record<Hash, unknown[]> => {
+    const out: Record<Hash, unknown[]> = {};
+    for (const [h, c] of content) out[h] = decodeRows(c.encoded);
+    return out;
+  };
+  /** The encoded rows some revision still refers to (bound datasets and pin arguments), by hash. */
+  const referencedContent = (): Record<Hash, Json> => {
+    const used = referencedDatasets(history);
+    const out: Record<Hash, Json> = {};
+    for (const [h, c] of content) if (used.has(h)) out[h] = c.encoded;
+    return out;
+  };
+  /** Drop rows no revision refers to and persist the rest. */
+  async function persistDatasets(): Promise<void> {
+    const kept = referencedContent();
+    for (const h of [...content.keys()]) if (!(h in kept)) content.delete(h);
+    await deps.store.saveDatasets?.(kept);
+  }
 
   const errorEntry = (name: string, message: string, restarts?: RestartOption[], ctx?: RestartContext): string => {
     const entryId = id('er');
@@ -530,7 +735,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
 
   /** Replace the live program wholesale; returns the REPL variables the runtime could not restore. */
   async function resetRuntime(fns: Parameters<RuntimeLike['reset']>[0], env: Record<string, Json>): Promise<string[]> {
-    const r: unknown = await runtime!.reset(fns, env);
+    const r: unknown = await runtime!.reset(fns, env, runtimeDatasets());
     return lostOf(r);
   }
 
@@ -568,7 +773,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
           dropped.add(name);
         }
       }
-      out.push({ ...rev, program: { functions } });
+      out.push({ ...rev, program: { ...rev.program, functions } });
     }
     const results = await Promise.all(cache.values());
     return { revisions: out, recompiled: results.filter((c) => c !== null).length, dropped: [...dropped].sort() };
@@ -616,9 +821,9 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
 
   async function seedProgram(): Promise<Revision> {
     const ex = initialExample();
-    const program = ex ? await withSpec(emptyProgram(), ex.spec) : emptyProgram();
+    const program = ex?.spec ? await withSpec(emptyProgram(), ex.spec) : emptyProgram();
     const r1 = initialRevision(program);
-    return { ...r1, at: deps.now(), title: ex ? `Initial image: ${ex.spec.name} spec, no artifact` : 'Initial image (empty program)' };
+    return { ...r1, at: deps.now(), title: ex?.spec ? `Initial image: ${ex.spec.name} spec, no artifact` : 'Initial image (empty program)' };
   }
 
   function chooseGenerator(status: ServiceStatus): void {
@@ -675,6 +880,8 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       head = image.head;
       flags = { ...persisted.flags };
       liveEnv = persisted.liveEnv;
+      replaceContent(persisted.datasets ?? image.datasets);
+      if (typeof flags.sendSamples === 'boolean') set({ send: { ...state.value.send, samples: flags.sendSamples } });
       if (fresh.dropped.length > 0) notice('error', `Restored image: ${recompileSummary(fresh)}.`);
     } else {
       const r1 = await seedProgram();
@@ -694,6 +901,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       await runtime.reset({}, {}).catch(() => undefined);
     }
     await refreshEnv();
+    if (persisted) await persistDatasets();
 
     const ex = initialExample();
     const remembered = persisted ? deps.inputMemory.load() : null;
@@ -763,19 +971,21 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       if (outcome.argsTrimmed === 'array-callback') info(ARRAY_CALLBACK_INFO);
       info('Generating…', 'accent');
       const rec = state.value.program.functions[outcome.name];
-      const spec = rec?.spec ?? specFromCall(outcome.name, outcome.argTypes);
       // `args` may be missing (older runtimes): then the Invariants gate has only the arguments sampled in the
       // Tests/Properties phases.
-      const callArgs = decodeCallArgs((outcome as { args?: unknown }).args);
+      const resolved = resolveCall(outcome);
+      const spec = rec?.spec ?? callSpec(outcome.name, outcome.argTypes, resolved.typeDecls);
+      const { callArgs, dataArgs } = resolved;
       const functionArgs = outcome.argTypes.includes(FUNCTION_ARG_TYPE);
       const result = await grow(
         {
           fn: outcome.name,
-          call: outcome.call,
+          call: resolved.call,
           spec,
           ...(spec.origin === 'call' ? { callArgTypes: outcome.argTypes } : {}),
           ...(callArgs ? { callArgs } : {}),
           ...(functionArgs ? { functionArgs } : {}),
+          ...(dataArgs.length > 0 ? { dataArgs } : {}),
         },
         input,
         myEpoch,
@@ -788,6 +998,58 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
   }
 
   /**
+   * An undefined call's real arguments for the gates, with every argument that IS a bound dataset replaced by the
+   * stored rows (looked up by name → hash in the content store, so big datasets are never decoded from the call's
+   * own encoding), plus the datasets' type declarations (deduplicated) and the call written with dataset names.
+   */
+  function resolveCall(outcome: Extract<EvalOutcome, { kind: 'undefined-call' }>): {
+    callArgs?: unknown[];
+    dataArgs: DataArg[];
+    typeDecls: string;
+    call: string;
+  } {
+    const encoded = (outcome as { args?: unknown }).args;
+    const names = outcome.argDatasets;
+    if (!names || !names.some((n) => n !== null)) {
+      const callArgs = decodeCallArgs(encoded);
+      return { ...(callArgs ? { callArgs } : {}), dataArgs: [], typeDecls: '', call: outcome.call };
+    }
+    const bound = headRev().program.datasets ?? {};
+    const dataArgs: DataArg[] = [];
+    const decls: string[] = [];
+    const fromStore = new Map<number, unknown[]>();
+    const rest: Json[] = [];
+    const restIndex: number[] = [];
+    names.forEach((n, i) => {
+      const ref = n !== null ? bound[n] : undefined;
+      const stored = ref ? content.get(ref.hash) : undefined;
+      if (ref && stored) {
+        fromStore.set(i, stored.rows);
+        if (!dataArgs.some((d) => d.name === ref.name)) dataArgs.push({ name: ref.name, hash: ref.hash, typeName: ref.typeName, rowCount: ref.rowCount });
+        if (!decls.includes(ref.typeDecl)) decls.push(ref.typeDecl);
+      } else if (Array.isArray(encoded)) {
+        rest.push(encoded[i] as Json);
+        restIndex.push(i);
+      }
+    });
+    let callArgs: unknown[] | undefined;
+    const decodedRest = rest.length === 0 ? [] : Array.isArray(encoded) ? decodeCallArgs(rest) : undefined;
+    if (decodedRest) {
+      callArgs = names.map((_, i) => (fromStore.has(i) ? fromStore.get(i) : decodedRest[restIndex.indexOf(i)]));
+    }
+    const call = `${outcome.name}(${outcome.argShown.map((shown, i) => names[i] ?? shown).join(', ')})`;
+    return { ...(callArgs ? { callArgs } : {}), dataArgs, typeDecls: decls.join('\n'), call };
+  }
+
+  /** Spec for a never-seen call; tagged with the example it belongs to (so the Repo tab offers its "Break it"). */
+  function callSpec(name: string, argTypes: string[], typeDecls: string): FunctionSpec {
+    const spec = specFromCall(name, argTypes, typeDecls ? { typeDecls } : {});
+    const ex = examples.find((e) => e.fn === name);
+    if (ex) spec.exampleId = ex.id;
+    return spec;
+  }
+
+  /**
    * `note` on a result line marks a call that grew a function nobody checked against an intent (no tests, no
    * properties): the UI prints UNCHECKED_TEXT, then "Model's note: …" when the note is non-empty. Absent otherwise.
    */
@@ -797,6 +1059,13 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     const notes = ungated.map((g) => ({ fn: g.fn, notes: g.notes.replace(/\s*\n\s*/g, ' ').trim() })).filter((g) => g.notes !== '');
     if (notes.length === 0) return '';
     return ungated.length === 1 ? notes[0]!.notes : notes.map((g) => `${g.fn}: ${g.notes}`).join(' · ');
+  }
+
+  /** The outermost (last completed) committed-function call of the line, when its result can be pinned. */
+  function pinnableOf(records: CallRecord[] | undefined): Extract<ReplEntry, { kind: 'output' }>['pinnable'] | undefined {
+    const last = records?.[records.length - 1];
+    if (!last || last.result === null || !state.value.program.functions[last.fn]) return undefined;
+    return { fn: last.fn, call: pinLabel(last.fn, last.args), args: last.args, expected: last.result };
   }
 
   function reportOutcome(outcome: Exclude<EvalOutcome, { kind: 'undefined-call' }>, input: string, grownNow: Grown[], revision?: number): void {
@@ -818,6 +1087,13 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         if (cached) entry.detail = `certified r${calledRec.artifact!.revision}`;
         const note = uncheckedNote(grownNow);
         if (note !== undefined) entry.note = note;
+        if (outcome.table) entry.table = outcome.table;
+        const pinnable = pinnableOf(outcome.callRecords);
+        if (pinnable) {
+          entry.pinnable = pinnable;
+          const pins = state.value.program.functions[pinnable.fn]?.spec.pins ?? [];
+          if (pins.some((p) => samePin(p, { label: pinnable.call, args: pinnable.args, expected: pinnable.expected }))) entry.pinned = true;
+        }
         pushRepl(entry);
         if (cached && !flags.takeawayShown) {
           flags = { ...flags, takeawayShown: true };
@@ -911,10 +1187,11 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       maxAttempts,
       progress: [],
       attempts: [],
-      ungated: !spec.tests.trim() && !spec.properties.trim(),
+      ungated: isUngated(spec),
       mode,
     };
     set({ generation: view });
+    const pinned = decodePins(spec);
 
     const rejected: PromptInput['history'] = [];
     const candidates: Candidate[] = [];
@@ -931,6 +1208,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       ...(req.callArgTypes ? { callArgTypes: req.callArgTypes } : {}),
       ...(req.callArgs ? { callArgs: req.callArgs } : {}),
       ...(req.functionArgs ? { functionArgs: true } : {}),
+      ...(req.dataArgs ? { dataArgs: req.dataArgs } : {}),
     };
     if (req.runtimeFault) {
       growCtx.fault = { errorName: req.runtimeFault.errorName, message: req.runtimeFault.message, previousBody: req.runtimeFault.previousBody };
@@ -951,6 +1229,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       const promptInput: PromptInput = { spec, history: [...rejected] };
       if (req.callArgTypes) promptInput.callArgTypes = req.callArgTypes;
       if (req.runtimeFault) promptInput.runtimeFault = req.runtimeFault;
+      if (req.dataArgs && req.dataArgs.length > 0) promptInput.dataSamples = dataSamplesFor(req.dataArgs, mode);
       const genReq: GenerateRequest = { fn, specHash, testsHash, attempt: index, prompt: buildPrompt(promptInput) };
 
       let result: GenerateResult;
@@ -984,7 +1263,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       model = result.model;
       codexVersion = result.codexVersion;
       if (state.value.mode === 'live' && result.source === 'live') {
-        sink.add(genReq, result, `${fn} — ${spec.doc.trim().slice(0, 40) || 'inferred from a call'}`, { spec, call: input });
+        sink.add(genReq, result, `${fn} — ${spec.doc.trim().slice(0, 40) || 'inferred from a call'}`, { spec, call: input, ...recordingData(req.dataArgs) });
         sinkFns.add(fn);
       }
       // "What the model saw": the prompt really sent. A replayed candidate was generated from the prompt stored in
@@ -1035,7 +1314,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
 
       // gates
       setGen({ phase: 'gating' });
-      const gated = await runGates(index, spec, body, specHash, testsHash, sig, req.callArgs);
+      const gated = await runGates(index, spec, body, specHash, testsHash, sig, req.callArgs, pinned);
       // TS7023/7024: with no declared return type a directly recursive body cannot be typed. The note travels to
       // the model (formatDiagnosticsForModel prints a failing gate's note) and is shown on the gate row.
       const recursion =
@@ -1085,7 +1364,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       if (verdict === 'accepted') {
         const revision = await commit(req, body, gated.compile, specHash, testsHash, model, codexVersion, candidates, maxAttempts);
         setGen({ phase: 'committed', revision });
-        return { kind: 'committed', revision, grown: { fn, ungated: !spec.tests.trim() && !spec.properties.trim(), notes: result.notes } };
+        return { kind: 'committed', revision, grown: { fn, ungated: isUngated(spec), notes: result.notes } };
       }
 
       // rejected
@@ -1109,6 +1388,75 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       growCtx,
     );
     return { kind: 'failed' };
+  }
+
+  /** No tests, no properties and no pins: nothing checks the candidate against an intent. */
+  function isUngated(spec: FunctionSpec): boolean {
+    return !spec.tests.trim() && !spec.properties.trim() && !(spec.pins && spec.pins.length > 0);
+  }
+
+  /**
+   * The DATA blocks of the prompt: name, type and row count always; sample rows only in live mode with samples on
+   * (`state.send`). In replay mode nothing is sent anywhere, and the type-only block is what the prompt says.
+   */
+  function dataSamplesFor(dataArgs: DataArg[], mode: 'live' | 'replay'): NonNullable<PromptInput['dataSamples']> {
+    const send = state.value.send;
+    return dataArgs.map((d) => {
+      const entry: NonNullable<PromptInput['dataSamples']>[number] = { name: d.name, typeName: d.typeName, rowCount: d.rowCount };
+      const stored = content.get(d.hash);
+      if (mode === 'live' && send.samples && stored) entry.sampleText = sampleForModel(stored.rows, { count: send.sampleRows }).text;
+      return entry;
+    });
+  }
+
+  /** Rows and bindings a live recording needs to re-run its calls. */
+  function recordingData(dataArgs: DataArg[] | undefined): { datasets?: Record<Hash, Json>; datasetRefs?: DatasetRef[] } {
+    if (!dataArgs || dataArgs.length === 0) return {};
+    const bound = headRev().program.datasets ?? {};
+    const datasets: Record<Hash, Json> = {};
+    const datasetRefs: DatasetRef[] = [];
+    for (const d of dataArgs) {
+      const stored = content.get(d.hash);
+      if (stored) datasets[d.hash] = stored.encoded;
+      const ref = bound[d.name];
+      if (ref && ref.hash === d.hash) datasetRefs.push(ref);
+    }
+    return { datasets, datasetRefs };
+  }
+
+  /**
+   * A spec's pins as gate cases: arguments and expected value decoded, dataset arguments resolved to the stored rows
+   * by hash. A pin whose dataset is no longer stored is skipped, and the user is told.
+   */
+  function decodePins(spec: FunctionSpec): PinnedCase[] {
+    const out: PinnedCase[] = [];
+    const skipped: string[] = [];
+    for (const pin of spec.pins ?? []) {
+      try {
+        const args: unknown[] = [];
+        let missing = false;
+        for (const a of pin.args) {
+          if (a.kind === 'dataset') {
+            const stored = content.get(a.hash);
+            if (!stored) missing = true;
+            else args.push(stored.rows);
+          } else {
+            args.push(decodeValue(a.encoded));
+          }
+        }
+        if (missing) skipped.push(pin.label);
+        else out.push({ label: pin.label, args, expected: decodeValue(pin.expected) });
+      } catch {
+        skipped.push(pin.label);
+      }
+    }
+    if (skipped.length > 0) {
+      notice(
+        'error',
+        `Skipped ${plural(skipped.length, 'pinned test')} (${skipped.join(', ')}): the data it was pinned on is no longer stored. Remove the pin in the Repo tab, or pin the result again.`,
+      );
+    }
+    return out;
   }
 
   async function typeOut(index: number, body: string, sig: AbortSignal): Promise<void> {
@@ -1135,6 +1483,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     testsHash: string,
     sig: AbortSignal,
     callArgs?: unknown[],
+    pinned?: PinnedCase[],
   ): Promise<Gated> {
     const gates: GateResult[] = GATE_ORDER.map(pendingGate);
     const show = (): void => setAttempt(index, { status: 'gating', gates: [...gates] });
@@ -1201,6 +1550,8 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       // The triggering call's real arguments: without them a spec with no tests/properties gives the Invariants
       // replay nothing to call, and impure / mutating / non-terminating bodies would pass.
       ...(callArgs ? { callArgs } : {}),
+      // Results the user pinned from earlier calls: unit tests the candidate must reproduce.
+      ...(pinned && pinned.length > 0 ? { pinned } : {}),
     };
     const all = deps
       .execGates(input, deliver)
@@ -1342,7 +1693,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         program = withArtifact(program, name, revalidated);
       } else {
         unrecompilable = true;
-        program = { functions: { ...program.functions, [name]: { ...after, artifact: null } } };
+        program = { ...program, functions: { ...program.functions, [name]: { ...after, artifact: null } } };
       }
       after = program.functions[name]!;
     }
@@ -1431,12 +1782,24 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       notice('error', `Unknown example: ${exampleId}`);
       return;
     }
-    if (!headRev().program.functions[ex.fn]) {
+    if (ex.spec && !headRev().program.functions[ex.fn]) {
       try {
         await applySpec(ex.spec, { kind: 'example', title: `Loaded example: ${ex.title}` });
       } catch (e) {
         notice('error', `Loading the example failed: ${errorText(e)}`);
         return;
+      }
+    }
+    if (ex.dataset) {
+      const { name, filename } = ex.dataset;
+      const bound = headRev().program.datasets?.[name];
+      if (!bound || bound.source !== 'bundled' || bound.filename !== filename) {
+        const text = await deps.bundledData(filename).catch(() => null);
+        if (text === null) {
+          notice('error', `Loading the example failed: the bundled data ${filename} is not available`);
+          return;
+        }
+        if (!(await loadDatasetInner({ text, filename, name, source: 'bundled' }))) return;
       }
     }
     set({ replInput: ex.call });
@@ -1457,7 +1820,15 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         notice('error', `Unknown example: ${exampleId}`);
         return;
       }
-      if (!headRev().program.functions[ex.fn]) await loadExampleInner(exampleId);
+      if (!headRev().program.functions[ex.fn]) {
+        await loadExampleInner(exampleId);
+        if (!headRev().program.functions[ex.fn]) {
+          // a spec-less example has nothing to break until its call has grown the function
+          notice('info', `Run the call first: ${ex.call} grows ${ex.fn}; then "${ex.breakIt.label}" changes its spec.`);
+          set({ replInput: ex.call });
+          return;
+        }
+      }
       await editSpecInner(ex.fn, ex.breakPatch);
       set({ replInput: ex.call });
     });
@@ -1484,7 +1855,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       reportLost(lost);
     } catch (e) {
       notice('error', `Rollback failed: ${errorText(e)}`);
-      await runtime?.reset(jsFunctions(headRev().program), headRev().env).catch(() => undefined);
+      if (runtime) await resetRuntime(jsFunctions(headRev().program), headRev().env).catch(() => undefined);
     }
   }
 
@@ -1526,6 +1897,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         if (spec.origin === 'call' && ctx.callArgTypes) growReq.callArgTypes = ctx.callArgTypes;
         if (ctx.callArgs) growReq.callArgs = ctx.callArgs;
         if (ctx.functionArgs) growReq.functionArgs = true;
+        if (ctx.dataArgs) growReq.dataArgs = ctx.dataArgs;
         // A fault/timeout retry feeds the error back; so does re-running a grow that was itself such a retry.
         if (ctx.fault) {
           growReq.runtimeFault = { call: ctx.call, errorName: ctx.fault.errorName, message: ctx.fault.message, previousBody: ctx.fault.previousBody };
@@ -1539,6 +1911,194 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
           await refreshEnv();
           busyEnd();
         }
+      }
+    });
+  }
+
+  // ───────────────────────── data ─────────────────────────
+
+  function previewDataset(input: { text: string; filename?: string; name?: string }): Promise<DatasetPreview> {
+    return datasetPreview(input, state.value.send);
+  }
+
+  /** Must run inside `exclusive`. Returns whether the dataset was bound; a problem becomes a notice. */
+  async function loadDatasetInner(input: { text: string; filename?: string; name?: string; source?: DatasetRef['source'] }): Promise<boolean> {
+    try {
+      const b = await buildData(input);
+      if (!b.ok) {
+        notice('error', `Could not load the data: ${b.error}`);
+        return false;
+      }
+      const { ref } = b;
+      const base = headRev().program;
+      if (base.functions[ref.name]) {
+        notice('error', `Could not load the data: \`${ref.name}\` is a function in this program; pick another variable name.`);
+        return false;
+      }
+      const previous = base.datasets?.[ref.name];
+      addContent(ref.hash, b.encoded);
+      // rows first, then the revision that refers to them: a stored revision must never point at rows that were not
+      // saved (the store discards an image whose datasets are missing)
+      await deps.store.saveDatasets?.({ ...referencedContent(), [ref.hash]: b.encoded });
+      await runtime!.bindDataset(ref.name, ref.hash, decodeRows(b.encoded), ref.typeName);
+      const env = await snapshotEnv();
+      const cols = ref.columns.length;
+      const rev = newRevision(history, {
+        kind: 'dataset',
+        title: `Loaded dataset ${ref.name}: ${plural(ref.rowCount, 'row')} × ${plural(cols, 'column')}`,
+        detail: [
+          ref.source === 'bundled' ? `bundled ${ref.filename ?? 'data'}` : ref.filename ? `from ${ref.filename}` : 'pasted',
+          `hash ${short(ref.hash)}`,
+          ...(previous ? [previous.hash === ref.hash ? 'same rows as before' : `replaces the previous ${ref.name} (hash ${short(previous.hash)})`] : []),
+        ].join(' · '),
+        program: withDataset(base, ref),
+        env,
+        at: deps.now(),
+      });
+      await commitRevision(rev);
+      await persistDatasets();
+      await refreshEnv();
+      info(`\`${ref.name}\` is bound: \`${ref.typeDecl}\` (${plural(ref.rowCount, 'row')})`);
+      return true;
+    } catch (e) {
+      notice('error', `Could not load the data: ${errorText(e)}`);
+      return false;
+    }
+  }
+
+  function loadDataset(input: { text: string; filename?: string; name?: string; source?: DatasetRef['source'] }): Promise<void> {
+    return exclusive('load the data', async () => {
+      await loadDatasetInner(input);
+    });
+  }
+
+  function removeDataset(name: string): Promise<void> {
+    return exclusive('remove the data', async () => {
+      const base = headRev().program;
+      const ref = base.datasets?.[name];
+      if (!ref) {
+        notice('error', `No dataset is bound to ${name}`);
+        return;
+      }
+      try {
+        await runtime!.unbindDataset(name);
+        const env = await snapshotEnv();
+        const rev = newRevision(history, {
+          kind: 'dataset',
+          title: `Removed dataset ${name}`,
+          detail: `${plural(ref.rowCount, 'row')} · hash ${short(ref.hash)}`,
+          program: withoutDataset(base, name),
+          env,
+          at: deps.now(),
+        });
+        await commitRevision(rev);
+        await persistDatasets();
+        await refreshEnv();
+        info(`\`${name}\` is no longer bound (earlier revisions keep it: roll back to get it again)`);
+      } catch (e) {
+        notice('error', `Removing the data failed: ${errorText(e)}`);
+      }
+    });
+  }
+
+  function setSendSamples(on: boolean): void {
+    if (state.value.send.samples === on) return;
+    flags = { ...flags, sendSamples: on };
+    set({ send: { ...state.value.send, samples: on } });
+    void persistFlags();
+  }
+
+  // ───────────────────────── pins ─────────────────────────
+
+  const markPinned = (match: (e: Extract<ReplEntry, { kind: 'output' }>) => boolean, pinned: boolean): void => {
+    set({
+      repl: state.value.repl.map((e) => {
+        if (e.kind !== 'output' || !match(e)) return e;
+        if (pinned) return { ...e, pinned: true };
+        const { pinned: _was, ...rest } = e;
+        return rest;
+      }),
+    });
+  };
+
+  function pinResult(entryId: string): Promise<void> {
+    return exclusive('pin the result', async () => {
+      const entry = state.value.repl.find((e) => e.id === entryId);
+      if (!entry || entry.kind !== 'output' || !entry.pinnable || entry.pinned) return;
+      const { fn, call, args, expected } = entry.pinnable;
+      try {
+        const base = headRev().program;
+        const rec = base.functions[fn];
+        if (!rec) {
+          notice('error', `${fn} is no longer in the program, so there is nothing to pin this result on.`);
+          return;
+        }
+        const lost = args.find((a): a is Extract<PinArg, { kind: 'dataset' }> => a.kind === 'dataset' && !content.has(a.hash));
+        if (lost) {
+          notice('error', `Can't pin ${call}: the rows of \`${lost.name}\` it ran on are no longer stored.`);
+          return;
+        }
+        const existing = rec.spec.pins ?? [];
+        const candidate = { label: call, args, expected };
+        if (existing.some((p) => samePin(p, candidate))) {
+          markPinned((e) => e.id === entryId, true);
+          return;
+        }
+        const pinId = (await sha256Hex(canonicalJson([call, args as unknown as Json, expected]))).slice(0, 12);
+        const pin: Pin = { id: pinId, label: call, args, expected, pinnedAt: deps.now() };
+        const env = await snapshotEnv();
+        let shownExpected = '';
+        try {
+          shownExpected = show(decodeValue(expected));
+        } catch {
+          shownExpected = '…';
+        }
+        const rev = newRevision(history, {
+          kind: 'pin',
+          title: `Pinned: ${call}`,
+          detail: `expected ${shownExpected.length > 120 ? `${shownExpected.slice(0, 119)}…` : shownExpected} · ${plural(existing.length + 1, 'pinned test')} on ${fn} · hashes unchanged`,
+          fn,
+          program: withPins(base, fn, [...existing, pin]),
+          env,
+          at: deps.now(),
+        });
+        await commitRevision(rev);
+        await persistDatasets();
+        markPinned((e) => e.id === entryId || (e.pinnable !== undefined && e.pinnable.fn === fn && samePin({ label: e.pinnable.call, args: e.pinnable.args, expected: e.pinnable.expected }, candidate)), true);
+        info(PINNED_INFO, 'accent');
+      } catch (e) {
+        notice('error', `Pinning failed: ${errorText(e)}`);
+      }
+    });
+  }
+
+  function removePin(fn: string, pinId: string): Promise<void> {
+    return exclusive('remove the pin', async () => {
+      try {
+        const base = headRev().program;
+        const rec = base.functions[fn];
+        const pin = rec?.spec.pins?.find((p) => p.id === pinId);
+        if (!rec || !pin) {
+          notice('error', `No pinned test ${pinId} on ${fn}`);
+          return;
+        }
+        const left = (rec.spec.pins ?? []).filter((p) => p.id !== pinId);
+        const env = await snapshotEnv();
+        const rev = newRevision(history, {
+          kind: 'pin',
+          title: `Unpinned: ${pin.label}`,
+          detail: `${plural(left.length, 'pinned test')} left on ${fn} · hashes unchanged`,
+          fn,
+          program: withPins(base, fn, left),
+          env,
+          at: deps.now(),
+        });
+        await commitRevision(rev);
+        await persistDatasets();
+        markPinned((e) => e.pinnable !== undefined && e.pinnable.fn === fn && samePin({ label: e.pinnable.call, args: e.pinnable.args, expected: e.pinnable.expected }, pin), false);
+        info(`Removed the pinned test ${pin.label} from ${fn}.`);
+      } catch (e) {
+        notice('error', `Removing the pin failed: ${errorText(e)}`);
       }
     });
   }
@@ -1562,7 +2122,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
   // ───────────────────────── images ─────────────────────────
 
   async function exportImage(): Promise<string> {
-    return JSON.stringify(store.toImage(history, head), null, 2);
+    return JSON.stringify(store.toImage(history, head, referencedContent()), null, 2);
   }
 
   function importImage(json: string): Promise<void> {
@@ -1589,6 +2149,8 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       const fresh = await recompileArtifacts(verified.revisions);
       const image = { ...verified, revisions: fresh.revisions };
       const importedHead = image.revisions.find((r) => r.id === image.head)!;
+      const previousContent = new Map(content);
+      replaceContent(image.datasets);
       const rev = newRevision(image.revisions, {
         kind: 'import',
         title: `Imported image (${plural(image.revisions.length, 'revision')})`,
@@ -1596,12 +2158,20 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         env: structuredClone(importedHead.env),
         at: deps.now(),
       });
-      const lost = await resetRuntime(jsFunctions(rev.program), rev.env);
+      let lost: string[];
+      try {
+        lost = await resetRuntime(jsFunctions(rev.program), rev.env);
+      } catch (e) {
+        content.clear();
+        for (const [h, c] of previousContent) content.set(h, c);
+        throw e;
+      }
       history = [...image.revisions, rev];
       head = rev.id;
       publishHistory();
       set({ generation: null });
       await deps.store.clearAll();
+      await persistDatasets(); // the rows before the revisions that refer to them
       for (const r of history) await deps.store.appendRevision(r, head);
       await persistFlags();
       await refreshEnv();
@@ -1610,7 +2180,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       notice(fresh.dropped.length > 0 ? 'error' : 'info', `Imported image: ${recompileSummary(fresh)}.`);
     } catch (e) {
       notice('error', `Import failed: ${errorText(e)}`);
-      await runtime?.reset(jsFunctions(headRev().program), headRev().env).catch(() => undefined);
+      if (runtime) await resetRuntime(jsFunctions(headRev().program), headRev().env).catch(() => undefined);
     }
   }
 
@@ -1634,10 +2204,13 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         const r1 = await seedProgram();
         history = [r1];
         head = 1;
-        flags = { takeawayShown: false, openerDismissed: false };
+        // the privacy choice (sample rows or the type only) survives a reset; nothing else does
+        flags = { takeawayShown: false, openerDismissed: false, ...(flags.sendSamples !== undefined ? { sendSamples: flags.sendSamples } : {}) };
         await deps.store.appendRevision(r1, 1);
         await persistFlags();
-        await runtime?.reset({}, {});
+        content.clear();
+        await deps.store.saveDatasets?.({});
+        await runtime?.reset({}, {}, {});
         publishHistory();
         set({
           repl: [],
@@ -1689,6 +2262,12 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     importImage,
     exportRecording,
     resetImage,
+    previewDataset,
+    loadDataset,
+    removeDataset,
+    setSendSamples,
+    pinResult,
+    removePin,
     dispose,
   };
 }

@@ -2,9 +2,22 @@
  * Environment-agnostic core of gates 2–4 (Tests, Properties, Invariants). No Worker globals and no timers:
  * it runs in the gate worker and, unchanged, in Node under vitest. Bounded-ness is enforced outside, by the
  * main-thread watchdog in gateRunner.ts, which only needs the enter/leave hooks fired here.
+ *
+ * Returned shape: one GateResult per REQUESTED phase (`input.phases`, default all three), in the order tests,
+ * properties, invariants. A phase that was not requested is omitted entirely — except that an invariant violation
+ * (pure/bounded) is always reported by an Invariants result, even when 'invariants' was not requested (the attribution
+ * rule). So `phases: ['tests', 'properties']` yields [tests, properties] or [tests, properties, invariants(fail)].
+ *
+ * Pinned results (`input.pinned`) run in the Tests phase AFTER the user's unit tests, each as a unit test named
+ * `pinned: <label>`, on a deep clone of its arguments, compared with eq()'s equality. Tests-gate summaries:
+ *   no pins:   "4/4 tests passed"                      (unchanged)   fail: "3/4 tests passed"
+ *   pins:      "5 unit tests + 2 pinned passed"        pins only: "2 pinned passed"
+ *              fail: "5/7 tests passed (5 unit + 2 pinned)"
+ * Properties summaries carry the per-property runs: `2/2 properties held (150 runs: "a" 100, "b" 50)` /
+ * `1/2 properties failed (…)`. evidenceFrom() (gateRunner.ts) parses exactly these formats.
  */
 import * as fc from 'fast-check';
-import type { Diagnostic, GateResult } from '../types';
+import type { Diagnostic, GateId, GateResult } from '../types';
 import { firstDifference, formatDifference } from '../shared/diff';
 import { callString, show } from '../shared/show';
 import { evalMasked, InvariantViolation, takeViolations } from './mask';
@@ -16,6 +29,7 @@ import {
   type ExecPhase,
 } from './attribution';
 import {
+  AssertionFailure,
   cloneOrSelf,
   deepEqual,
   isAssertionFailure,
@@ -37,6 +51,28 @@ export interface ExecGateInput {
   /** Real args of the triggering call (extra invariant probe). */
   callArgs?: unknown[];
   overallCapMs?: number; // default 15000
+  /**
+   * Results pinned as unit tests ("Pin as test"), already decoded by the caller (dataset arguments are the real row
+   * arrays; they are deep-cloned before every call, so a candidate can never change them).
+   */
+  pinned?: PinnedCase[];
+  /** Phases to run (default all three). See the module comment for the returned shape. */
+  phases?: ExecPhase[];
+}
+
+export interface PinnedCase {
+  /** e.g. `topCustomers(rows)`: the diagnostic's call and the test name `pinned: <label>`. */
+  label: string;
+  args: unknown[];
+  expected: unknown;
+}
+
+export const PINNED_PREFIX = 'pinned: ';
+
+/** Whether a result belongs in the output for `phases` (an invariant failure always does: attribution rule). */
+export function phaseWanted(r: GateResult, phases: readonly ExecPhase[] | undefined): boolean {
+  if (!phases) return true;
+  return (phases as readonly GateId[]).includes(r.gate) || (r.gate === 'invariants' && r.status === 'fail');
 }
 
 export interface ExecHooks {
@@ -122,15 +158,22 @@ function isThenable(v: unknown): boolean {
 export function executeGates(input: ExecGateInput, hooks: ExecHooks): GateResult[] {
   takeViolations(); // discard anything left over from an earlier run in this realm
   const { name } = input;
+  const wants = (p: ExecPhase): boolean => !input.phases || input.phases.includes(p);
   const results: GateResult[] = [];
+  const emitted = new Set<GateId>();
   const emit = (r: GateResult): void => {
+    if (emitted.has(r.gate)) return;
+    emitted.add(r.gate);
+    if (!phaseWanted(r, input.phases)) return;
     results.push(r);
     hooks.gate?.(r);
   };
   const finish = (all: GateResult[]): GateResult[] => {
-    for (const r of all.slice(results.length)) emit(r);
+    for (const r of all) emit(r);
     return results;
   };
+  /** Stand-in for a phase that was not requested (never part of the output). */
+  const notRequested = (gate: ExecPhase): GateResult => ({ gate, status: 'skipped', ms: 0, summary: 'not requested', diagnostics: [] });
 
   let phase: ExecPhase = 'tests';
   let phaseStart = now();
@@ -287,6 +330,35 @@ export function executeGates(input: ExecGateInput, hooks: ExecHooks): GateResult
     }
   };
 
+  /** A pinned result as a unit test: deep-cloned arguments, eq() equality, a standard 'test' diagnostic on failure. */
+  const runPin = (p: PinnedCase): Failure | null => {
+    last = null;
+    const testName = `${PINNED_PREFIX}${p.label}`;
+    let args: unknown[];
+    try {
+      args = realStructuredClone(p.args);
+    } catch {
+      args = p.args.map(cloneOrSelf);
+    }
+    let actual: unknown;
+    try {
+      actual = wrapper(...args);
+    } catch (e) {
+      if (violation) return null;
+      const error = show(e);
+      const expected = show(p.expected);
+      const message = `${p.label} threw ${error}, expected ${expected}`;
+      return { headline: `Rejected: ${message}`, diag: { kind: 'test', name: testName, call: p.label, expected, error, message } };
+    }
+    if (violation) return null;
+    if (deepEqual(actual, p.expected)) return null;
+    const f = new AssertionFailure(actual, p.expected);
+    return {
+      headline: `Rejected: ${p.label} returned ${f.actualShown}, expected ${f.expectedShown}`,
+      diag: { kind: 'test', name: testName, call: p.label, expected: f.expectedShown, actual: f.actualShown, message: f.message },
+    };
+  };
+
   const runProperty = (c: PropertyCase): { failure: Failure | null; runs: number } => {
     const pred = (...args: unknown[]): boolean => {
       if (violation) return true; // stop paying for shrinking once the run is already rejected
@@ -354,28 +426,41 @@ export function executeGates(input: ExecGateInput, hooks: ExecHooks): GateResult
 
   // (c) phases ─────────────────────────────────────────────
 
-  // Tests
-  const testsReg = register(input.testsJs);
-  if (!testsReg) return finish(violationResults());
-  if ('specError' in testsReg) {
-    return finish([specErrorResult('tests', testsReg.specError), notReached('properties'), notReached('invariants')]);
+  // Tests (the user's unit tests, then the pinned results)
+  let testsResult: GateResult;
+  if (wants('tests')) {
+    const testsReg = register(input.testsJs);
+    if (!testsReg) return finish(violationResults());
+    if ('specError' in testsReg) {
+      return finish([specErrorResult('tests', testsReg.specError), notReached('properties'), notReached('invariants')]);
+    }
+    const r = runCases('tests', testsReg.cases, input.pinned ?? []);
+    if (!r) return finish(violationResults());
+    testsResult = r;
+  } else {
+    testsResult = notRequested('tests');
   }
-  const testsResult = runCases('tests', testsReg.cases);
-  if (!testsResult) return finish(violationResults());
   emit(testsResult);
   if (testsResult.status === 'fail') return finish([testsResult, notReached('properties'), notReached('invariants')]);
 
   // Properties
   enterPhase('properties');
-  const propsReg = register(input.propertiesJs);
-  if (!propsReg) return finish(violationResults());
-  if ('specError' in propsReg) {
-    return finish([testsResult, specErrorResult('properties', propsReg.specError), notReached('invariants')]);
+  let propsResult: GateResult;
+  if (wants('properties')) {
+    const propsReg = register(input.propertiesJs);
+    if (!propsReg) return finish(violationResults());
+    if ('specError' in propsReg) {
+      return finish([testsResult, specErrorResult('properties', propsReg.specError), notReached('invariants')]);
+    }
+    const r = runCases('properties', propsReg.cases);
+    if (!r) return finish(violationResults());
+    propsResult = r;
+  } else {
+    propsResult = notRequested('properties');
   }
-  const propsResult = runCases('properties', propsReg.cases);
-  if (!propsResult) return finish(violationResults());
   emit(propsResult);
   if (propsResult.status === 'fail') return finish([testsResult, propsResult, notReached('invariants')]);
+  if (!wants('invariants')) return finish([testsResult, propsResult]);
 
   // Invariants: replay sampled calls on deep-frozen clones, twice each
   enterPhase('invariants');
@@ -457,9 +542,9 @@ export function executeGates(input: ExecGateInput, hooks: ExecHooks): GateResult
     },
   ]);
 
-  /** Runs a gate's cases. null = interrupted by an invariant violation. */
-  function runCases(gate: 'tests' | 'properties', cases: Case[]): GateResult | null {
-    if (cases.length === 0) {
+  /** Runs a gate's cases (and, for tests, the pinned results after them). null = interrupted by an invariant violation. */
+  function runCases(gate: 'tests' | 'properties', cases: Case[], pins: PinnedCase[] = []): GateResult | null {
+    if (cases.length === 0 && pins.length === 0) {
       return {
         gate,
         status: 'skipped',
@@ -471,6 +556,7 @@ export function executeGates(input: ExecGateInput, hooks: ExecHooks): GateResult
     }
     const failures: Failure[] = [];
     let runs = 0;
+    const perProperty: Array<{ name: string; runs: number }> = [];
     for (const c of cases) {
       let failure: Failure | null;
       if (c.kind === 'test') {
@@ -478,35 +564,58 @@ export function executeGates(input: ExecGateInput, hooks: ExecHooks): GateResult
       } else {
         const r = runProperty(c);
         runs += r.runs;
+        perProperty.push({ name: c.name, runs: r.runs });
         failure = r.failure;
       }
       if (violation) return null;
       if (failure) failures.push(failure);
     }
-    const total = cases.length;
-    const passed = total - failures.length;
-    const plural = (n: number): string => (gate === 'tests' ? (n === 1 ? 'test' : 'tests') : n === 1 ? 'property' : 'properties');
-    const ms = now() - phaseStart;
-    if (failures.length === 0) {
-      return {
-        gate,
-        status: 'pass',
-        ms,
-        summary: gate === 'tests' ? `${passed}/${total} ${plural(total)} passed` : `${passed}/${total} ${plural(total)} held (${runs} runs)`,
-        diagnostics: [],
-        counts: { passed, total },
-      };
+    for (const p of pins) {
+      const failure = runPin(p);
+      if (violation) return null;
+      if (failure) failures.push(failure);
     }
+    const unit = cases.length;
+    const total = unit + pins.length;
+    const passed = total - failures.length;
+    const ms = now() - phaseStart;
+    const ok = failures.length === 0;
+    const summary = gate === 'tests' ? testsSummary(ok, passed, unit, pins.length) : propertiesSummary(ok, passed, failures.length, total, runs, perProperty);
+    if (ok) return { gate, status: 'pass', ms, summary, diagnostics: [], counts: { passed, total } };
     return {
       gate,
       status: 'fail',
       ms,
-      summary: gate === 'tests' ? `${passed}/${total} ${plural(total)} passed` : `${failures.length}/${total} ${plural(total)} failed`,
+      summary,
       headline: failures[0].headline,
       diagnostics: failures.map((f) => f.diag),
       counts: { passed, total },
     };
   }
+}
+
+const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
+
+/** Tests-gate summary (formats in the module comment; evidenceFrom parses them). */
+export function testsSummary(ok: boolean, passed: number, unit: number, pinned: number): string {
+  const total = unit + pinned;
+  if (pinned === 0) return `${passed}/${total} ${total === 1 ? 'test' : 'tests'} passed`;
+  if (!ok) return `${passed}/${total} ${total === 1 ? 'test' : 'tests'} passed (${unit} unit + ${pinned} pinned)`;
+  return unit === 0 ? `${pinned} pinned passed` : `${plural(unit, 'unit test', 'unit tests')} + ${pinned} pinned passed`;
+}
+
+/** Properties-gate summary with per-property runs; names are JSON-quoted so the list parses unambiguously. */
+export function propertiesSummary(
+  ok: boolean,
+  passed: number,
+  failed: number,
+  total: number,
+  runs: number,
+  perProperty: ReadonlyArray<{ name: string; runs: number }>,
+): string {
+  const word = total === 1 ? 'property' : 'properties';
+  const detail = `(${runs} runs: ${perProperty.map((p) => `${JSON.stringify(p.name)} ${p.runs}`).join(', ')})`;
+  return ok ? `${passed}/${total} ${word} held ${detail}` : `${failed}/${total} ${word} failed ${detail}`;
 }
 
 /** The check's "spec was silent" marker, as Diagnostic fields (absent keys when unset). */

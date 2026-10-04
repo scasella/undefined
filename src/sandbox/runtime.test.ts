@@ -244,3 +244,79 @@ describe('Runtime', () => {
     runtime.dispose();
   });
 });
+
+describe('Runtime datasets', () => {
+  const ROWS = [
+    { customer: 'Ada', total: 12 },
+    { customer: 'Lin', total: 3 },
+  ];
+  const REF = { $t: 'dataset', name: 'rows', hash: 'h1', typeName: 'Row' };
+
+  it('bindDataset binds through the worker; the env record holds a ref, not the rows', async () => {
+    const { runtime, workers } = setup();
+    await runtime.bindDataset('rows', 'h1', ROWS, 'Row');
+    expect(workers[0]!.received.some((r) => r.type === 'bindDataset')).toBe(true);
+    expect(await runtime.evaluate('rows.length')).toMatchObject({ kind: 'value', shown: '2' });
+    expect(await runtime.snapshotEnv()).toEqual({ rows: REF });
+    expect(await runtime.datasets()).toEqual([{ name: 'rows', hash: 'h1', typeName: 'Row' }]);
+    expect(await runtime.evaluate('topCustomer(rows)')).toMatchObject({
+      kind: 'undefined-call',
+      argTypes: ['Row[]'],
+      argDatasets: ['rows'],
+    });
+    runtime.dispose();
+  });
+
+  it('a timeout rebuild right after binding keeps the dataset binding (rows re-sent to the new worker)', async () => {
+    const { runtime, workers } = setup({ callBudgetMs: 50 });
+    await runtime.define('double', DOUBLE);
+    await runtime.bindDataset('rows', 'h1', ROWS, 'Row');
+    expect(await runtime.evaluate('hang()')).toMatchObject({ kind: 'timeout' });
+    expect(workers).toHaveLength(2);
+    const reset = workers[1]!.received.find((r) => r.type === 'reset');
+    expect(reset).toMatchObject({ type: 'reset', env: { rows: REF }, datasets: { h1: ROWS } });
+    expect(await runtime.evaluate('rows[0].customer')).toMatchObject({ kind: 'value', shown: '"Ada"' });
+    expect(await runtime.snapshotEnv()).toEqual({ rows: REF });
+    expect(await runtime.evaluate('f(rows)')).toMatchObject({ kind: 'undefined-call', argDatasets: ['rows'] });
+    runtime.dispose();
+  });
+
+  it('a variable reassigned away from the dataset stops being a ref, and survives rebuilds as a value', async () => {
+    const { runtime } = setup({ callBudgetMs: 50 });
+    await runtime.bindDataset('rows', 'h1', ROWS, 'Row');
+    await runtime.evaluate('rows = rows.slice(0, 1)');
+    expect(await runtime.snapshotEnv()).toEqual({ rows: [{ customer: 'Ada', total: 12 }] });
+    expect(await runtime.evaluate('hang()')).toMatchObject({ kind: 'timeout' });
+    expect(await runtime.evaluate('rows.length')).toMatchObject({ kind: 'value', shown: '1' });
+    expect(await runtime.datasets()).toEqual([]);
+    runtime.dispose();
+  });
+
+  it('reset(functions, env, datasets) resolves refs; a ref whose hash is missing is dropped and reported lost', async () => {
+    const { runtime } = setup();
+    const env = { rows: REF, other: { ...REF, name: 'orders', hash: 'missing' }, n: 1 };
+    expect(await runtime.reset({ double: DOUBLE }, env, { h1: ROWS })).toEqual({ lost: ['other'] });
+    expect(await runtime.evaluate('rows.length + n')).toMatchObject({ kind: 'value', shown: '3' });
+    expect(await runtime.snapshotEnv()).toEqual({ rows: REF, n: 1 });
+    // without datasets, every ref is lost
+    expect(await runtime.reset({}, { rows: REF })).toEqual({ lost: ['rows'] });
+    expect(await runtime.snapshotEnv()).toEqual({});
+    runtime.dispose();
+  });
+
+  it('unbindDataset removes the binding and its variable', async () => {
+    const { runtime } = setup();
+    await runtime.bindDataset('rows', 'h1', ROWS, 'Row');
+    await runtime.unbindDataset('rows');
+    expect(await runtime.snapshotEnv()).toEqual({});
+    expect(await runtime.datasets()).toEqual([]);
+    runtime.dispose();
+  });
+
+  it('bindDataset onto a committed function name rejects', async () => {
+    const { runtime } = setup();
+    await runtime.define('double', DOUBLE);
+    await expect(runtime.bindDataset('double', 'h1', ROWS, 'Row')).rejects.toThrow(/committed function/);
+    runtime.dispose();
+  });
+});

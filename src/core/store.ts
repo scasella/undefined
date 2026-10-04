@@ -24,7 +24,8 @@ import type {
 
 export interface Persisted {
   image: Image;
-  flags: { takeawayShown: boolean; openerDismissed: boolean };
+  /** `sendSamples` (absent = never chosen: the default applies) is whether sample rows go to Codex in live mode. */
+  flags: { takeawayShown: boolean; openerDismissed: boolean; sendSamples?: boolean };
   liveEnv: Record<string, Json>;
   /** Dataset rows, encoded, content-addressed (also inside `image.datasets`). */
   datasets: Record<string, Json>;
@@ -256,7 +257,11 @@ export function loadPersisted(): Promise<Persisted | null> {
     const env = kv[K_ENV];
     return {
       image: checked.image,
-      flags: { takeawayShown: f.takeawayShown === true, openerDismissed: f.openerDismissed === true },
+      flags: {
+        takeawayShown: f.takeawayShown === true,
+        openerDismissed: f.openerDismissed === true,
+        ...(typeof f.sendSamples === 'boolean' ? { sendSamples: f.sendSamples } : {}),
+      },
       liveEnv: isObject(env) && Object.values(env).every(isJson) ? (env as Record<string, Json>) : {},
       datasets: checked.image.datasets ?? {},
     };
@@ -303,7 +308,7 @@ export async function reverify(image: Image): Promise<Image> {
           async ([name, rec]) => [name, { ...rec, ...(await hashesFor(rec.spec)) }] as const,
         ),
       );
-      return { ...rev, program: { functions: Object.fromEntries(entries) } };
+      return { ...rev, program: { ...rev.program, functions: Object.fromEntries(entries) } };
     }),
   );
   return { ...image, revisions };

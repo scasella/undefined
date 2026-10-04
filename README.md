@@ -51,6 +51,35 @@ npm run typecheck
 - **Export / import** your whole program (revisions, specs, artifacts, provenance) as one JSON file. State persists in
   IndexedDB.
 
+## Data scratchpad
+
+Press **Data** in the header to paste or drop CSV, TSV, JSON or JSON Lines (`.csv .tsv .json .jsonl .txt`). The file is
+read in your browser, parsed, and its columns typed (numbers, booleans; empty cells become `null`). The preview shows the
+row count, each column's type, the declared `type Row = {…}` and the first 20 rows. **Load** binds the rows to a REPL
+variable (`rows` by default) as a revision. Rows are stored once, by content hash, in IndexedDB and in exported images,
+and come back with rollback like any other variable. Limits: 20,000 rows and 1 MB.
+
+Then call a function that does not exist on it, e.g. `topCustomersByRevenue(rows)`. The parameter is typed `Row[]`, the
+type declaration is compiled in front of the function, and the gates replay the call on the real rows, frozen, so a
+candidate that sorts `rows` in place is rejected.
+
+**What is sent to Codex, and when.** Nothing is sent when you paste, preview or load. When a call that uses a dataset
+grows (or regrows) a function in live mode, that prompt contains the variable name, the row count, the `type Row = {…}`
+declaration and, while **Send 3 sample rows to Codex along with the type** is on (the default; your choice is
+remembered), three rows spread across the data (first, middle, last), with long strings cut and at most 1.5 kB of JSON.
+The drawer shows that exact text before you load anything. With the toggle off, only the type is sent. In replay mode
+nothing is sent. No other row ever reaches the prompt.
+
+**Pin as test.** Under a result, **Pin as test** turns the call and its result into a unit test on that function
+(dataset arguments are stored by reference, not copied). Pins are outside both hashes, so pinning invalidates nothing.
+The next regeneration must reproduce the pinned result, or the Tests gate rejects it and says that you pinned it.
+Remove a pin in **Repo**.
+
+The **orders** example binds a bundled, fictional `orders.csv` (332 rows) to `rows` and pre-types
+`topCustomersByRevenue(rows)` with no spec. Only Compile and Invariants judge the result, so it is yours to judge: pin
+it. Once the function exists, its **Break it** (in Repo) states what revenue means: refunds excluded, discounts applied,
+rounded to cents. No recording ships for it yet, so it needs live mode.
+
 ## How a call is decided
 
 ```
@@ -206,4 +235,7 @@ rates above against your own Codex login (results in `.tmp/tune-out.json`).
    1.5 s bound, with the call and elapsed time on screen; the retry commits a fast-doubling version.
 7. **0:50** Open **Repo → median**, press **Break it**. The artifact turns *invalid: spec changed*. Call it again and it
    regenerates.
-8. **0:55** Open **Revisions** and click **Roll back to r2**. Then **Image → Export** to download your whole program.
+8. **0:52** (live mode) Click **orders** and press Enter. The model sees only `type Row` and three sample rows (the
+   **Data** drawer shows exactly which). The result renders as a table; press **Pin as test**. From now on every
+   regeneration of `topCustomersByRevenue` has to reproduce that result, or Tests rejects it.
+9. **0:55** Open **Revisions** and click **Roll back to r2**. Then **Image → Export** to download your whole program.

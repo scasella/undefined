@@ -2,11 +2,52 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Engine, EngineState, GenerationView, ReplEntry, RestartId } from '../../types';
 import { fmtElapsed, fmtMs } from '../format';
 import { inputHistory } from '../select';
-import { useElapsed } from '../uiState';
+import { focusFn, lowerTab, useElapsed } from '../uiState';
+import { pinnedText } from '../data';
+import { DataTable } from './DataTable';
 import { UNCHECKED_TEXT } from '../explain';
 import { PanelHead, Ticks } from './common';
 
-function Entry({ e, engine, live }: { e: ReplEntry; engine: Engine; live: boolean }) {
+/**
+ * The action row under a pinnable result: one compact line. Before pinning, the most prominent button after a result;
+ * after, what the pin became and a way to see it in the Repo tab.
+ */
+function PinRow({ e, engine, state }: { e: Extract<ReplEntry, { kind: 'output' }>; engine: Engine; state: EngineState }) {
+  const p = e.pinnable!;
+  if (e.pinned) {
+    const n = state.program.functions[p.fn]?.spec.pins?.length ?? 1;
+    return (
+      <div class="r-actions is-pinned">
+        <span class="pin-done">{pinnedText(p.fn, n)}</span>
+        <button
+          type="button"
+          class="linkish small"
+          onClick={() => {
+            lowerTab.value = 'repo';
+            focusFn.value = { fn: p.fn, nonce: Date.now() };
+          }}
+        >
+          see it in Repo
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div class="r-actions">
+      <button
+        type="button"
+        class="btn btn-primary btn-pin"
+        disabled={state.busy}
+        title={`Turn ${p.call} and this result into a unit test on ${p.fn}: the next regeneration has to reproduce it.`}
+        onClick={() => void engine.pinResult(e.id)}
+      >
+        Pin as test
+      </button>
+    </div>
+  );
+}
+
+function Entry({ e, engine, live, state }: { e: ReplEntry; engine: Engine; live: boolean; state: EngineState }) {
   switch (e.kind) {
     case 'input':
       return (
@@ -26,6 +67,11 @@ function Entry({ e, engine, live }: { e: ReplEntry; engine: Engine; live: boolea
             {e.detail && <span class="muted">{e.detail}</span>}
             <span class="muted mono">{fmtMs(e.ms)}</span>
           </span>
+          {e.table && (
+            <div class="r-table">
+              <DataTable table={e.table} label={`Result of the call above: ${e.table.total} rows`} />
+            </div>
+          )}
           {e.note !== undefined && (
             // set only when this call grew a function with no tests and no properties: an accept, not an endorsement
             <div class="r-unchecked">
@@ -35,9 +81,10 @@ function Entry({ e, engine, live }: { e: ReplEntry; engine: Engine; live: boolea
                   Model's note: <span class="r-model-note-text">{e.note}</span>
                 </p>
               )}
-              {/* action row slot (e.g. "Pin as test"): <div class="r-actions">…</div> */}
+              {e.pinnable && <PinRow e={e} engine={engine} state={state} />}
             </div>
           )}
+          {e.note === undefined && e.pinnable && <PinRow e={e} engine={engine} state={state} />}
         </li>
       );
     case 'error': {
@@ -220,7 +267,7 @@ export function Repl({ state, engine }: { state: EngineState; engine: Engine }) 
         {state.hints.opener && <p class="opener">This function doesn't exist. Press Enter.</p>}
         <ol class="transcript" ref={listRef} aria-live="polite" aria-relevant="additions">
           {state.repl.map((e) => (
-            <Entry key={e.id} e={e} engine={engine} live={e.id === liveInfoId} />
+            <Entry key={e.id} e={e} engine={engine} live={e.id === liveInfoId} state={state} />
           ))}
           {live && <LiveGeneration gen={gen} />}
         </ol>

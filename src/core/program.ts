@@ -3,7 +3,7 @@
  * Programs and Revisions are treated as immutable values throughout the app.
  */
 import { hashesFor } from '../shared/hash';
-import type { Artifact, Candidate, FunctionRecord, FunctionSpec, Program, Revision } from '../types';
+import type { Artifact, Candidate, DatasetRef, FunctionRecord, FunctionSpec, Hash, Pin, Program, Revision } from '../types';
 
 export function emptyProgram(): Program {
   return { functions: {} };
@@ -35,19 +35,60 @@ export function jsFunctions(p: Program): Record<string, { js: string; budgetMs: 
 /** Add or replace a spec. An existing artifact is kept; it becomes stale when the hashes changed. */
 export async function withSpec(p: Program, spec: FunctionSpec): Promise<Program> {
   const rec = await recordFor(spec, p.functions[spec.name]?.artifact ?? null);
-  return { functions: { ...p.functions, [spec.name]: rec } };
+  return { ...p, functions: { ...p.functions, [spec.name]: rec } };
 }
 
 /** Attach an artifact to an existing function. Throws when there is no spec under that name. */
 export function withArtifact(p: Program, name: string, a: Artifact): Program {
   const rec = p.functions[name];
   if (!rec) throw new Error(`cannot attach artifact: no function named ${name}`);
-  return { functions: { ...p.functions, [name]: { ...rec, artifact: a } } };
+  return { ...p, functions: { ...p.functions, [name]: { ...rec, artifact: a } } };
 }
 
 export function withoutFunction(p: Program, name: string): Program {
   const { [name]: _removed, ...rest } = p.functions;
-  return { functions: rest };
+  return { ...p, functions: rest };
+}
+
+/** Bind (or rebind) a dataset ref under its variable name. */
+export function withDataset(p: Program, ref: DatasetRef): Program {
+  return { ...p, datasets: { ...(p.datasets ?? {}), [ref.name]: ref } };
+}
+
+/** Drop the dataset bound to `name` (the `datasets` field disappears when it was the last one). */
+export function withoutDataset(p: Program, name: string): Program {
+  const { [name]: _removed, ...rest } = p.datasets ?? {};
+  const { datasets: _all, ...base } = p;
+  return Object.keys(rest).length > 0 ? { ...base, datasets: rest } : base;
+}
+
+/**
+ * Replace a function's pins. Pins are outside both hashes, so the record's hashes and its artifact stay as they are
+ * (pinning invalidates nothing). Throws when there is no function named `fn`. An empty list removes the field.
+ */
+export function withPins(p: Program, fn: string, pins: Pin[]): Program {
+  const rec = p.functions[fn];
+  if (!rec) throw new Error(`cannot pin: no function named ${fn}`);
+  const { pins: _old, ...spec } = rec.spec;
+  const next: FunctionSpec = pins.length > 0 ? { ...spec, pins } : spec;
+  return { ...p, functions: { ...p.functions, [fn]: { ...rec, spec: next } } };
+}
+
+/** Every dataset hash a program refers to: bound datasets plus dataset arguments of pins. */
+export function datasetHashes(p: Program): Set<Hash> {
+  const out = new Set<Hash>();
+  for (const ref of Object.values(p.datasets ?? {})) out.add(ref.hash);
+  for (const rec of Object.values(p.functions)) {
+    for (const pin of rec.spec.pins ?? []) for (const a of pin.args) if (a.kind === 'dataset') out.add(a.hash);
+  }
+  return out;
+}
+
+/** Dataset hashes referred to by any revision (what must be kept, persisted and exported; the rest is garbage). */
+export function referencedDatasets(revisions: readonly Revision[]): Set<Hash> {
+  const out = new Set<Hash>();
+  for (const r of revisions) for (const h of datasetHashes(r.program)) out.add(h);
+  return out;
 }
 
 /** `artifacts` counts LIVE artifacts only (what would actually run). */

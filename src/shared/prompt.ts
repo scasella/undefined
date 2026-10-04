@@ -15,6 +15,12 @@ export interface PromptInput {
   history: Array<{ attempt: number; body: string; gates: GateResult[]; headline?: string }>;
   /** Runtime-fault restart ("retry with the error fed back"): a committed function threw on this call. */
   runtimeFault?: { call: string; errorName: string; message: string; previousBody: string };
+  /**
+   * Datasets the triggering call ran over. Only these fields are ever shown: the variable name, the type name, the row
+   * count and `sampleText` (exactly what the user agreed to send; omit it to send the type only). Rows never reach the
+   * prompt any other way.
+   */
+  dataSamples?: Array<{ name: string; typeName: string; rowCount: number; sampleText?: string }>;
 }
 
 export function declarationLine(spec: FunctionSpec, opts: { forceInferredReturn?: string } = {}): string {
@@ -49,7 +55,12 @@ export function buildPrompt(input: PromptInput): string {
     ].join('\n'),
   );
 
-  const fn = ['FUNCTION', decl, '', 'Your body is compiled exactly as:', `${decl} {`, '  <body>', '}'];
+  const typeDecls = (spec.typeDecls ?? '').replace(/\r\n?/g, '\n').replace(/\s+$/, '');
+  if (typeDecls !== '') {
+    sections.push(['TYPES (declared before your function; use them, do not redeclare them)', typeDecls].join('\n'));
+  }
+
+  const fn = ['FUNCTION', decl, '', 'Your body is compiled exactly as:', ...(typeDecls !== '' ? [typeDecls] : []), `${decl} {`, '  <body>', '}'];
   if (spec.returns === null) {
     fn.push('No return type is declared: it is inferred from your body and must be consistent with the contract below.');
   }
@@ -71,17 +82,20 @@ export function buildPrompt(input: PromptInput): string {
 
   sections.push(checksSection(spec));
 
+  const samplesShown = (input.dataSamples ?? []).some((d) => d.sampleText !== undefined);
   if (input.callArgTypes && input.callArgTypes.length > 0) {
     sections.push(
       [
         'TRIGGERING CALL',
-        `The program called ${spec.name} with ${input.callArgTypes.length} argument(s) of these types (values are not shown): (${input.callArgTypes.join(', ')}).`,
+        `The program called ${spec.name} with ${input.callArgTypes.length} argument(s) of these types (values are not shown${samplesShown ? ', except the sample rows under DATA' : ''}): (${input.callArgTypes.join(', ')}).`,
         'Handle any value of these types sensibly, not just one case.',
       ].join('\n'),
     );
   } else if (input.callArgTypes) {
     sections.push(['TRIGGERING CALL', `The program called ${spec.name} with no arguments.`].join('\n'));
   }
+
+  for (const d of input.dataSamples ?? []) sections.push(dataSection(d));
 
   sections.push(honestySection(spec));
 
@@ -145,6 +159,20 @@ function unescapeJs(s: string): string {
     if (e[0] === 'x' && e.length === 3) return String.fromCharCode(parseInt(e.slice(1), 16));
     return ({ n: ' ', t: ' ', r: '', '0': '' } as Record<string, string>)[e] ?? e;
   });
+}
+
+/** One dataset: its name, size and type, plus exactly the sample text the user agreed to share (or nothing). */
+export function dataSection(d: NonNullable<PromptInput['dataSamples']>[number]): string {
+  const lines = ['DATA', `\`${d.name}\` is bound to ${d.rowCount} row${d.rowCount === 1 ? '' : 's'} of ${d.typeName}.`];
+  if (d.sampleText !== undefined) {
+    lines.push('A few rows, spread across the data (exactly what you are being shown; nothing else is shared):', d.sampleText);
+  } else {
+    lines.push('(The user chose not to share sample rows; only the type is shared.)');
+  }
+  lines.push(
+    `Your function must work for ANY rows of type ${d.typeName}${d.sampleText !== undefined ? ', not just the sample' : ''}: other rows hold other values, the array can be empty or much longer, and no order may be assumed unless the contract says so.`,
+  );
+  return lines.join('\n');
 }
 
 function checksSection(spec: FunctionSpec): string {
