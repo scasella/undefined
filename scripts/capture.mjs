@@ -60,7 +60,7 @@ await p.keyboard.press('Escape'); await p.waitForTimeout(500); at.drawerClosed =
 await p.locator('#repl-input').press('Enter'); at.enter2 = now();
 await p.waitForFunction(() => document.querySelectorAll('table').length > 0 && /Pin as test/.test(document.body.innerText), null, { timeout: 90000 }); at.table = now();
 await p.waitForTimeout(1300);
-await p.getByRole('button', { name: /Pin as test/ }).first().click(); at.pinned = now();
+await p.getByRole('button', { name: /Pin as test/ }).last().click(); at.pinned = now();
 await p.waitForTimeout(2600); at.end = now();
 sampling = false;
 capturing = false;
