@@ -153,15 +153,16 @@ export function RunLiveDialog({ state, engine, open, onClose }: { state: EngineS
       </p>
       <h3>Prerequisites</h3>
       <ul class="prereq">
-        <li>Node 20 or later</li>
+        <li>Node 20+</li>
         <li>Codex CLI 0.157 or later</li>
         <li>
-          <code>codex login</code> completed
+          <code>codex login</code> (once)
         </li>
       </ul>
       <h3>Then</h3>
-      <CopyBlock text={`git clone ${repo ?? '<this repository URL>'} undefined`} />
-      <CopyBlock text="cd undefined && npm install" />
+      {/* the explicit target directory makes `cd undefined` work whatever the repository is called */}
+      <CopyBlock text={`git clone ${repo ?? '<repo>'} undefined && cd undefined`} />
+      <CopyBlock text="npm install" />
       <CopyBlock text="npm run dev" />
       <p class="muted small">Open the URL Vite prints. The generation service runs inside the dev server and calls your local Codex CLI.</p>
       <ServiceStatusView state={state} />
@@ -184,9 +185,8 @@ export function ModeBanner({ state, onRunLive }: { state: EngineState; onRunLive
       <span class="banner-icon" aria-hidden="true">
         ⟲
       </span>
-      <p>
-        Replaying a recorded {state.service.model ?? 'gpt-6-luna'} session; gates are running live
-      </p>
+      {/* the bundled recordings are a gpt-6-luna session whatever model a local service would use */}
+      <p>Replaying a recorded gpt-6-luna session; gates are running live</p>
       <button type="button" class="btn btn-xs" onClick={onRunLive}>
         Run live
       </button>

@@ -1,3 +1,4 @@
+import { spawn as nodeSpawn } from 'node:child_process';
 import { chmod, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -11,6 +12,7 @@ import {
   buildCodexArgs,
   checkRequestOrigin,
   classifyFailure,
+  isLoopbackAddress,
   createCodexService,
   createSerialQueue,
   filterStderrLine,
@@ -20,6 +22,7 @@ import {
   parseCodexVersion,
   resolveConfig,
   type RunOutcome,
+  type SpawnFn,
 } from './codexService';
 
 // ───────────────────────── pure parts ─────────────────────────
@@ -178,16 +181,32 @@ describe('createSerialQueue', () => {
 });
 
 describe('request guards and routing', () => {
-  it('accepts loopback hosts with same or no origin', () => {
-    expect(checkRequestOrigin({ host: 'localhost:5173' })).toBeNull();
-    expect(checkRequestOrigin({ host: '127.0.0.1:5173', origin: 'http://127.0.0.1:5173' })).toBeNull();
-    expect(checkRequestOrigin({ host: '[::1]:5173' })).toBeNull();
+  const local = { remoteAddress: '127.0.0.1', requireOrigin: false };
+  it('accepts loopback hosts with same or (for health) no origin', () => {
+    expect(checkRequestOrigin({ host: 'localhost:5173' }, local)).toBeNull();
+    expect(checkRequestOrigin({ host: '127.0.0.1:5173', origin: 'http://127.0.0.1:5173' }, local)).toBeNull();
+    expect(checkRequestOrigin({ host: '[::1]:5173' }, { ...local, remoteAddress: '::1' })).toBeNull();
+    expect(checkRequestOrigin({ host: 'localhost:5173', origin: 'http://localhost:5173' }, { remoteAddress: '::ffff:127.0.0.1', requireOrigin: true })).toBeNull();
   });
   it('rejects other hosts and cross origins', () => {
-    expect(checkRequestOrigin({ host: 'evil.example:5173' })).toMatch(/not a loopback/);
-    expect(checkRequestOrigin({ host: 'localhost:5173', origin: 'http://evil.example' })).toMatch(/does not match/);
-    expect(checkRequestOrigin({ host: 'localhost:5173', origin: 'http://localhost:9999' })).toMatch(/does not match/);
-    expect(checkRequestOrigin({})).toMatch(/missing/);
+    expect(checkRequestOrigin({ host: 'evil.example:5173' }, local)).toMatch(/not a loopback/);
+    expect(checkRequestOrigin({ host: 'localhost:5173', origin: 'http://evil.example' }, local)).toMatch(/does not match/);
+    expect(checkRequestOrigin({ host: 'localhost:5173', origin: 'http://localhost:9999' }, local)).toMatch(/does not match/);
+    expect(checkRequestOrigin({}, local)).toMatch(/missing/);
+  });
+  it('requires an Origin when asked (POST /generate)', () => {
+    expect(checkRequestOrigin({ host: 'localhost:5173' }, { ...local, requireOrigin: true })).toBe('missing Origin header');
+    expect(checkRequestOrigin({ host: 'localhost:5173', origin: 'null' }, { ...local, requireOrigin: true })).toBe('bad Origin header');
+  });
+  it('rejects peers that are not loopback addresses, whatever the Host header says', () => {
+    expect(checkRequestOrigin({ host: 'localhost:5173', origin: 'http://localhost:5173' }, { remoteAddress: '192.168.1.20', requireOrigin: true })).toMatch(
+      /peer 192\.168\.1\.20 is not a loopback address/,
+    );
+    expect(checkRequestOrigin({ host: 'localhost:5173' }, { remoteAddress: undefined, requireOrigin: false })).toMatch(/not a loopback address/);
+  });
+  it('isLoopbackAddress', () => {
+    for (const a of ['127.0.0.1', '127.1.2.3', '::1', '::ffff:127.0.0.1']) expect(isLoopbackAddress(a)).toBe(true);
+    for (const a of ['10.0.0.1', '::ffff:10.0.0.1', '128.0.0.1', '127.0.0.256', 'fe80::1', '', undefined]) expect(isLoopbackAddress(a)).toBe(false);
   });
   it('routes /generate and /generate/health, also under a base path', () => {
     expect(routeFor('/generate', '/')).toBe('generate');
@@ -367,6 +386,30 @@ describe('codex service with a real subprocess', () => {
     expect(await p).toMatchObject({ ok: false, error: { code: 'aborted' } });
   });
 
+  it('a client that disconnects during the health check never gets a codex exec spawned', async () => {
+    const ac = new AbortController();
+    const spawned: string[][] = [];
+    const spawn: SpawnFn = (cmd, args, opts) => {
+      spawned.push(args);
+      if (args[0] === 'login') ac.abort(); // the client goes away while the health check runs
+      return nodeSpawn(cmd, args, opts);
+    };
+    const r = await createCodexService({ env: envFor(), spawn }).generate('please write it', () => {}, ac.signal);
+    expect(r).toMatchObject({ ok: false, error: { code: 'aborted' } });
+    expect(spawned.map((a) => a[0])).toEqual(['--version', 'login']);
+  });
+
+  it('an abort that lands between the checks and listening still stops codex', async () => {
+    const ac = new AbortController();
+    const spawn: SpawnFn = (cmd, args, opts) => {
+      const child = nodeSpawn(cmd, args, opts);
+      if (args[0] === 'exec') ac.abort(); // already aborted when runCodex starts listening
+      return child;
+    };
+    const r = await createCodexService({ env: envFor(), spawn }).generate('MODE:slow', () => {}, ac.signal);
+    expect(r).toMatchObject({ ok: false, error: { code: 'aborted' } });
+  });
+
   it('dispose() kills a running codex (dev-server shutdown)', async () => {
     const svc = createCodexService({ env: envFor() });
     const r = await svc.generate('MODE:hang', (line) => {
@@ -397,6 +440,7 @@ describe('codex service with a real subprocess', () => {
       await new Promise((r) => server.close(r));
     });
 
+    const same = () => ({ origin: `http://localhost:${port}` });
     const request = (path: string, opts: { method?: string; headers?: Record<string, string>; body?: string } = {}) =>
       new Promise<{ status: number; type: string; text: string }>((resolve, reject) => {
         const req = http.request({ host: '127.0.0.1', port, path, method: opts.method ?? 'GET', headers: { host: `localhost:${port}`, ...opts.headers } }, (res) => {
@@ -416,7 +460,7 @@ describe('codex service with a real subprocess', () => {
     });
 
     it('POST /generate → SSE progress then result', async () => {
-      const r = await request('/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt: 'go' }) });
+      const r = await request('/generate', { method: 'POST', headers: { 'content-type': 'application/json', ...same() }, body: JSON.stringify({ prompt: 'go' }) });
       expect(r.status).toBe(200);
       expect(r.type).toContain('text/event-stream');
       const events = r.text
@@ -435,9 +479,16 @@ describe('codex service with a real subprocess', () => {
     it('rejects foreign hosts/origins, oversize and malformed bodies', async () => {
       expect((await request('/generate/health', { headers: { host: 'evil.example' } })).status).toBe(403);
       expect((await request('/generate', { method: 'POST', headers: { origin: 'http://evil.example' }, body: '{"prompt":"x"}' })).status).toBe(403);
-      expect((await request('/generate', { method: 'POST', body: JSON.stringify({ prompt: 'x'.repeat(210 * 1024) }) })).status).toBe(413);
-      expect((await request('/generate', { method: 'POST', body: 'nope' })).status).toBe(400);
-      expect((await request('/generate', { method: 'GET' })).status).toBe(405);
+      expect((await request('/generate', { method: 'POST', headers: same(), body: JSON.stringify({ prompt: 'x'.repeat(210 * 1024) }) })).status).toBe(413);
+      expect((await request('/generate', { method: 'POST', headers: same(), body: 'nope' })).status).toBe(400);
+      expect((await request('/generate', { method: 'GET', headers: same() })).status).toBe(405);
+    });
+
+    it('POST /generate requires an Origin header; GET /generate/health does not', async () => {
+      const r = await request('/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"prompt":"x"}' });
+      expect(r.status).toBe(403);
+      expect(JSON.parse(r.text)).toMatchObject({ message: 'Forbidden: missing Origin header.' });
+      expect((await request('/generate/health')).status).toBe(200);
     });
   });
 });

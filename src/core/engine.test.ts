@@ -19,9 +19,21 @@ import { warmUp } from '../gates/compile';
 import { executeGates } from '../sandbox/gateExecutor';
 import { Runtime, type RuntimeWorkerLike } from '../sandbox/runtime';
 import { createDispatcher, type RuntimeMessage, type RuntimeRequest } from '../sandbox/replCore';
-import { createEngine, RECURSION_HINT, TAKEAWAY_TEXT, type EngineDeps, type EngineExample, type EngineHandle } from './engine';
+import type { ExecGateInput } from '../sandbox/gateRunner';
+import { encodeValue } from '../shared/serialize';
+import {
+  createEngine,
+  decodeCallArgs,
+  LOST_PREFIX,
+  RECURSION_HINT,
+  TAKEAWAY_TEXT,
+  type EngineDeps,
+  type EngineExample,
+  type EngineHandle,
+  type RuntimeLike,
+} from './engine';
 import { GenerationFailure } from './generator';
-import { isStale } from './program';
+import { isLive, isStale } from './program';
 import { _useBackend, memoryBackend } from './store';
 
 // ───────────────────────── a median spec (inline; not the examples module) ─────────────────────────
@@ -118,6 +130,38 @@ class InProcessWorker implements RuntimeWorkerLike {
 }
 
 const ZERO_PACING = { typeCharMs: 0, gateDwellMs: 0, replayMaxMs: 0 };
+
+const realRuntime = (): Runtime => new Runtime({ callBudgetMs: 10_000, workerFactory: () => new InProcessWorker() });
+
+/** The real runtime with some methods replaced (to simulate what a test needs from the runtime side). */
+function wrapRuntime(rt: Runtime, over: (rt: Runtime) => Partial<RuntimeLike>): RuntimeLike {
+  return {
+    define: (name, js, budgetMs) => rt.define(name, js, budgetMs),
+    undefine: (name) => rt.undefine(name),
+    evaluate: (input) => rt.evaluate(input),
+    snapshotEnv: () => rt.snapshotEnv(),
+    envShown: () => rt.envShown(),
+    reset: (fns, env) => rt.reset(fns, env),
+    dispose: () => rt.dispose(),
+    ...over(rt),
+  };
+}
+
+/**
+ * Supplies the encoded `args` of an undefined call when the runtime does not send them yet (replCore emits them
+ * once the sandbox change lands; then this wrapper is a no-op).
+ */
+const withCallArgs = (args: Record<string, unknown[]>) => (rt: Runtime): Partial<RuntimeLike> => ({
+  evaluate: async (input) => {
+    const o = await rt.evaluate(input);
+    if (o.kind === 'undefined-call' && !Array.isArray((o as { args?: unknown }).args) && args[o.call]) {
+      return { ...o, args: args[o.call]!.map(encodeValue) };
+    }
+    return o;
+  },
+});
+
+const tick = (ms = 20) => new Promise((r) => setTimeout(r, ms));
 const engines: EngineHandle[] = [];
 
 function setup(
@@ -137,7 +181,7 @@ function setup(
     createLiveGenerator: () => gen,
     createReplayGenerator: () => gen,
     loadRecordings: async () => [],
-    createRuntime: () => new Runtime({ callBudgetMs: 10_000, workerFactory: () => new InProcessWorker() }),
+    createRuntime: realRuntime,
     execGates: (input, onGate) =>
       Promise.resolve(executeGates(input, { phase() {}, enter() {}, leave() {}, ...(onGate ? { gate: onGate } : {}) })),
     now: () => (clock += 1000),
@@ -674,5 +718,290 @@ describe('engine: pacing and cancellation', () => {
     expect(s().repl).toEqual([]);
     expect(s().generation).toBeNull();
     expect(s().revisions).toHaveLength(1);
+  }, 30_000);
+});
+
+// ───────────────────────── review fixes ─────────────────────────
+
+describe('engine: the triggering call reaches the Invariants gate', () => {
+  it('decodeCallArgs decodes the runtime encoding and refuses placeholders or a missing list', () => {
+    expect(decodeCallArgs([encodeValue([1, 2]), encodeValue(1n), encodeValue(new Map([['a', NaN]]))])).toEqual([[1, 2], 1n, new Map([['a', NaN]])]);
+    expect(decodeCallArgs(undefined)).toBeUndefined();
+    expect(decodeCallArgs([1, { $t: 'unserializable', show: '[Function f]' }])).toBeUndefined();
+    expect(decodeCallArgs([[1, { $t: 'unserializable', show: 'x' }]])).toBeUndefined();
+  });
+
+  it('a spec-less call whose body mutates its argument is rejected by Invariants (pure); the next candidate is committed', async () => {
+    const gateInputs: ExecGateInput[] = [];
+    const { engine, s, run } = setup({
+      script: { bump: ['arg0.push(0);\nreturn arg0.length;', 'return arg0.length + 1;'] },
+      deps: {
+        createRuntime: () => wrapRuntime(realRuntime(), withCallArgs({ 'bump([1, 2])': [[1, 2]] })),
+        execGates: (input, onGate) => {
+          gateInputs.push(input);
+          return Promise.resolve(executeGates(input, { phase() {}, enter() {}, leave() {}, ...(onGate ? { gate: onGate } : {}) }));
+        },
+      },
+    });
+    await engine.init();
+    const out = await run('bump([1, 2])');
+    expect(gateInputs[0]!.callArgs).toEqual([[1, 2]]);
+    const [a1, a2] = s().generation!.attempts;
+    expect(a1!.candidate).toMatchObject({ verdict: 'rejected', rejectedBy: 'invariants' });
+    expect(a1!.candidate!.headline).toMatch(/mutated its argument/);
+    expect(a1!.gates.map((g) => g.status)).toEqual(['pass', 'skipped', 'skipped', 'fail']);
+    expect(a2!.candidate!.verdict).toBe('accepted');
+    expect(out[out.length - 1]).toMatchObject({ kind: 'output', value: '3', label: 'generated' });
+  }, 30_000);
+
+  it('a spec-less call whose body reads Math.random is rejected by Invariants (pure)', async () => {
+    const { engine, s, run } = setup({
+      script: { noisy: Array(3).fill('return arg0 + Math.random();') },
+      deps: { createRuntime: () => wrapRuntime(realRuntime(), withCallArgs({ 'noisy(1)': [1] })) },
+    });
+    await engine.init();
+    const out = await run('noisy(1)');
+    const a1 = s().generation!.attempts[0]!;
+    expect(a1.candidate).toMatchObject({ verdict: 'rejected', rejectedBy: 'invariants' });
+    expect(a1.candidate!.headline).toContain('Math.random');
+    expect(out[out.length - 1]).toMatchObject({ kind: 'error', name: 'GrowthFailed' });
+    expect(s().program.functions.noisy).toBeUndefined();
+  }, 30_000);
+
+  it('arguments containing an unserializable placeholder are not passed to the gates', async () => {
+    const gateInputs: ExecGateInput[] = [];
+    const { engine, run } = setup({
+      script: { first: ['return arg0;'] },
+      deps: {
+        createRuntime: () =>
+          wrapRuntime(realRuntime(), (rt) => ({
+            evaluate: async (input) => {
+              const o = await rt.evaluate(input);
+              return o.kind === 'undefined-call' ? { ...o, args: [{ $t: 'unserializable', show: '[Function f]' }] } : o;
+            },
+          })),
+        execGates: (input, onGate) => {
+          gateInputs.push(input);
+          return Promise.resolve(executeGates(input, { phase() {}, enter() {}, leave() {}, ...(onGate ? { gate: onGate } : {}) }));
+        },
+      },
+    });
+    await engine.init();
+    await run('first(1)');
+    expect(gateInputs).toHaveLength(1);
+    expect('callArgs' in gateInputs[0]!).toBe(false);
+  }, 30_000);
+});
+
+describe('engine: operations are serialised', () => {
+  it('two rollbacks fired without awaiting get distinct ids, and the image exports and re-imports', async () => {
+    const { engine, s, run } = setup({ script: { median: [MEDIAN_GOOD] } });
+    await engine.init();
+    await run('median([1, 2])'); // r2
+    const a = engine.rollback(1);
+    const b = engine.rollback(2);
+    await Promise.all([a, b]);
+    expect(s().revisions.map((r) => [r.id, r.kind, r.restoredFrom])).toEqual([
+      [1, 'init', undefined],
+      [2, 'commit', undefined],
+      [3, 'rollback', 1],
+      [4, 'rollback', 2],
+    ]);
+    expect(s().headRevision).toBe(4);
+    expect(isLive(s().program.functions.median!)).toBe(true);
+    const json = await engine.exportImage();
+    await engine.resetImage();
+    await engine.importImage(json);
+    expect(s().notice?.tone).toBe('info');
+    expect(s().revisions.map((r) => r.id)).toEqual([1, 2, 3, 4, 5]);
+    const out = await run('median([1, 2])');
+    expect(out[1]).toMatchObject({ value: '1.5', label: 'cached artifact', detail: 'certified r2' });
+  }, 30_000);
+
+  it('a spec edit requested while a grow is in flight waits for the commit, then applies on top of it', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const slow: Generator = {
+      mode: 'live',
+      generate: async () => {
+        await gate;
+        return { body: MEDIAN_GOOD, notes: '', model: 'test-model', codexVersion: '0.0.1', durationMs: 1, source: 'live', progress: [] };
+      },
+    };
+    const { engine, s } = setup({ deps: { createLiveGenerator: () => slow } });
+    await engine.init();
+    const pending = engine.submit();
+    await tick();
+    expect(s().busy).toBe(true);
+    const edit = engine.editSpec('median', { doc: `${MEDIAN_SPEC.doc} Be exact.` });
+    await tick();
+    expect(s().notice).toEqual({ tone: 'info', text: 'Waiting for the current operation to finish before you edit the spec…' });
+    expect(s().revisions).toHaveLength(1); // not applied yet, not dropped either
+    release();
+    await Promise.all([pending, edit]);
+    expect(s().notice).toBeUndefined(); // the waiting notice is gone once the edit ran
+    expect(s().revisions.map((r) => [r.id, r.kind])).toEqual([
+      [1, 'init'],
+      [2, 'commit'],
+      [3, 'spec-edit'],
+    ]);
+    expect(s().revisions[2]!.title).toBe('Spec edited: median — artifact invalidated');
+    expect(s().program.functions.median!.spec.doc).toContain('Be exact.');
+    expect(s().busy).toBe(false);
+  }, 30_000);
+});
+
+describe('engine: artifact liveness', () => {
+  it("labels a call 'cached artifact' only when the called function's artifact is live", async () => {
+    // The runtime fails to drop the invalidated function (undefine is a no-op), so the stale js still answers.
+    const { engine, s, run } = setup({
+      script: { median: [MEDIAN_GOOD] },
+      deps: { createRuntime: () => wrapRuntime(realRuntime(), () => ({ undefine: async () => {} })) },
+    });
+    await engine.init();
+    await run('median([1, 2])');
+    await engine.editSpec('median', { doc: `${MEDIAN_SPEC.doc} Be exact.` });
+    expect(isStale(s().program.functions.median!)).toBe(true);
+    const out = await run('median([5, 1, 3])');
+    expect(strip(out)).toEqual([
+      { kind: 'input', text: 'median([5, 1, 3])' },
+      { kind: 'output', value: '3', ms: expect.any(Number), label: null },
+    ]);
+  }, 30_000);
+
+  it('editing a spec back to its certified text revalidates the artifact and defines it again', async () => {
+    const { engine, gen, s, run } = setup({ script: { median: [MEDIAN_GOOD] } });
+    await engine.init();
+    await run('median([1, 2])'); // r2
+    await engine.editSpec('median', { doc: `${MEDIAN_SPEC.doc} Be exact.` }); // r3: invalidated
+    await engine.editSpec('median', { doc: MEDIAN_SPEC.doc }); // r4: back to the certified text
+    expect(s().revisions[3]).toMatchObject({ id: 4, kind: 'spec-edit', title: 'Spec edited: median — artifact revalidated (certified r2)', artifacts: 1 });
+    expect(isLive(s().program.functions.median!)).toBe(true);
+    const out = await run('median([5, 1, 3])');
+    expect(out[1]).toMatchObject({ kind: 'output', value: '3', label: 'cached artifact', detail: 'certified r2' });
+    expect(gen.requests).toHaveLength(1);
+  }, 30_000);
+});
+
+describe('engine: stored and imported js is never trusted', () => {
+  const TAMPERED_JS = 'function median(numbers) { return 42; }';
+  type ImageJson = { revisions: Array<{ program: { functions: Record<string, { artifact: { js: string; body: string } | null }> } }> };
+  const tamper = (revisions: ImageJson['revisions'], edit: (a: { js: string; body: string }) => void) => {
+    for (const r of revisions) for (const rec of Object.values(r.program.functions)) if (rec.artifact) edit(rec.artifact);
+  };
+
+  it('importImage recompiles live artifacts from their bodies and ignores the stored js', async () => {
+    const { engine, s, run } = setup({ script: { median: [MEDIAN_GOOD] } });
+    await engine.init();
+    await run('median([1, 2])');
+    const img = JSON.parse(await engine.exportImage()) as ImageJson;
+    tamper(img.revisions, (a) => (a.js = TAMPERED_JS));
+    await engine.resetImage();
+    await engine.importImage(JSON.stringify(img));
+    expect(s().notice).toEqual({ tone: 'info', text: 'Imported image: recompiled 1 artifact from its body.' });
+    const art = s().program.functions.median!.artifact!;
+    expect(art.js).not.toBe(TAMPERED_JS);
+    expect(art).toMatchObject({ body: MEDIAN_GOOD, revision: 2, model: 'test-model', returnType: 'number' });
+    expect(art.candidates).toHaveLength(1);
+    const out = await run('median([1, 2])');
+    expect(out[1]).toMatchObject({ value: '1.5', label: 'cached artifact' });
+  }, 30_000);
+
+  it('importImage drops an artifact whose body does not compile and names the function', async () => {
+    const { engine, s, run } = setup({ script: { median: [MEDIAN_GOOD] } });
+    await engine.init();
+    await run('median([1, 2])');
+    const img = JSON.parse(await engine.exportImage()) as ImageJson;
+    tamper(img.revisions, (a) => (a.body = MEDIAN_COMPILE_BAD));
+    await engine.resetImage();
+    await engine.importImage(JSON.stringify(img));
+    expect(s().notice?.tone).toBe('error');
+    expect(s().notice?.text).toBe(
+      'Imported image: recompiled 0 artifacts from their bodies; dropped the artifact of median (its body does not compile; the next call regenerates).',
+    );
+    expect(s().program.functions.median!.artifact).toBeNull();
+    expect(s().revisions.map((r) => r.artifacts)).toEqual([0, 0, 0]);
+  }, 30_000);
+
+  it('init recompiles persisted artifacts; a body that does not compile is dropped with a notice', async () => {
+    const backend = memoryBackend();
+    _useBackend(backend);
+    const first = setup({ script: { median: [MEDIAN_GOOD] } });
+    await first.engine.init();
+    await first.run('xs = [5, 1, 3]');
+    await first.run('median(xs)');
+    first.engine.dispose();
+
+    let data = await backend.readAll();
+    tamper(data.revisions as unknown as ImageJson['revisions'], (a) => (a.js = TAMPERED_JS));
+    await backend.write({ revisions: data.revisions });
+    const second = setup();
+    await second.engine.init();
+    expect(second.s().notice).toBeUndefined();
+    const out = await second.run('median(xs)');
+    expect(out[1]).toMatchObject({ value: '3', label: 'cached artifact', detail: 'certified r2' });
+    second.engine.dispose();
+
+    data = await backend.readAll();
+    tamper(data.revisions as unknown as ImageJson['revisions'], (a) => (a.body = MEDIAN_COMPILE_BAD));
+    await backend.write({ revisions: data.revisions });
+    const third = setup();
+    await third.engine.init();
+    expect(third.s().notice).toEqual({
+      tone: 'error',
+      text: 'Restored image: recompiled 0 artifacts from their bodies; dropped the artifact of median (its body does not compile; the next call regenerates).',
+    });
+    expect(third.s().program.functions.median!.artifact).toBeNull();
+  }, 30_000);
+});
+
+describe('engine: REPL variables the runtime could not restore are reported', () => {
+  const infos = (s: EngineState) => s.repl.filter((e): e is Extract<ReplEntry, { kind: 'info' }> => e.kind === 'info').map((e) => e.text);
+
+  it('after rollback and import (reset reports `lost`)', async () => {
+    const { engine, s, run } = setup({
+      script: { median: [MEDIAN_GOOD] },
+      deps: {
+        createRuntime: () =>
+          wrapRuntime(realRuntime(), (rt) => ({
+            reset: async (fns, env) => {
+              await rt.reset(fns, env);
+              return { lost: Object.keys(env).filter((k) => k === 'h') };
+            },
+          })),
+      },
+    });
+    await engine.init();
+    await run('h = 1');
+    await run('median([1, 2])'); // r2 snapshots h
+    await engine.rollback(2);
+    expect(infos(s()).slice(-2)).toEqual(['Rolled back to r2 — restored 1 function and 0 variables', `${LOST_PREFIX}h`]);
+    const json = await engine.exportImage();
+    await engine.resetImage();
+    await engine.importImage(json);
+    expect(infos(s()).slice(-1)).toEqual([`${LOST_PREFIX}h`]);
+  }, 30_000);
+
+  it('after a timeout (the outcome carries `lost`): never "the program was restored" without the caveat', async () => {
+    const { engine, s, run } = setup({
+      deps: {
+        createRuntime: () =>
+          wrapRuntime(realRuntime(), (rt) => ({
+            evaluate: async (input) => (input === 'spin()' ? { kind: 'timeout', ms: 5, call: 'spin()', lost: ['h', 'k'] } : rt.evaluate(input)),
+          })),
+      },
+    });
+    await engine.init();
+    const out = await run('spin()');
+    expect(strip(out)).toEqual([
+      { kind: 'input', text: 'spin()' },
+      {
+        kind: 'error',
+        name: 'TimeoutError',
+        message: 'spin() exceeded 5 ms and was terminated; the program was restored except 2 variables that could not be restored (h, k)',
+      },
+      { kind: 'info', text: `${LOST_PREFIX}h, k`, tone: 'warn' },
+    ]);
+    expect(lastError(s()).message).not.toMatch(/restored$/);
   }, 30_000);
 });

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { GateResult } from '../types';
 import { INTERRUPTED_NOTE } from './attribution';
-import { executeGates, NO_PROPERTIES_NOTE, NO_TESTS_NOTE, type ExecGateInput, type ExecHooks } from './gateExecutor';
+import { executeGates, NEVER_CALLED_NOTE, NO_PROPERTIES_NOTE, NO_TESTS_NOTE, type ExecGateInput, type ExecHooks } from './gateExecutor';
 
 // ───────── real candidates (strict JS as the compile gate would emit it) ─────────
 
@@ -199,7 +199,7 @@ describe('executeGates', () => {
   });
 
   it('rejects a global write that escapes the mask', () => {
-    const js = `function median(numbers) { Function('return this')().__leakedByCandidate = 1; return numbers[0]; }`;
+    const js = `function median(numbers) { (() => 0).constructor('return this')().__leakedByCandidate = 1; return numbers[0]; }`;
     try {
       const { results } = run(input({ js, testsJs: `test('t', () => eq(median([1]), 1));`, propertiesJs: '' }));
       expect(results[2].headline).toBe("Rejected: candidate wrote global '__leakedByCandidate' (pure)");
@@ -252,7 +252,8 @@ describe('executeGates', () => {
     const { results } = run(input({ js: MEDIAN, testsJs: 'const unused = 1;', propertiesJs: '// nothing' }));
     expect(results[0].note).toBe(NO_TESTS_NOTE);
     expect(results[1].note).toBe(NO_PROPERTIES_NOTE);
-    expect(results[2].summary).toBe('pure ✓ bounded ✓ (no sampled calls to replay)');
+    expect(results[2].status).toBe('skipped');
+    expect(results[2].note).toBe(NEVER_CALLED_NOTE);
   });
 
   it('reports errors in the user spec as spec errors, not candidate failures', () => {
@@ -347,4 +348,73 @@ describe('executeGates', () => {
 
 afterEach(() => {
   expect((globalThis as Record<string, unknown>).__leakedByCandidate).toBeUndefined();
+});
+
+describe('executeGates — review fixes', () => {
+  const only = (name: string, js: string, over: Partial<ExecGateInput> = {}): GateResult[] =>
+    run({ name, js, testsJs: '', propertiesJs: '', budgetMs: 1500, seed: 1, ...over }).results;
+
+  it('rejects a candidate that replaces Object.is (Invariants, pure) and restores it', () => {
+    const results = only('f', 'function f() { Object.is = () => true; return 0; }', { callArgs: [] });
+    expect(statuses(results)).toEqual(['tests:skipped', 'properties:skipped', 'invariants:fail']);
+    expect(results[2].headline).toBe('Rejected: candidate modified Object.is (pure)');
+    expect(Object.is(1, 2)).toBe(false);
+  });
+
+  it('rejects a candidate that replaces Array.prototype.push, attributed from the Tests phase, and restores it', () => {
+    const real = Array.prototype.push;
+    const results = only('f', 'function f() { Array.prototype.push = function () { return 0; }; return 0; }', {
+      testsJs: "test('t', () => eq(f(), 0));",
+    });
+    expect(statuses(results)).toEqual(['tests:skipped', 'properties:skipped', 'invariants:fail']);
+    expect(results[0].note).toBe(INTERRUPTED_NOTE);
+    expect(results[2].headline).toBe('Rejected: candidate modified Array.prototype.push (pure)');
+    expect(Array.prototype.push).toBe(real);
+    const xs: number[] = [];
+    xs.push(1);
+    expect(xs).toEqual([1]);
+  });
+
+  it('rejects a candidate that adds a property to a prototype, and removes it', () => {
+    const results = only('f', 'function f(xs) { Array.prototype.sneaky = 1; return xs.length; }', { callArgs: [[1]] });
+    expect(results[2].headline).toBe('Rejected: candidate added property sneaky to Array.prototype (pure)');
+    expect('sneaky' in []).toBe(false);
+  });
+
+  it('does not call a candidate that returns a function non-deterministic', () => {
+    const results = only('make', 'function make(x) { return { f: () => x, g: [function () { return x; }], n: x }; }', { callArgs: [1] });
+    expect(statuses(results)).toEqual(['tests:skipped', 'properties:skipped', 'invariants:pass']);
+    const plain = only('make', 'function make(x) { return () => x; }', { callArgs: [1] });
+    expect(plain[2].status).toBe('pass');
+  });
+
+  it('skips Invariants (no vacuous pass) when the candidate was never called', () => {
+    const results = only('f', 'function f(x) { return x; }');
+    expect(results[2]).toMatchObject({ gate: 'invariants', status: 'skipped', note: NEVER_CALLED_NOTE });
+    expect(NEVER_CALLED_NOTE).toBe('the candidate was never called, so purity and bounded runtime were not exercised');
+    // Called, but with arguments that cannot be replayed: still a pass, honestly labelled.
+    const called = only('apply', 'function apply(g, x) { return g(x); }', { testsJs: "test('t', () => eq(apply((x) => x, 1), 1));" });
+    expect(called[2]).toMatchObject({ status: 'pass', summary: 'pure ✓ bounded ✓ (no sampled calls to replay)' });
+  });
+
+  it('says where actual and expected differ when show() renders them identically (test)', () => {
+    const js = 'function range(n) { const a = []; for (let i = 0; i < n; i++) a.push(i); if (n >= 60) a[59] = 99; return a; }';
+    const results = only('range', js, { testsJs: "test('sixty', () => eq(range(60), Array.from({ length: 60 }, (_, i) => i)));" });
+    expect(results[0].status).toBe('fail');
+    const d = results[0].diagnostics[0] as { actual: string; expected: string; message: string };
+    expect(d.actual).toMatch(/ \(at \[59\]: 99\)$/);
+    expect(d.expected).toMatch(/ \(at \[59\]: 59\)$/);
+    expect(d.message).toContain('[59]: 99 vs 59');
+    expect(results[0].headline).toContain('(at [59]: 99), expected');
+  });
+
+  it('says where they differ for long strings in a matchesReference property', () => {
+    const js = 'function pad(n) { return "x".repeat(n) + (n > 250 ? "A" : "B"); }';
+    const props = "matchesReference('ref', [fc.constant(260)], (n) => 'x'.repeat(n) + 'B');";
+    const results = only('pad', js, { propertiesJs: props });
+    expect(results[1].status).toBe('fail');
+    const d = results[1].diagnostics[0] as { actual: string; expected: string };
+    expect(d.actual).toContain('(at [260]: "…xxxxxxxxxxxxA")');
+    expect(d.expected).toContain('(at [260]: "…xxxxxxxxxxxxB")');
+  });
 });

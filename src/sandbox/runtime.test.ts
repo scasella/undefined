@@ -178,6 +178,32 @@ describe('Runtime', () => {
     runtime.dispose();
   });
 
+  it('a timeout rebuild drops unserializable variables instead of binding them to undefined, and names them', async () => {
+    const { runtime, workers } = setup({ callBudgetMs: 50 });
+    await runtime.evaluate('f = x => x + 1');
+    await runtime.evaluate('y = 3');
+    const out = await runtime.evaluate('hang()');
+    expect(out).toMatchObject({ kind: 'timeout', lost: ['f'] });
+    expect(workers).toHaveLength(2);
+    expect(await runtime.envShown()).toEqual({ y: '3' });
+    expect(await runtime.evaluate('f')).toMatchObject({ kind: 'error', errorName: 'ReferenceError' });
+    expect(await runtime.snapshotEnv()).toEqual({ y: 3 });
+    // A second rebuild does not report the same names again.
+    const again = await runtime.evaluate('hang()');
+    expect(again.kind).toBe('timeout');
+    if (again.kind === 'timeout') expect(again.lost).toBeUndefined();
+    runtime.dispose();
+  });
+
+  it('reset resolves with the names of variables that could not be restored', async () => {
+    const { runtime } = setup();
+    const r = await runtime.reset({}, { f: { $t: 'unserializable', show: '[Function f]' }, y: 1 });
+    expect(r).toEqual({ lost: ['f'] });
+    expect(await runtime.envShown()).toEqual({ y: '1' });
+    expect(await runtime.reset({}, { y: 2 })).toEqual({ lost: [] });
+    runtime.dispose();
+  });
+
   it('a failed reset keeps the previous program', async () => {
     const { runtime } = setup();
     await runtime.define('double', DOUBLE);

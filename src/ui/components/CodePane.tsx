@@ -1,5 +1,5 @@
 import type { AttemptStatus, EngineState } from '../../types';
-import { compileMarks, latestCommitted, resolveAttempt, signatureOf } from '../select';
+import { codeAttempt, compileMarks, latestCommitted, signatureOf } from '../select';
 import { selection } from '../uiState';
 import { CodeView } from './CodeView';
 import { GeneratedBadge, PanelHead } from './common';
@@ -15,9 +15,11 @@ const STATUS_TEXT: Record<AttemptStatus, string> = {
 
 export function CodePane({ state }: { state: EngineState }) {
   const gen = state.generation;
-  const attempt = resolveAttempt(gen, selection.value);
+  const shown = codeAttempt(gen, selection.value);
 
-  if (gen && attempt) {
+  if (gen && shown) {
+    const { attempt, holdover } = shown;
+    const latest = gen.attempts[gen.attempts.length - 1];
     const committed = attempt.status === 'accepted' && gen.phase === 'committed';
     return (
       <section class="panel panel-code" aria-label="Candidate code">
@@ -25,16 +27,27 @@ export function CodePane({ state }: { state: EngineState }) {
           <span class="muted mono">
             #{attempt.attempt} of {gen.maxAttempts} · {gen.fn}
           </span>
-          <span class={`chip st-${attempt.status}`}>{STATUS_TEXT[attempt.status]}</span>
+          {holdover ? (
+            <>
+              <span class={`chip st-${attempt.status}`}>
+                {STATUS_TEXT[attempt.status]} · #{attempt.attempt}
+              </span>
+              <span class="chip st-generating" title="The next candidate replaces this one as soon as its first characters arrive">
+                #{latest.attempt} on its way
+              </span>
+            </>
+          ) : (
+            <span class={`chip st-${attempt.status}`}>{STATUS_TEXT[attempt.status]}</span>
+          )}
           {committed && <GeneratedBadge />}
         </PanelHead>
-        <div class="panel-body code-scroll">
+        <div class={`panel-body code-scroll${holdover ? ' is-holdover' : ''}`}>
           <CodeView
             signature={gen.signature}
             body={attempt.shown}
-            caret={attempt.status === 'typing' || attempt.status === 'generating'}
+            caret={!holdover && (attempt.status === 'typing' || attempt.status === 'generating')}
             marks={attempt.status === 'rejected' ? compileMarks(attempt.gates) : undefined}
-            placeholder={attempt.status === 'generating' ? 'waiting for the model…' : attempt.status === 'aborted' ? 'no candidate (generation failed)' : ''}
+            placeholder={attempt.status === 'generating' || attempt.status === 'typing' ? 'waiting for the model…' : attempt.status === 'aborted' ? 'no candidate (generation failed)' : ''}
           />
           {attempt.candidate?.notes && (
             <p class="model-notes">

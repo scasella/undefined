@@ -190,6 +190,12 @@ export function createFixtureEngine(scenario: string): Engine {
       update((s) => {
         const e = s.repl.find((x) => x.id === entryId);
         if (e?.kind === 'error') e.resolved = true;
+        if (restart === 'edit-spec') {
+          // like the engine: point the UI at the function the error is about (fixture errors carry no fn)
+          const fn = s.generation?.fn ?? Object.keys(s.program.functions)[0];
+          if (fn) s.focusSpec = { fn, nonce: (s.focusSpec?.nonce ?? 0) + 1 };
+          return;
+        }
         s.repl.push({ kind: 'info', id: eid('if'), text: `fixture: restart "${restart}" chosen`, tone: 'muted' });
       });
     },

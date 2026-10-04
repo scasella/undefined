@@ -14,7 +14,7 @@
   --line-2: #303a35;
   --text: #d6ddd7;
   --muted: #7f8c84;
-  --faint: #4b5650;
+  --faint: #66726b; /* carries small text (gate hints, unused slots): ~3.9:1 on panels */
 
   --pass: #4fe38a;
   --pass-dim: rgba(79, 227, 138, 0.13);
@@ -24,14 +24,14 @@
   --fail-hot: #ff6a3d;
   --fail-dim: rgba(255, 74, 46, 0.12);
   --fail-glow: rgba(255, 74, 46, 0.45);
-  --skip: #6b7871;
+  --skip: #7a877f;
   --info: #7cc7e8;
 
   --syn-kw: #f0b45a;
   --syn-type: #79cfc0;
   --syn-str: #b4dc86;
   --syn-num: #ff9c78;
-  --syn-com: #5d6a63;
+  --syn-com: #6e7b73;
   --syn-punc: #8e9b93;
 
   --focus: #ffb020;
@@ -51,24 +51,25 @@
     --line-2: #c2bcab;
     --text: #1b1f1c;
     --muted: #5f675f;
-    --faint: #9a9d92;
+    /* light accents are darkened so small mono labels on tinted chips stay ≥ 4.5:1; --faint carries text too */
+    --faint: #6b6f65;
 
-    --pass: #0b7a3b;
+    --pass: #0a6a33;
     --pass-dim: rgba(11, 122, 59, 0.1);
-    --run: #a35c00;
+    --run: #8a4d00;
     --run-dim: rgba(196, 120, 0, 0.13);
-    --fail: #cf2a0e;
-    --fail-hot: #e0300f;
+    --fail: #b0230a;
+    --fail-hot: #b52409;
     --fail-dim: rgba(207, 42, 14, 0.08);
     --fail-glow: rgba(207, 42, 14, 0.18);
-    --skip: #7b827a;
-    --info: #1d6d93;
+    --skip: #61685f;
+    --info: #175d7c;
 
     --syn-kw: #9a4a00;
     --syn-type: #0f6e63;
     --syn-str: #3f7a12;
     --syn-num: #b8401d;
-    --syn-com: #8b9188;
+    --syn-com: #6f766c;
     --syn-punc: #6a716a;
 
     --focus: #b36200;
@@ -136,7 +137,7 @@ select {
   top: 8px;
   z-index: 50;
   background: var(--run);
-  color: #000;
+  color: var(--panel);
   padding: 6px 10px;
 }
 .skip:focus {
@@ -470,6 +471,10 @@ select {
 .example .mono {
   font-size: 12.5px;
   color: var(--text);
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .example-blurb {
   font-size: 11px;
@@ -661,6 +666,11 @@ select {
 .tone-warn {
   color: var(--fail-hot);
 }
+/* a finished "Generating…" row: static and quiet, so an old line never reads as a stuck spinner */
+.r-info.is-past {
+  color: var(--muted);
+  opacity: 0.75;
+}
 .r-takeaway {
   margin: 6px 0 2px 16px;
   padding: 6px 0 0;
@@ -818,7 +828,7 @@ select {
   padding: 1px 0 4px;
 }
 .placeholder {
-  color: var(--faint);
+  color: var(--muted);
   font-style: italic;
 }
 .caret {
@@ -848,6 +858,11 @@ select {
 }
 .tk-punc {
   color: var(--syn-punc);
+}
+/* the previous (rejected) candidate held on screen until the next one starts typing */
+.is-holdover .code,
+.is-holdover .model-notes {
+  opacity: 0.55;
 }
 .model-notes {
   margin: 0;
@@ -990,6 +1005,9 @@ select {
 }
 .g-running .gate-word {
   color: var(--run);
+}
+.g-running .gate-what {
+  color: var(--muted);
 }
 .g-running::after {
   content: '';
@@ -1176,6 +1194,11 @@ select {
 
 .panel-strip .panel-body {
   max-height: 150px;
+  padding-top: 6px;
+}
+.strip-caption {
+  margin: 0;
+  padding: 6px 12px 0;
 }
 .chips {
   list-style: none;
@@ -1319,6 +1342,27 @@ select {
   gap: 10px;
   flex-wrap: wrap;
   margin-bottom: 10px;
+}
+.fn-toggle {
+  border: 1px solid var(--line-2);
+  background: transparent;
+  border-radius: 2px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+}
+.fn-toggle:hover {
+  border-color: var(--run);
+  color: var(--text);
+}
+.fn-card.is-collapsed .fn-head {
+  margin-bottom: 0;
+}
+.fn-cols[hidden] {
+  display: none;
 }
 .fn-head h3 {
   margin: 0;
@@ -1732,17 +1776,7 @@ textarea.mono {
   .gate-what {
     display: none;
   }
-  .stale-note {
-  margin: 6px 0;
-  padding: 5px 8px;
-  border-left: 3px solid var(--fail);
-  background: var(--fail-dim);
-  font-size: 12.5px;
-}
-.is-stale .code {
-  opacity: 0.55;
-}
-.provenance {
+  .provenance {
     grid-template-columns: max-content minmax(0, 1fr);
   }
   .tagline {

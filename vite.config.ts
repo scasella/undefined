@@ -9,6 +9,7 @@ import { saveRecording } from './server/saveRecording';
 export default defineConfig({
   base: './',
   plugins: [preact(), codexService(), saveRecording()],
+  server: { open: true },
   worker: { format: 'es' },
   optimizeDeps: { include: ['typescript', 'fast-check'] },
   build: { target: 'es2022', chunkSizeWarningLimit: 4000 },

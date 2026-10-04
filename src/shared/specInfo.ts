@@ -3,18 +3,32 @@ import type { FunctionSpec } from '../types';
 /**
  * Static extraction of test names from user-written test/property source.
  *
- * A small scanner rather than a bare regexp: it skips comments and string/template literals so that
- * `// test("old")` or `"test('x')"` are not counted, and it decodes escapes in the name literal.
+ * A small scanner rather than a bare regexp: it skips comments, string/template literals and regular expression
+ * literals (a `/` where an expression may start; body with escapes and character classes) so that
+ * `// test("old")` or `"test('x')"` are not counted and a quote, backtick or `//` inside a regex such as `/["'`]/`
+ * does not swallow the tests after it. It decodes escapes in the name literal. Not handled: regex literals inside
+ * `${…}` template interpolations, and the rare `/` after `)` that starts a regex (e.g. `if (x) /re/.test(s)`).
  * A call is recognised when one of the names below appears as a standalone identifier (not after `.`,
  * so `fc.property(...)` is ignored) followed by `(` and a string literal without interpolation.
  */
 const CALLEES = new Set(['test', 'property', 'matchesReference']);
 
+/**
+ * A `/` that is not a comment starts a regular expression literal when an expression may start there, i.e. when
+ * the previous significant token is one of these punctuators or keywords (or there is none). After an identifier,
+ * a number, a string, `)` or `]` it is division. (`}` is ambiguous in JS; treating it as regex context is right
+ * after a block, which is what test files contain.)
+ */
+const REGEX_AFTER_PUNCT = new Set([...'(,=:[!&|?{};+-*%<>~^']);
+const REGEX_AFTER_WORD = new Set([
+  'return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void', 'throw', 'case', 'do', 'else', 'yield', 'await',
+]);
+
 export function listTestNames(src: string): string[] {
   const names: string[] = [];
   let i = 0;
   const n = src.length;
-  let prevSignificant = ''; // last non-space, non-comment char before the current token
+  let prev = ''; // previous significant token: an identifier/keyword, or one punctuation/quote/digit char
 
   while (i < n) {
     const c = src[i]!;
@@ -29,27 +43,75 @@ export function listTestNames(src: string): string[] {
       i = end === -1 ? n : end + 2;
       continue;
     }
+    if (c === '/' && regexAllowed(prev)) {
+      const end = skipRegex(src, i);
+      if (end !== null) {
+        i = end;
+        prev = '/regex/';
+        continue;
+      }
+    }
     if (c === '"' || c === "'" || c === '`') {
       i = c === '`' ? skipTemplate(src, i) : readQuoted(src, i).end;
-      prevSignificant = c;
+      prev = c;
       continue;
     }
     if (isIdentStart(c)) {
       let j = i + 1;
       while (j < n && isIdentPart(src[j]!)) j++;
       const word = src.slice(i, j);
-      if (CALLEES.has(word) && prevSignificant !== '.') {
+      if (CALLEES.has(word) && prev !== '.') {
         const name = nameArgument(src, j);
         if (name !== null) names.push(name);
       }
       i = j;
-      prevSignificant = word[word.length - 1]!;
+      prev = word;
       continue;
     }
-    if (!/\s/.test(c)) prevSignificant = c;
+    if (/[0-9]/.test(c)) {
+      // a number (incl. 1e3, 0x1F, 1_000, 1.5): division may follow it
+      let j = i + 1;
+      while (j < n && /[\w.]/.test(src[j]!)) j++;
+      i = j;
+      prev = '0';
+      continue;
+    }
+    if (!/\s/.test(c)) prev = c;
     i++;
   }
   return names;
+}
+
+function regexAllowed(prev: string): boolean {
+  return prev === '' || REGEX_AFTER_PUNCT.has(prev) || REGEX_AFTER_WORD.has(prev);
+}
+
+/**
+ * Skips a regular expression literal starting at the `/` at `start` (body with escapes and character classes,
+ * then flags). Returns the index after it, or null when it is not one (a line break before the closing `/`).
+ */
+function skipRegex(src: string, start: number): number | null {
+  let i = start + 1;
+  let inClass = false;
+  while (i < src.length) {
+    const c = src[i]!;
+    if (c === '\n' || c === '\r') return null;
+    if (c === '\\') {
+      i += 2;
+      continue;
+    }
+    if (inClass) {
+      if (c === ']') inClass = false;
+    } else if (c === '[') {
+      inClass = true;
+    } else if (c === '/') {
+      i++;
+      while (i < src.length && isIdentPart(src[i]!)) i++; // flags
+      return i;
+    }
+    i++;
+  }
+  return null;
 }
 
 export function testNamesOf(spec: Pick<FunctionSpec, 'tests' | 'properties'>): { tests: string[]; properties: string[] } {

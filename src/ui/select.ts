@@ -48,6 +48,31 @@ export function gateAttempt(gen: GenerationView | null, sel: AttemptSelection | 
   return gen.attempts[gen.attempts.length - 1];
 }
 
+/**
+ * The attempt the code pane shows. An explicit selection is honoured as-is. Following the latest attempt,
+ * a new attempt that has not typed a single character yet does not blank the pane: the previous candidate
+ * (usually the rejected one whose verdict the gate panel still shows) stays up, marked `holdover`, until
+ * the new candidate's first characters arrive. An aborted attempt is never covered up: its placeholder is the news.
+ */
+export function codeAttempt(
+  gen: GenerationView | null,
+  sel: AttemptSelection | null,
+): { attempt: AttemptView; holdover: boolean } | undefined {
+  if (!gen || gen.attempts.length === 0) return undefined;
+  if (sel && sel.genId === gen.id) {
+    const hit = gen.attempts.find((a) => a.attempt === sel.attempt);
+    if (hit) return { attempt: hit, holdover: false };
+  }
+  const latest = gen.attempts[gen.attempts.length - 1];
+  const empty = latest.shown.length === 0 && (latest.status === 'generating' || latest.status === 'typing');
+  if (empty) {
+    for (let i = gen.attempts.length - 2; i >= 0; i--) {
+      if (gen.attempts[i].shown.length > 0) return { attempt: gen.attempts[i], holdover: true };
+    }
+  }
+  return { attempt: latest, holdover: false };
+}
+
 export function isLatestAttempt(gen: GenerationView, a: AttemptView): boolean {
   return gen.attempts[gen.attempts.length - 1]?.attempt === a.attempt;
 }

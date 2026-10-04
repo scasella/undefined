@@ -1,12 +1,14 @@
 import type { GenerationView } from '../../types';
-import { chipText, resolveAttempt } from '../select';
+import { chipText, codeAttempt } from '../select';
 import { selection } from '../uiState';
 import { PanelHead } from './common';
 
 const ICON = { rejected: '✕', accepted: '✓', aborted: '–', generating: '…', typing: '…', gating: '◌' } as const;
 
 export function RetryStrip({ gen }: { gen: GenerationView | null }) {
-  const shown = resolveAttempt(gen, selection.value);
+  // the active chip is the candidate the code pane is showing (it may hold the previous one over)
+  const shown = codeAttempt(gen, selection.value)?.attempt;
+  const following = gen ? codeAttempt(gen, null)?.attempt.attempt : undefined;
   const unused = gen ? Math.max(0, gen.maxAttempts - gen.attempts.length) : 0;
   const unusedWord = gen?.phase === 'committed' ? 'not needed' : gen?.phase === 'failed' ? 'unused' : 'in reserve';
 
@@ -19,9 +21,10 @@ export function RetryStrip({ gen }: { gen: GenerationView | null }) {
           </span>
         )}
       </PanelHead>
+      <p class="strip-caption muted small">Every candidate the model proposes lands here, rejected ones too.</p>
       <div class="panel-body">
         {!gen ? (
-          <p class="empty small">Every candidate the model proposes lands here — the rejected ones too.</p>
+          <p class="empty small">Nothing proposed yet.</p>
         ) : (
           <ol class="chips">
             {gen.attempts.map((a) => {
@@ -34,8 +37,11 @@ export function RetryStrip({ gen }: { gen: GenerationView | null }) {
                     aria-pressed={active}
                     title="Show this candidate's code and gate results"
                     onClick={() => {
+                      // back to "follow the newest" when following would show exactly this chip, or when the
+                      // chip is already pinned (second click unpins); otherwise pin this candidate
                       const latest = gen.attempts[gen.attempts.length - 1].attempt === a.attempt;
-                      selection.value = latest ? null : { genId: gen.id, attempt: a.attempt };
+                      const pinned = selection.value?.genId === gen.id && selection.value.attempt === a.attempt;
+                      selection.value = pinned || (latest && following === a.attempt) ? null : { genId: gen.id, attempt: a.attempt };
                     }}
                   >
                     <span class="cand-icon" aria-hidden="true">

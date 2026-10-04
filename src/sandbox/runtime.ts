@@ -9,6 +9,9 @@
  *   function defined with its own `budgetMs` gets that limit per call (the worker posts enter/leave around each
  *   REPL-level committed call). On overrun the worker is terminated — the only thing that stops a synchronous
  *   loop — and a fresh one is built from the record; the outcome is `{kind:'timeout'}` naming the call in flight.
+ * - A rebuilt worker cannot restore variables whose last snapshot holds an `unserializable` placeholder (functions,
+ *   class instances…): they are dropped, not bound to undefined, and named in the timeout outcome's `lost` (and in
+ *   the `{ lost }` that reset() resolves to).
  * - Messages from a worker that has been replaced are ignored, so a late reply cannot be mistaken for a new one.
  */
 import type { EvalOutcome, Json } from '../types';
@@ -103,7 +106,10 @@ export class Runtime {
     return this.enqueue(async () => {
       await this.ensureWorker();
       const outcome = await this.evaluateWithWatchdog(input);
-      if (outcome.kind === 'timeout') await this.ensureWorker().catch(() => undefined); // rebuild eagerly
+      if (outcome.kind === 'timeout') {
+        const lost = await this.ensureWorker().catch((): string[] => []); // rebuild eagerly
+        if (lost.length > 0) outcome.lost = lost;
+      }
       return outcome;
     });
   }
@@ -125,8 +131,11 @@ export class Runtime {
     });
   }
 
-  /** Replace functions + env wholesale (rollback / import / reload) in a fresh worker. */
-  reset(functions: Record<string, RuntimeFunction>, env: Record<string, Json>): Promise<void> {
+  /**
+   * Replace functions + env wholesale (rollback / import / reload) in a fresh worker. Resolves with the variables that
+   * could not be restored (unserializable placeholders); they are dropped from the env.
+   */
+  reset(functions: Record<string, RuntimeFunction>, env: Record<string, Json>): Promise<{ lost: string[] }> {
     return this.enqueue(async () => {
       const previous = { functions: this.functions, env: this.env };
       this.kill(new Error('runtime reset'));
@@ -135,7 +144,7 @@ export class Runtime {
       );
       this.env = env;
       try {
-        await this.ensureWorker();
+        return { lost: await this.ensureWorker() };
       } catch (e) {
         this.kill(e instanceof Error ? e : new Error(String(e)));
         this.functions = previous.functions;
@@ -161,8 +170,9 @@ export class Runtime {
     return run;
   }
 
-  private async ensureWorker(): Promise<void> {
-    if (this.worker) return;
+  /** Build a worker from the record if there is none. Returns the variables the new worker could not restore. */
+  private async ensureWorker(): Promise<string[]> {
+    if (this.worker) return [];
     const live: Live = { port: this.factory() };
     live.port.onMessage((m) => {
       if (this.worker === live) this.handle(m);
@@ -173,7 +183,15 @@ export class Runtime {
     this.worker = live;
     const functions: Record<string, string> = {};
     for (const [name, f] of this.functions) functions[name] = f.js;
-    await this.request({ type: 'reset', functions, env: this.env });
+    const { result } = await this.request({ type: 'reset', functions, env: this.env });
+    const lost = Array.isArray((result as { lost?: unknown } | null)?.lost) ? (result as { lost: string[] }).lost : [];
+    if (lost.length > 0) {
+      // The worker dropped them; keep the record in step so they are not reported again on the next rebuild.
+      const env = { ...this.env };
+      for (const k of lost) delete env[k];
+      this.env = env;
+    }
+    return lost;
   }
 
   private handle(m: RuntimeMessage): void {

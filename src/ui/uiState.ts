@@ -5,8 +5,11 @@ import type { AttemptSelection } from './select';
 
 export const selection = signal<AttemptSelection | null>(null);
 export const lowerTab = signal<'revisions' | 'repo'>('revisions');
-/** Function whose spec editor should be scrolled into view (set by the "Edit the spec" restart). */
-export const focusFn = signal<string | null>(null);
+/**
+ * Function whose spec card should be expanded, scrolled into view and focused. Mirrors the engine's
+ * state.focusSpec (set by the "Edit the spec" restart); cleared by whoever consumed it.
+ */
+export const focusFn = signal<{ fn: string; nonce: number } | null>(null);
 
 /**
  * Notices the UI raises itself (download/copy results). Engine notices arrive in state.notice;

@@ -116,4 +116,13 @@ describe('fixture engine', () => {
     const after = e.state.value.repl.find((r) => r.id === open.id);
     expect(after).toMatchObject({ resolved: true });
   });
+
+  it("'edit-spec' points the UI at a function with a fresh nonce, like the engine", async () => {
+    const e = createFixtureEngine('fault-restart');
+    const open = e.state.value.repl.find((r) => r.kind === 'error' && !r.resolved)!;
+    await e.invokeRestart(open.id, 'edit-spec');
+    const first = e.state.value.focusSpec;
+    expect(first).toMatchObject({ fn: 'median' });
+    expect(typeof first?.nonce).toBe('number');
+  });
 });

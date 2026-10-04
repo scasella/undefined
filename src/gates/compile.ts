@@ -194,6 +194,7 @@ export async function compileCandidate(spec: FunctionSpec, body: string): Promis
 
   // Harness shape problems first: they explain the root cause of whatever tsc says next.
   for (const h of shapeProblems(ts, file, spec.name)) add(HARNESS_CODE, h.message, h.start, h.length, 'error');
+  for (const h of moduleProblems(ts, file)) add(HARNESS_CODE, h.message, h.start, h.length, 'error');
   // getPreEmitDiagnostics sorts by position; put syntax errors first so the headline names the root cause.
   const key = (d: TS.Diagnostic) => `${d.code}:${d.start ?? -1}`;
   const syntactic = new Set(program.getSyntacticDiagnostics(file).map(key));
@@ -275,6 +276,25 @@ function shapeProblems(ts: TsModule, file: TS.SourceFile, name: string): Array<{
       });
     }
   }
+  return out;
+}
+
+/**
+ * `import(…)` would let a candidate load and run arbitrary code (and reach the network) outside the masked scope, and
+ * `import.meta` exposes the worker's URL. Both are found by walking the AST, so strings, comments and property names
+ * that merely contain the word `import` are not affected.
+ */
+function moduleProblems(ts: TsModule, file: TS.SourceFile): Array<{ message: string; start: number; length: number }> {
+  const out: Array<{ message: string; start: number; length: number }> = [];
+  const visit = (n: TS.Node): void => {
+    if (ts.isCallExpression(n) && n.expression.kind === ts.SyntaxKind.ImportKeyword) {
+      out.push({ message: 'dynamic import is not allowed in a candidate', start: n.getStart(file), length: n.getWidth(file) });
+    } else if (ts.isMetaProperty(n) && n.keywordToken === ts.SyntaxKind.ImportKeyword) {
+      out.push({ message: 'import.meta is not allowed in a candidate', start: n.getStart(file), length: n.getWidth(file) });
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(file);
   return out;
 }
 

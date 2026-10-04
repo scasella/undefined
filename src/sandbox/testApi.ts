@@ -4,13 +4,29 @@
  * Environment-agnostic: no Worker globals. Registration only collects cases; gateExecutor.ts runs them.
  */
 import * as fc from 'fast-check';
+import { firstDifference, formatDifference } from '../shared/diff';
 import { isDate, isMap, isSet, show } from '../shared/show';
 import { isInvariantViolation } from './mask';
+
+// Intrinsics captured at load: candidate code runs in this realm and could replace the globals (mask.ts detects and
+// restores that after every call, but these keep the harness itself honest in between).
+const objectIs = Object.is;
+const objectKeys = Object.keys;
+const isArray = Array.isArray;
+const isView = ArrayBuffer.isView;
+const hasOwn = Object.prototype.hasOwnProperty;
+const toStringTag = Object.prototype.toString;
+const realStructuredClone = structuredClone;
 
 // ───────────────────────── equality ─────────────────────────
 
 function tagOf(v: object): string {
-  return Object.prototype.toString.call(v).slice(8, -1);
+  return (toStringTag.call(v) as string).slice(8, -1);
+}
+
+export interface EqualityOptions {
+  /** Treat any two functions as equal (the Invariants determinism check: a returned closure is a new object each time). */
+  functionsByType?: boolean;
 }
 
 /**
@@ -18,25 +34,26 @@ function tagOf(v: object): string {
  * Primitives compare with Object.is (NaN equals NaN, -0 differs from 0, bigint by value).
  * Built-ins are recognised by brand checks so values from other realms compare correctly.
  */
-export function deepEqual(a: unknown, b: unknown): boolean {
-  return eqInner(a, b, []);
+export function deepEqual(a: unknown, b: unknown, opts: EqualityOptions = {}): boolean {
+  return eqInner(a, b, [], opts.functionsByType === true);
 }
 
-function eqInner(a: unknown, b: unknown, seen: Array<[object, object]>): boolean {
-  if (Object.is(a, b)) return true;
+function eqInner(a: unknown, b: unknown, seen: Array<[object, object]>, fnByType: boolean): boolean {
+  if (objectIs(a, b)) return true;
+  if (fnByType && typeof a === 'function' && typeof b === 'function') return true;
   if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
   if (seen.some(([x, y]) => x === a && y === b)) return true;
   seen = [...seen, [a, b]];
 
-  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (isArray(a) !== isArray(b)) return false;
   const tag = tagOf(a);
   if (tag !== tagOf(b)) return false;
 
-  if (isDate(a)) return isDate(b) && Object.is(a.getTime(), b.getTime());
+  if (isDate(a)) return isDate(b) && objectIs(a.getTime(), b.getTime());
   if (isMap(a)) {
     if (!isMap(b) || a.size !== b.size) return false;
     for (const [k, v] of a) {
-      if (!b.has(k) || !eqInner(v, b.get(k), seen)) return false;
+      if (!b.has(k) || !eqInner(v, b.get(k), seen, fnByType)) return false;
     }
     return true;
   }
@@ -46,7 +63,7 @@ function eqInner(a: unknown, b: unknown, seen: Array<[object, object]>): boolean
     for (const x of a) {
       if (b.has(x)) continue;
       if (typeof x !== 'object' || x === null) return false;
-      const i = unmatched.findIndex((y) => eqInner(x, y, seen));
+      const i = unmatched.findIndex((y) => eqInner(x, y, seen, fnByType));
       if (i < 0) return false;
       unmatched.splice(i, 1);
     }
@@ -58,33 +75,38 @@ function eqInner(a: unknown, b: unknown, seen: Array<[object, object]>): boolean
     const eb = b as Error;
     return ea.name === eb.name && ea.message === eb.message;
   }
-  if (ArrayBuffer.isView(a)) {
+  if (isView(a)) {
     const xa = a as unknown as ArrayLike<unknown>;
     const xb = b as unknown as ArrayLike<unknown>;
     if (xa.length !== xb.length) return false;
-    for (let i = 0; i < xa.length; i++) if (!Object.is(xa[i], xb[i])) return false;
+    for (let i = 0; i < xa.length; i++) if (!objectIs(xa[i], xb[i])) return false;
     return true;
   }
-  if (Array.isArray(a)) {
+  if (isArray(a)) {
     const arrB = b as unknown[];
     if (a.length !== arrB.length) return false;
-    for (let i = 0; i < a.length; i++) if (!eqInner(a[i], arrB[i], seen)) return false;
+    for (let i = 0; i < a.length; i++) if (!eqInner(a[i], arrB[i], seen, fnByType)) return false;
     return true;
   }
-  const ka = Object.keys(a);
-  const kb = Object.keys(b);
+  const ka = objectKeys(a);
+  const kb = objectKeys(b);
   if (ka.length !== kb.length) return false;
   const rb = b as Record<string, unknown>;
   const ra = a as Record<string, unknown>;
   for (const k of ka) {
-    if (!Object.prototype.hasOwnProperty.call(b, k) || !eqInner(ra[k], rb[k], seen)) return false;
+    if (!hasOwn.call(b, k) || !eqInner(ra[k], rb[k], seen, fnByType)) return false;
   }
   return true;
 }
 
 // ───────────────────────── assertions ─────────────────────────
 
-/** Thrown by `eq` / `throws` / `matchesReference`. Carries raw values plus their display strings. */
+/**
+ * Thrown by `eq` / `throws` / `matchesReference`. Carries raw values plus their display strings.
+ * When both are values whose show() texts are identical (show truncates long values), each text gets the first
+ * difference appended, e.g. `[0, 1, …] (at [59]: 99)` vs `[0, 1, …] (at [59]: 59)`, so every consumer (headline,
+ * diagnostics, the model prompt) can see where they differ.
+ */
 export class AssertionFailure extends Error {
   readonly isAssertionFailure = true;
   readonly actualShown: string;
@@ -97,9 +119,19 @@ export class AssertionFailure extends Error {
     message?: string,
     shown?: { actual?: string; expected?: string },
   ) {
-    const actualShown = shown?.actual ?? show(actual);
-    const expectedShown = shown?.expected ?? show(expected);
-    super(message ?? `expected ${expectedShown}, got ${actualShown}`);
+    let actualShown = shown?.actual ?? show(actual);
+    let expectedShown = shown?.expected ?? show(expected);
+    let where = '';
+    if (shown?.actual === undefined && shown?.expected === undefined && actualShown === expectedShown) {
+      const d = firstDifference(actual, expected);
+      if (d) {
+        const at = d.path || 'value';
+        actualShown = `${actualShown} (at ${at}: ${d.actual})`;
+        expectedShown = `${expectedShown} (at ${at}: ${d.expected})`;
+        where = `; they first differ at ${formatDifference(d)}`;
+      }
+    }
+    super(message ? `${message}${where}` : `expected ${expectedShown}, got ${actualShown}${where}`);
     this.name = 'AssertionFailure';
     this.actualShown = actualShown;
     this.expectedShown = expectedShown;
@@ -141,7 +173,7 @@ export function throws(fn: () => unknown, match?: RegExp | string): void {
 /** structuredClone, or the value itself when it cannot be cloned (functions, symbols…). */
 export function cloneOrSelf<T>(v: T): T {
   try {
-    return structuredClone(v);
+    return realStructuredClone(v);
   } catch {
     return v;
   }

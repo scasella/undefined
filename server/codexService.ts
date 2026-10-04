@@ -316,6 +316,7 @@ function runCommand(deps: ServiceDeps, bin: string, args: string[], timeoutMs = 
 export type GenerateOutcome = { ok: true; result: GenerateResult } | { ok: false; error: GenerateError; progress: ProgressLine[] };
 
 const HEALTH_TTL_MS = 15_000;
+const ABORTED: GenerateError = { code: 'aborted', message: 'Request cancelled; codex was not started.' };
 
 export function createCodexService(partial: Partial<ServiceDeps> = {}) {
   const deps: ServiceDeps = {
@@ -377,6 +378,8 @@ export function createCodexService(partial: Partial<ServiceDeps> = {}) {
         healthCache = null; // re-check next time; the user may have just fixed it
         return fail(h.problem);
       }
+      // The client may have gone while the health check ran: then nothing is spawned.
+      if (signal?.aborted) return fail(ABORTED);
       return runCodex(prompt, h.codexVersion ?? 'unknown', emit, signal, started, progress);
     }, (ahead) => emit(`queued behind ${ahead} request(s)`, 'system'));
   }
@@ -397,6 +400,7 @@ export function createCodexService(partial: Partial<ServiceDeps> = {}) {
       await mkdir(workDir);
       await writeFile(schemaPath, JSON.stringify(OUTPUT_SCHEMA));
       const args = buildCodexArgs(cfg, { workDir, schemaPath, outPath });
+      if (signal?.aborted) return { ok: false, error: ABORTED, progress };
       emit(`codex exec · model ${cfg.model} · effort ${cfg.effort} · read-only sandbox`, 'system');
 
       const outcome = await new Promise<RunOutcome>((resolve) => {
@@ -423,7 +427,9 @@ export function createCodexService(partial: Partial<ServiceDeps> = {}) {
           o.aborted = true;
           stop();
         };
-        signal?.addEventListener('abort', onAbort, { once: true });
+        // An abort that happened before we listen would never fire the event: act on it now.
+        if (signal?.aborted) onAbort();
+        else signal?.addEventListener('abort', onAbort, { once: true });
 
         let settled = false;
         const finish = (code: number | null, sig: NodeJS.Signals | null) => {
@@ -513,8 +519,24 @@ export type CodexService = ReturnType<typeof createCodexService>;
 export const MAX_BODY_BYTES = 200 * 1024;
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
-/** Only same-origin requests to a loopback host name (blocks DNS rebinding and cross-site POSTs). */
-export function checkRequestOrigin(headers: IncomingMessage['headers']): string | null {
+/** A loopback peer address: 127.0.0.0/8, ::1, or an IPv4-mapped 127.x address. */
+export function isLoopbackAddress(addr: string | undefined): boolean {
+  if (!addr) return false;
+  const v4 = addr.startsWith('::ffff:') ? addr.slice(7) : addr;
+  if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(v4)) return v4.split('.').every((n) => Number(n) <= 255);
+  return addr === '::1' || addr === '0:0:0:0:0:0:0:1';
+}
+
+/**
+ * Only same-origin requests from this machine to a loopback host name (blocks DNS rebinding, cross-site POSTs and
+ * other machines when vite listens on all interfaces). `requireOrigin`: the request must carry an Origin header
+ * (POST /generate: the app always sends one); GET /generate/health stays open to same-host requests without one.
+ */
+export function checkRequestOrigin(
+  headers: IncomingMessage['headers'],
+  opts: { remoteAddress: string | undefined; requireOrigin: boolean },
+): string | null {
+  if (!isLoopbackAddress(opts.remoteAddress)) return `peer ${opts.remoteAddress ?? '(unknown)'} is not a loopback address`;
   const host = headers.host;
   if (!host) return 'missing Host header';
   let hostname: string;
@@ -525,15 +547,14 @@ export function checkRequestOrigin(headers: IncomingMessage['headers']): string 
   }
   if (!LOCAL_HOSTS.has(hostname)) return `host ${hostname} is not a loopback name`;
   const origin = headers.origin;
-  if (origin !== undefined) {
-    let originHost: string;
-    try {
-      originHost = new URL(origin).host;
-    } catch {
-      return 'bad Origin header';
-    }
-    if (originHost !== host) return `origin ${origin} does not match host ${host}`;
+  if (origin === undefined) return opts.requireOrigin ? 'missing Origin header' : null;
+  let originHost: string;
+  try {
+    originHost = new URL(origin).host;
+  } catch {
+    return 'bad Origin header';
   }
+  if (originHost !== host) return `origin ${origin} does not match host ${host}`;
   return null;
 }
 
@@ -576,7 +597,7 @@ function readBody(req: IncomingMessage, limit: number): Promise<{ ok: true; text
  * body; everything that happens after the stream opens is an SSE `error` event.
  */
 export async function handleRequest(service: CodexService, route: 'generate' | 'health', req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const blocked = checkRequestOrigin(req.headers);
+  const blocked = checkRequestOrigin(req.headers, { remoteAddress: req.socket?.remoteAddress, requireOrigin: route === 'generate' });
   if (blocked) return sendJson(res, 403, { code: 'codex_failed', message: `Forbidden: ${blocked}.` } satisfies GenerateError);
 
   if (route === 'health') {
@@ -615,6 +636,8 @@ export async function handleRequest(service: CodexService, route: 'generate' | '
   res.on('close', () => {
     if (!res.writableFinished) controller.abort();
   });
+  // Gone before we listened (the 'close' above will not fire again): nothing must be spawned for it.
+  if (res.destroyed || res.socket?.destroyed) controller.abort();
 
   const outcome = await service.generate(prompt, (p) => send('progress', p), controller.signal);
   if (outcome.ok) send('result', outcome.result);

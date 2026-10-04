@@ -328,6 +328,8 @@ export type EvalOutcome =
       /** Real argument values' TS types (shared/inferType.ts) and rendered values. */
       argTypes: string[];
       argShown: string[];
+      /** The evaluated argument values, encoded with shared/serialize.ts, so the gates can replay the real call. */
+      args: Json[];
       call: string;
     }
   | {
@@ -340,7 +342,8 @@ export type EvalOutcome =
       stack?: string;
     }
   | { kind: 'error'; errorName: string; message: string }
-  | { kind: 'timeout'; ms: number; fn?: string; call?: string };
+  /** `lost`: REPL variables that could not be restored after the worker was rebuilt (unserializable values). */
+  | { kind: 'timeout'; ms: number; fn?: string; call?: string; lost?: string[] };
 
 // ───────────────────────── engine (UI-facing) ─────────────────────────
 

@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Engine } from '../types';
 import { CodePane } from './components/CodePane';
 import { Examples, Header, ModeBanner, RunLiveDialog, Toast } from './components/Chrome';
@@ -8,11 +8,21 @@ import { Repl } from './components/Repl';
 import { Repo } from './components/Repo';
 import { RetryStrip } from './components/RetryStrip';
 import { Revisions } from './components/Revisions';
-import { lowerTab } from './uiState';
+import { focusFn, lowerTab } from './uiState';
 
 export function App({ engine, initError }: { engine: Engine; initError?: string | null }) {
   const state = engine.state.value;
   const [runLive, setRunLive] = useState(false);
+  const focusSpec = state.focusSpec;
+  const handledNonce = useRef<number | null>(null);
+
+  // "Edit the spec" restart: open the Repo tab; the matching card expands, scrolls into view and focuses its doc
+  useEffect(() => {
+    if (!focusSpec || handledNonce.current === focusSpec.nonce) return;
+    handledNonce.current = focusSpec.nonce;
+    lowerTab.value = 'repo';
+    focusFn.value = { fn: focusSpec.fn, nonce: focusSpec.nonce };
+  }, [focusSpec?.nonce, focusSpec?.fn]);
 
   if (initError) {
     return (

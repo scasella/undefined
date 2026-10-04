@@ -4,6 +4,7 @@ import { MEDIAN_SPEC, SCENARIOS } from './dev/fixtures';
 import {
   attribution,
   chipText,
+  codeAttempt,
   compileMarks,
   draftOf,
   failingGate,
@@ -37,6 +38,24 @@ describe('attempt selection', () => {
     const fresh = SCENARIOS.generating().generation!;
     expect(gateAttempt(fresh, null)?.attempt).toBe(1);
     expect(gateAttempt(null, null)).toBeUndefined();
+  });
+
+  it('code pane holds the previous candidate until the next one types its first characters', () => {
+    const held = codeAttempt(gen, null);
+    expect(held).toMatchObject({ holdover: true, attempt: { attempt: 1, status: 'rejected' } });
+    // explicit selection of the empty latest attempt is honoured as-is
+    expect(codeAttempt(gen, { genId: gen.id, attempt: 2 })).toMatchObject({ holdover: false, attempt: { attempt: 2 } });
+    // typing with nothing shown yet still holds; the first characters switch over
+    const typing = { ...gen, attempts: [gen.attempts[0], { ...gen.attempts[1], status: 'typing' as const }] };
+    expect(codeAttempt(typing, null)?.holdover).toBe(true);
+    const arrived = { ...gen, attempts: [gen.attempts[0], { ...gen.attempts[1], status: 'typing' as const, shown: 'co' }] };
+    expect(codeAttempt(arrived, null)).toMatchObject({ holdover: false, attempt: { attempt: 2 } });
+    // an aborted attempt is shown, not covered up
+    const aborted = { ...gen, attempts: [gen.attempts[0], { ...gen.attempts[1], status: 'aborted' as const }] };
+    expect(codeAttempt(aborted, null)).toMatchObject({ holdover: false, attempt: { attempt: 2 } });
+    // the very first attempt has nothing to hold over
+    expect(codeAttempt(SCENARIOS.generating().generation!, null)).toMatchObject({ holdover: false, attempt: { attempt: 1 } });
+    expect(codeAttempt(null, null)).toBeUndefined();
   });
 
   it('builds retry-strip chip text from the rejecting gate and headline', () => {

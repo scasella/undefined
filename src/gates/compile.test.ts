@@ -177,6 +177,22 @@ describe('compileCandidate', () => {
     expect(d.snippet).toBe('  return 1;');
   });
 
+  it('rejects dynamic import() and import.meta via the AST, not a string match', async () => {
+    const r = await compileCandidate(median, `const m = 'data:text/javascript,export default 1';\nvoid import(m);\nreturn numbers.length;`);
+    expect(r.gate.status).toBe('fail');
+    expect(r.js).toBeNull();
+    expect(diags(r.gate.diagnostics)[0]).toMatchObject({ code: 0, line: 2, message: 'dynamic import is not allowed in a candidate' });
+    expect(r.gate.headline).toBe('Rejected: line 2: dynamic import is not allowed in a candidate');
+
+    const meta = await compileCandidate(median, `const u: unknown = import.meta;\nreturn u ? 1 : 0;`);
+    expect(meta.gate.status).toBe('fail');
+    expect(diags(meta.gate.diagnostics)[0]).toMatchObject({ code: 0, line: 1, message: 'import.meta is not allowed in a candidate' });
+
+    // The word "import" in a string, a comment or a property name is fine.
+    const ok = await compileCandidate(median, `const o = { import: 1 }; // import("x")\nreturn o.import + 'import(1)'.length + numbers.length;`);
+    expect(ok.gate.status).toBe('pass');
+  });
+
   it('allows recursion by its own name', async () => {
     const fib = specFromCall('fib', ['number']);
     const r = await compileCandidate({ ...fib, returns: 'number' }, 'return arg0 < 2 ? arg0 : fib(arg0 - 1) + fib(arg0 - 2);');

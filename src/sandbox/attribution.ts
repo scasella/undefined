@@ -61,6 +61,6 @@ export function applyAttribution(
 
 /** Message for a pure violation recorded by mask.ts (e.g. `Math.random`, `Date (reads the clock)`). */
 export function pureMessage(what: string): string {
-  if (what.startsWith('wrote global ')) return `candidate ${what}`;
+  if (what.startsWith('wrote global ') || what.startsWith('modified ') || what.startsWith('added property ')) return `candidate ${what}`;
   return `candidate read global '${what.replace(/ \(reads the clock\)$/, '')}'`;
 }

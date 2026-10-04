@@ -19,6 +19,15 @@ test("even count", () => eq(median([4, 1, 3, 2]), 2.5));
 property("within bounds", [fc.array(fc.integer(), { minLength: 1 })],
   (xs) => median(xs) >= Math.min(...xs) && median(xs) <= Math.max(...xs));`;
 
+/**
+ * Run `fn` after the pending re-render (card expansion, scheduled as a microtask) has been committed.
+ * A timer rather than requestAnimationFrame so it also runs in a background tab. Deliberately not
+ * cancelled from an effect cleanup: consuming the request (focusFn = null) re-runs that effect at once.
+ */
+function afterLayout(fn: () => void): void {
+  setTimeout(fn, 16);
+}
+
 function TestApiSheet() {
   return (
     <details class="cheatsheet">
@@ -37,13 +46,6 @@ function SpecEditor({ rec, engine, busy }: { rec: FunctionRecord; engine: Engine
   const [attempts, setAttempts] = useState(String(spec.maxAttempts));
   const docRef = useRef<HTMLTextAreaElement>(null);
 
-  useEffect(() => {
-    if (focusFn.value === spec.name) {
-      docRef.current?.scrollIntoView({ block: 'center' });
-      docRef.current?.focus({ preventScroll: true });
-      focusFn.value = null;
-    }
-  }, [focusFn.value, spec.name]);
 
   const budgetN = Number(budget);
   const attemptsN = Number(attempts);
@@ -63,7 +65,6 @@ function SpecEditor({ rec, engine, busy }: { rec: FunctionRecord; engine: Engine
       <label for={`${id}-doc`}>doc — the model reads this</label>
       <textarea
         id={`${id}-doc`}
-        ref={docRef}
         rows={3}
         value={draft.doc}
         onInput={(e) => setDraft({ ...draft, doc: e.currentTarget.value })}
@@ -200,9 +201,34 @@ function FunctionCard({
 }) {
   const status = functionStatus(rec);
   const spec = rec.spec;
+  const [open, setOpen] = useState(true);
+  const cardRef = useRef<HTMLElement>(null);
+  const focus = focusFn.value;
+  // "Edit the spec": expand this card, bring it into view and put the cursor in its doc
+  useEffect(() => {
+    if (focus?.fn !== spec.name) return;
+    focusFn.value = null;
+    setOpen(true);
+    afterLayout(() => {
+      cardRef.current?.scrollIntoView({ block: 'start' });
+      document.getElementById(`spec-${spec.name}-doc`)?.focus({ preventScroll: true });
+    });
+  }, [focus, spec.name]);
+  const bodyId = `fn-body-${spec.name}`;
   return (
-    <article class="fn-card" aria-labelledby={`fn-${spec.name}`}>
+    <article ref={cardRef} class={`fn-card${open ? '' : ' is-collapsed'}`} aria-labelledby={`fn-${spec.name}`}>
       <header class="fn-head">
+        <button
+          type="button"
+          class="fn-toggle"
+          aria-expanded={open}
+          aria-controls={bodyId}
+          title={open ? 'Collapse' : 'Expand'}
+          onClick={() => setOpen(!open)}
+        >
+          <span aria-hidden="true">{open ? '▾' : '▸'}</span>
+          <span class="sr-only">{open ? 'Collapse' : 'Expand'} {spec.name}</span>
+        </button>
         <h3 id={`fn-${spec.name}`} class="mono">
           {spec.name}
         </h3>
@@ -223,7 +249,7 @@ function FunctionCard({
           </span>
         )}
       </header>
-      <div class="fn-cols">
+      <div class="fn-cols" id={bodyId} hidden={!open}>
         <div>
           <h4>Spec</h4>
           <SpecEditor key={JSON.stringify(draftOf(spec))} rec={rec} engine={engine} busy={busy} />
@@ -246,6 +272,20 @@ function NewSpecForm({ engine, existing, busy }: { engine: Engine; existing: str
   const [returns, setReturns] = useState('');
   const [doc, setDoc] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const docRef = useRef<HTMLTextAreaElement>(null);
+  const focus = focusFn.value;
+  // "Edit the spec" for a function that has no spec yet (e.g. a call-inferred one whose growth failed):
+  // start a new spec under that name
+  useEffect(() => {
+    if (!focus || existing.includes(focus.fn)) return;
+    focusFn.value = null;
+    setName(focus.fn);
+    afterLayout(() => {
+      formRef.current?.scrollIntoView({ block: 'start' });
+      docRef.current?.focus({ preventScroll: true });
+    });
+  }, [focus, existing.join('\n')]);
 
   const submit = (ev: Event) => {
     ev.preventDefault();
@@ -274,7 +314,7 @@ function NewSpecForm({ engine, existing, busy }: { engine: Engine; existing: str
 
   const parsed = parseParams(params);
   return (
-    <form class="new-spec" onSubmit={submit}>
+    <form class="new-spec" ref={formRef} onSubmit={submit}>
       <h3>New function spec</h3>
       <div class="new-spec-grid">
         <label>
@@ -298,7 +338,7 @@ function NewSpecForm({ engine, existing, busy }: { engine: Engine; existing: str
       </div>
       <label>
         doc
-        <textarea rows={2} value={doc} placeholder="What it must do. The model reads this." onInput={(e) => setDoc(e.currentTarget.value)} />
+        <textarea ref={docRef} rows={2} value={doc} placeholder="What it must do. The model reads this." onInput={(e) => setDoc(e.currentTarget.value)} />
       </label>
       {name && isValidFnName(name) && parsed.ok && (
         <p class="muted small mono">

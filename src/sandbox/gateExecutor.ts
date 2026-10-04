@@ -5,6 +5,7 @@
  */
 import * as fc from 'fast-check';
 import type { Diagnostic, GateResult } from '../types';
+import { firstDifference, formatDifference } from '../shared/diff';
 import { callString, show } from '../shared/show';
 import { evalMasked, InvariantViolation, takeViolations } from './mask';
 import {
@@ -52,6 +53,7 @@ export const MAX_SAMPLES = 25;
 const DEFAULT_RUNS = 100;
 export const NO_TESTS_NOTE = 'no tests yet — add one to make the gate stricter';
 export const NO_PROPERTIES_NOTE = 'no properties yet — add one to make the gate stricter';
+export const NEVER_CALLED_NOTE = 'the candidate was never called, so purity and bounded runtime were not exercised';
 
 type Fn = (...args: unknown[]) => unknown;
 
@@ -76,17 +78,23 @@ interface Failure {
 
 type Outcome = { ok: true; value: unknown } | { ok: false; error: unknown };
 
-const now = (): number => performance.now();
+// Intrinsics captured at load (candidate code runs in this realm; see mask.ts for detection and restoration).
+const realPerformance = performance;
+const now = (): number => realPerformance.now();
+const realStructuredClone = structuredClone;
+const ownNames = Object.getOwnPropertyNames;
+const objectFreeze = Object.freeze;
+const objectValues = Object.values;
 
 function deepFreeze<T>(v: T, seen = new Set<object>()): T {
   if (typeof v !== 'object' || v === null || seen.has(v)) return v;
   seen.add(v);
   try {
-    Object.freeze(v);
+    objectFreeze(v);
   } catch {
     /* non-empty typed arrays cannot be frozen */
   }
-  for (const x of Object.values(v)) deepFreeze(x, seen);
+  for (const x of objectValues(v)) deepFreeze(x, seen);
   if (v instanceof Map) for (const [k, x] of v) (deepFreeze(k, seen), deepFreeze(x, seen));
   if (v instanceof Set) for (const x of v) deepFreeze(x, seen);
   return v;
@@ -96,8 +104,9 @@ function isTypeError(e: unknown): boolean {
   return e instanceof TypeError || (typeof e === 'object' && e !== null && (e as Error).name === 'TypeError');
 }
 
+/** Functions compare by typeof only: a returned closure is a fresh object on every call, not non-determinism. */
 function sameOutcome(a: Outcome, b: Outcome): boolean {
-  if (a.ok && b.ok) return deepEqual(a.value, b.value);
+  if (a.ok && b.ok) return deepEqual(a.value, b.value, { functionsByType: true });
   if (!a.ok && !b.ok) return show(a.error) === show(b.error);
   return false;
 }
@@ -128,6 +137,7 @@ export function executeGates(input: ExecGateInput, hooks: ExecHooks): GateResult
   let violation: Violation | null = null;
   let last: CallRecord | null = null;
   let sampling = true;
+  let calls = 0;
   const samples: unknown[][] = [];
   const sampleKeys = new Set<string>();
 
@@ -180,10 +190,11 @@ export function executeGates(input: ExecGateInput, hooks: ExecHooks): GateResult
   // The instrumented wrapper handed to user code.
   const wrapper: Fn = (...args) => {
     if (violation) throw new InvariantViolation(violation.what);
+    calls++;
     const label = callString(name, args);
     if (sampling && samples.length < MAX_SAMPLES && !sampleKeys.has(label)) {
       try {
-        samples.push(structuredClone(args)); // before the call: the candidate may mutate them
+        samples.push(realStructuredClone(args)); // before the call: the candidate may mutate them
         sampleKeys.add(label);
       } catch {
         /* uncloneable arguments are not replayed */
@@ -191,7 +202,7 @@ export function executeGates(input: ExecGateInput, hooks: ExecHooks): GateResult
     }
     const rec: CallRecord = { label, returned: false, threw: false };
     last = rec;
-    const globalsBefore = Object.getOwnPropertyNames(globalThis);
+    const globalsBefore = ownNames(globalThis);
     hooks.enter(label);
     try {
       rec.result = candidate(...args);
@@ -204,7 +215,7 @@ export function executeGates(input: ExecGateInput, hooks: ExecHooks): GateResult
     }
     collectViolations(label);
     if (!violation) {
-      const globalsAfter = Object.getOwnPropertyNames(globalThis);
+      const globalsAfter = ownNames(globalThis);
       if (globalsAfter.length !== globalsBefore.length) {
         const before = new Set(globalsBefore);
         const added = globalsAfter.find((n) => !before.has(n));
@@ -388,13 +399,14 @@ export function executeGates(input: ExecGateInput, hooks: ExecHooks): GateResult
       break;
     }
     if (!sameOutcome(r1, r2)) {
+      const d = r1.ok && r2.ok && showOutcome(r1) === showOutcome(r2) ? firstDifference(r1.value, r2.value) : null;
       replayFailure = {
         kind: 'invariant',
         invariant: 'pure',
         message: 'returned different results for identical input (non-deterministic)',
         call: label,
         phase: 'invariants',
-        detail: `first ${showOutcome(r1)}, then ${showOutcome(r2)}`,
+        detail: `first ${showOutcome(r1)}, then ${showOutcome(r2)}${d ? `; they first differ at ${formatDifference(d)}` : ''}`,
       };
       break;
     }
@@ -403,6 +415,14 @@ export function executeGates(input: ExecGateInput, hooks: ExecHooks): GateResult
   const ms = now() - phaseStart;
   if (replayFailure && replayFailure.kind === 'invariant') {
     return finish([testsResult, propsResult, invariantFailure(replayFailure, ms)]);
+  }
+  if (calls === 0) {
+    // No tests, no properties, no triggering call: nothing ran, so "pure ✓ bounded ✓" would be a vacuous claim.
+    return finish([
+      testsResult,
+      propsResult,
+      { gate: 'invariants', status: 'skipped', ms, summary: 'not exercised', note: NEVER_CALLED_NOTE, diagnostics: [] },
+    ]);
   }
   return finish([
     testsResult,

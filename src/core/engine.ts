@@ -47,6 +47,7 @@ import { MASKED_NAMES } from '../sandbox/mask';
 import { Runtime } from '../sandbox/runtime';
 import { gateSeed, hashesFor } from '../shared/hash';
 import { buildPrompt, declarationLine, type PromptInput } from '../shared/prompt';
+import { decodeEnv } from '../shared/serialize';
 import {
   GenerationFailure,
   LiveGenerator,
@@ -78,8 +79,13 @@ export interface EngineExample extends ExampleInfo {
   breakPatch: SpecPatch;
 }
 
-/** The part of sandbox/runtime.ts Runtime the engine uses. */
-export type RuntimeLike = Pick<Runtime, 'define' | 'undefine' | 'evaluate' | 'snapshotEnv' | 'envShown' | 'reset' | 'dispose'>;
+/**
+ * The part of sandbox/runtime.ts Runtime the engine uses. `reset` may resolve to nothing (older runtimes) or to
+ * `{ lost }`, the REPL variables that could not be restored in the rebuilt worker; both are handled.
+ */
+export type RuntimeLike = Pick<Runtime, 'define' | 'undefine' | 'evaluate' | 'snapshotEnv' | 'envShown' | 'dispose'> & {
+  reset(functions: Parameters<Runtime['reset']>[0], env: Record<string, Json>): Promise<void | { lost?: string[] }>;
+};
 
 export interface EngineStore {
   loadPersisted(): Promise<store.Persisted | null>;
@@ -236,6 +242,34 @@ class Aborted extends Error {
   }
 }
 
+/**
+ * The triggering call's real arguments, decoded from the runtime's `args` (shared/serialize.ts encoding), for the
+ * Invariants replay. undefined when the runtime did not send them or when any argument (at any depth) could not be
+ * serialised: a placeholder would not be the value the call really received.
+ */
+export function decodeCallArgs(args: unknown): unknown[] | undefined {
+  if (!Array.isArray(args)) return undefined;
+  const keyed: Record<string, Json> = {};
+  args.forEach((a, i) => (keyed[String(i)] = a as Json));
+  try {
+    const { env, unserializable } = decodeEnv(keyed);
+    if (unserializable.length > 0) return undefined;
+    return args.map((_, i) => env[String(i)]);
+  } catch {
+    return undefined;
+  }
+}
+
+/** `lost` from a runtime reset result or a timeout outcome; [] when absent (older runtimes resolve to nothing). */
+function lostOf(r: unknown): string[] {
+  if (typeof r !== 'object' || r === null) return [];
+  const lost = (r as { lost?: unknown }).lost;
+  return Array.isArray(lost) ? lost.filter((x): x is string => typeof x === 'string') : [];
+}
+
+export const LOST_PREFIX = 'variables that could not be restored: ';
+const WAITING_PREFIX = 'Waiting for the current operation to finish before you ';
+
 /** Context kept per REPL error entry so a restart knows what to do. */
 interface RestartContext {
   kind: 'fault' | 'timeout' | 'grow-failed';
@@ -244,6 +278,8 @@ interface RestartContext {
   input: string;
   spec?: FunctionSpec;
   callArgTypes?: string[];
+  /** Decoded real arguments of the triggering call (Invariants probe), when available. */
+  callArgs?: unknown[];
   fault?: { errorName: string; message: string; previousBody: string };
   /** Revision the faulting artifact was committed in. */
   artifactRevision?: number;
@@ -254,6 +290,8 @@ interface GrowRequest {
   call: string;
   spec: FunctionSpec;
   callArgTypes?: string[];
+  /** Real argument values of the triggering call, replayed by the Invariants gate. */
+  callArgs?: unknown[];
   runtimeFault?: PromptInput['runtimeFault'];
 }
 
@@ -303,6 +341,11 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
   let epoch = 0;
   let focusNonce = 0;
   let disposed = false;
+  /** Tail of the operation queue: every operation that changes the program or the history runs alone, in order. */
+  let opTail: Promise<void> = Promise.resolve();
+  let opsPending = 0;
+  /** Number of REPL evaluations (submit / retry) requested and not finished: `busy` is `busyCount > 0`. */
+  let busyCount = 0;
 
   // ── state plumbing ──
 
@@ -346,11 +389,114 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
 
   const persistFlags = (): Promise<void> => deps.store.saveFlags({ ...flags });
 
+  const busyStart = (): void => {
+    busyCount++;
+    if (!state.value.busy) set({ busy: true });
+  };
+  const busyEnd = (): void => {
+    busyCount = Math.max(0, busyCount - 1);
+    if (busyCount === 0) set({ busy: false });
+  };
+
+  /**
+   * Runs `op` after every operation requested before it has finished (one promise queue for submit, retry,
+   * rollback, spec edits, examples, import and reset), so two quick rollbacks or an edit during a commit can never
+   * interleave. An operation that has to wait says so (`what` names it). Operations requested before a reset or
+   * dispose are superseded by it and do not run. Never rejects.
+   */
+  function exclusive(what: string | null, op: () => Promise<void>, onSkip?: () => void): Promise<void> {
+    const myEpoch = epoch;
+    if (opsPending > 0 && what) notice('info', `${WAITING_PREFIX}${what}…`);
+    opsPending++;
+    const run = opTail.then(async () => {
+      if (disposed || myEpoch !== epoch) {
+        onSkip?.();
+        return;
+      }
+      if (state.value.notice?.text.startsWith(WAITING_PREFIX)) {
+        const { notice: _done, ...rest } = state.value;
+        state.value = rest;
+      }
+      await op();
+    });
+    const settled = run.then(
+      () => {
+        opsPending--;
+      },
+      (e: unknown) => {
+        opsPending--;
+        console.warn('[engine] operation failed', e);
+      },
+    );
+    opTail = settled;
+    return settled;
+  }
+
+  /** Must run inside `exclusive`: the id is derived from the history as it is at this moment. */
   async function commitRevision(rev: Revision): Promise<void> {
+    const lastId = history[history.length - 1]?.id ?? 0;
+    if (rev.id !== lastId + 1) throw new Error(`internal: revision r${rev.id} does not follow r${lastId}`);
     history = [...history, rev];
     head = rev.id;
     publishHistory();
     await deps.store.appendRevision(rev, head);
+  }
+
+  const reportLost = (lost: string[]): void => {
+    if (lost.length > 0) info(`${LOST_PREFIX}${lost.join(', ')}`, 'warn');
+  };
+
+  /** Replace the live program wholesale; returns the REPL variables the runtime could not restore. */
+  async function resetRuntime(fns: Parameters<RuntimeLike['reset']>[0], env: Record<string, Json>): Promise<string[]> {
+    const r: unknown = await runtime!.reset(fns, env);
+    return lostOf(r);
+  }
+
+  /**
+   * Never trust stored or imported `artifact.js`: recompile every LIVE artifact's body against its spec and use the
+   * fresh js / returnType / source. An artifact whose body no longer compiles is dropped (artifact = null).
+   * Provenance and candidate history are kept. Identical (spec, body) pairs across revisions compile once.
+   */
+  async function recompileArtifacts(revisions: Revision[]): Promise<{ revisions: Revision[]; recompiled: number; dropped: string[] }> {
+    const cache = new Map<string, Promise<CompileOutput | null>>();
+    const dropped = new Set<string>();
+    const out: Revision[] = [];
+    for (const rev of revisions) {
+      const functions: Program['functions'] = {};
+      for (const [name, rec] of Object.entries(rev.program.functions)) {
+        if (!isLive(rec)) {
+          functions[name] = rec;
+          continue;
+        }
+        const artifact = rec.artifact!;
+        const key = `${rec.specHash}\u0000${rec.testsHash}\u0000${JSON.stringify(rec.spec)}\u0000${artifact.body}`;
+        let compiled = cache.get(key);
+        if (!compiled) {
+          compiled = deps
+            .compile(rec.spec, artifact.body)
+            .then((c) => (c.gate.status !== 'fail' && c.js !== null ? c : null))
+            .catch(() => null);
+          cache.set(key, compiled);
+        }
+        const c = await compiled;
+        if (c) {
+          functions[name] = { ...rec, artifact: { ...artifact, js: c.js!, returnType: c.returnType, source: c.source } };
+        } else {
+          functions[name] = { ...rec, artifact: null };
+          dropped.add(name);
+        }
+      }
+      out.push({ ...rev, program: { functions } });
+    }
+    const results = await Promise.all(cache.values());
+    return { revisions: out, recompiled: results.filter((c) => c !== null).length, dropped: [...dropped].sort() };
+  }
+
+  function recompileSummary(r: { recompiled: number; dropped: string[] }): string {
+    const base = `recompiled ${plural(r.recompiled, 'artifact')} from ${r.recompiled === 1 ? 'its body' : 'their bodies'}`;
+    return r.dropped.length > 0
+      ? `${base}; dropped the artifact of ${r.dropped.join(', ')} (its body does not compile; the next call regenerates)`
+      : base;
   }
 
   async function refreshEnv(): Promise<void> {
@@ -440,10 +586,14 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     let liveEnv: Record<string, Json> = {};
     if (persisted) {
       const image = await store.reverify(persisted.image).catch(() => persisted.image);
-      history = image.revisions;
+      // Stored js is never trusted: every live artifact is recompiled from its body.
+      const fresh = await recompileArtifacts(image.revisions);
+      if (myEpoch !== epoch) return;
+      history = fresh.revisions;
       head = image.head;
       flags = { ...persisted.flags };
       liveEnv = persisted.liveEnv;
+      if (fresh.dropped.length > 0) notice('error', `Restored image: ${recompileSummary(fresh)}.`);
     } else {
       const r1 = await seedProgram();
       history = [r1];
@@ -456,7 +606,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
 
     runtime = deps.createRuntime();
     try {
-      await runtime.reset(jsFunctions(headRev().program), liveEnv);
+      reportLost(await resetRuntime(jsFunctions(headRev().program), liveEnv));
     } catch (e) {
       notice('error', `Could not restore the live program (${errorText(e)}); starting with no live functions.`);
       await runtime.reset({}, {}).catch(() => undefined);
@@ -474,29 +624,33 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
 
   // ───────────────────────── submit ─────────────────────────
 
-  async function submit(): Promise<void> {
+  /** REPL Enter. Ignored while another evaluation is running (`busy`; the input stays in the box). */
+  function submit(): Promise<void> {
     const s = state.value;
     const text = s.replInput.trim();
-    if (!s.ready || s.busy || text === '' || !runtime) return;
+    if (!s.ready || s.busy || text === '' || !runtime) return Promise.resolve();
     const myEpoch = epoch;
-    set({ busy: true, replInput: '' });
-    pushRepl({ kind: 'input', id: id('in'), text });
+    busyStart();
+    set({ replInput: '' });
     deps.inputMemory.save(text);
-    if (!flags.openerDismissed) {
-      flags = { ...flags, openerDismissed: true };
-      set({ hints: { ...state.value.hints, opener: false } });
-      void persistFlags();
-    }
-    try {
-      await runInput(text, false, myEpoch);
-    } catch (e) {
-      if (!(e instanceof Aborted) && myEpoch === epoch) errorEntry('InternalError', errorText(e));
-    } finally {
-      if (myEpoch === epoch) {
-        await refreshEnv();
-        set({ busy: false });
+    return exclusive(null, async () => {
+      pushRepl({ kind: 'input', id: id('in'), text });
+      if (!flags.openerDismissed) {
+        flags = { ...flags, openerDismissed: true };
+        set({ hints: { ...state.value.hints, opener: false } });
+        void persistFlags();
       }
-    }
+      try {
+        await runInput(text, false, myEpoch);
+      } catch (e) {
+        if (!(e instanceof Aborted) && myEpoch === epoch) errorEntry('InternalError', errorText(e));
+      } finally {
+        if (myEpoch === epoch) {
+          await refreshEnv();
+          busyEnd();
+        }
+      }
+    });
   }
 
   /** Evaluate `input`, growing undefined functions (up to MAX_GROWTHS_PER_SUBMIT) and re-evaluating. */
@@ -524,12 +678,16 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       info('Generating…', 'accent');
       const rec = state.value.program.functions[outcome.name];
       const spec = rec?.spec ?? specFromCall(outcome.name, outcome.argTypes);
+      // `args` may be missing (older runtimes): then the Invariants gate has only the arguments sampled in the
+      // Tests/Properties phases.
+      const callArgs = decodeCallArgs((outcome as { args?: unknown }).args);
       const result = await grow(
         {
           fn: outcome.name,
           call: outcome.call,
           spec,
           ...(spec.origin === 'call' ? { callArgTypes: outcome.argTypes } : {}),
+          ...(callArgs ? { callArgs } : {}),
         },
         input,
         myEpoch,
@@ -544,7 +702,10 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
   function reportOutcome(outcome: Exclude<EvalOutcome, { kind: 'undefined-call' }>, input: string, grew: boolean, revision?: number): void {
     switch (outcome.kind) {
       case 'value': {
-        const cached = !grew && outcome.calls.length > 0;
+        // 'cached artifact · certified rN' only when the called function's artifact is live (its hashes match the
+        // spec it is shown under); anything else gets no label.
+        const calledRec = outcome.calls.length > 0 ? state.value.program.functions[outcome.calls[0]!] : undefined;
+        const cached = !grew && calledRec !== undefined && isLive(calledRec);
         const entry: ReplEntry = {
           kind: 'output',
           id: id('out'),
@@ -553,10 +714,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
           label: grew ? 'generated' : cached ? 'cached artifact' : null,
         };
         if (grew && revision !== undefined) entry.detail = `revision ${revision}`;
-        if (cached) {
-          const rec = state.value.program.functions[outcome.calls[0]!];
-          if (rec?.artifact) entry.detail = `certified r${rec.artifact.revision}`;
-        }
+        if (cached) entry.detail = `certified r${calledRec.artifact!.revision}`;
         pushRepl(entry);
         if (cached && !flags.takeawayShown) {
           flags = { ...flags, takeawayShown: true };
@@ -590,7 +748,12 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       case 'timeout': {
         const rec = outcome.fn ? state.value.program.functions[outcome.fn] : undefined;
         const n = rec ? rec.spec.budgetMs : outcome.ms;
-        const message = `${outcome.call ?? 'call'} exceeded ${n} ms and was terminated; the program was restored`;
+        const lost = lostOf(outcome);
+        const message = `${outcome.call ?? 'call'} exceeded ${n} ms and was terminated; ${
+          lost.length > 0
+            ? `the program was restored except ${plural(lost.length, 'variable')} that could not be restored (${lost.join(', ')})`
+            : 'the program was restored'
+        }`;
         if (outcome.fn && outcome.call) {
           errorEntry('TimeoutError', message, [RESTART.retryFault, RESTART.rollback, RESTART.editSpec], {
             kind: 'timeout',
@@ -607,6 +770,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         } else {
           errorEntry('TimeoutError', message);
         }
+        reportLost(lost);
         return;
       }
     }
@@ -655,7 +819,15 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     let freeRetries = 0;
     let model = '';
     let codexVersion = '';
-    const growCtx: RestartContext = { kind: 'grow-failed', fn, call: req.call, input, spec, ...(req.callArgTypes ? { callArgTypes: req.callArgTypes } : {}) };
+    const growCtx: RestartContext = {
+      kind: 'grow-failed',
+      fn,
+      call: req.call,
+      input,
+      spec,
+      ...(req.callArgTypes ? { callArgTypes: req.callArgTypes } : {}),
+      ...(req.callArgs ? { callArgs: req.callArgs } : {}),
+    };
     if (req.runtimeFault) {
       growCtx.fault = { errorName: req.runtimeFault.errorName, message: req.runtimeFault.message, previousBody: req.runtimeFault.previousBody };
     }
@@ -720,7 +892,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
 
       // gates
       setGen({ phase: 'gating' });
-      const gated = await runGates(index, spec, body, specHash, testsHash, sig);
+      const gated = await runGates(index, spec, body, specHash, testsHash, sig, req.callArgs);
       // TS7023/7024: with no declared return type a directly recursive body cannot be typed. The note travels to
       // the model (formatDiagnosticsForModel prints a failing gate's note) and is shown on the gate row.
       const recursion =
@@ -813,6 +985,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     specHash: string,
     testsHash: string,
     sig: AbortSignal,
+    callArgs?: unknown[],
   ): Promise<Gated> {
     const gates: GateResult[] = GATE_ORDER.map(pendingGate);
     const show = (): void => setAttempt(index, { status: 'gating', gates: [...gates] });
@@ -876,6 +1049,9 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       propertiesJs: props.js,
       budgetMs: spec.budgetMs,
       seed: gateSeed(specHash, testsHash),
+      // The triggering call's real arguments: without them a spec with no tests/properties gives the Invariants
+      // replay nothing to call, and impure / mutating / non-terminating bodies would pass.
+      ...(callArgs ? { callArgs } : {}),
     };
     const all = deps
       .execGates(input, deliver)
@@ -949,6 +1125,13 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
   ): Promise<number> {
     const { fn, spec } = req;
     const base = headRev().program;
+    const existing = base.functions[fn];
+    const withRec: Program =
+      existing && existing.specHash === specHash && existing.testsHash === testsHash && sameSpec(existing.spec, spec)
+        ? base
+        : await withSpec(base, spec);
+    const env = await snapshotEnv();
+    // No await from here to commitRevision: the id is derived from the history as it is at the moment of commit.
     const revisionId = (history[history.length - 1]?.id ?? 0) + 1;
     const artifact: Artifact = {
       body,
@@ -963,13 +1146,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       candidates: [...candidates],
       revision: revisionId,
     };
-    const existing = base.functions[fn];
-    const withRec: Program =
-      existing && existing.specHash === specHash && existing.testsHash === testsHash && sameSpec(existing.spec, spec)
-        ? base
-        : await withSpec(base, spec);
     const program = withArtifact(withRec, fn, artifact);
-    const env = await snapshotEnv();
     const rejected = candidates.filter((c) => c.verdict !== 'accepted').length;
     const rev = newRevision(history, {
       kind: 'commit',
@@ -992,42 +1169,57 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
   }
 
   // ───────────────────────── spec edits ─────────────────────────
-
-  function refuseWhileBusy(what: string): boolean {
-    if (state.value.busy) {
-      notice('error', `Wait for the current call to finish before you ${what}.`);
-      return true;
-    }
-    return false;
-  }
+  // The public operations below go through `exclusive`; the *Inner variants assume they already hold the queue
+  // (they call each other, never the public ones, so nothing waits on itself).
 
   async function applySpec(next: FunctionSpec, opts: { kind: Revision['kind']; title?: string }): Promise<void> {
+    const name = next.name;
     const base = headRev().program;
-    const before = base.functions[next.name];
-    const program = await withSpec(base, next);
-    const after = program.functions[next.name]!;
+    const before = base.functions[name];
+    let program = await withSpec(base, next);
+    let after = program.functions[name]!;
     const specChanged = !before || before.specHash !== after.specHash;
     const testsChanged = !before || before.testsHash !== after.testsHash;
     const hadLive = before ? isLive(before) : false;
     const invalidates = hadLive && !isLive(after);
-    if (invalidates) await runtime?.undefine(next.name).catch(() => undefined);
+    // Editing a spec back to the text an existing artifact was certified against makes that artifact live again.
+    // Its stored js is not trusted (a stale artifact is not recompiled on import/load): recompile it from the body.
+    let revalidated: Artifact | null = null;
+    let unrecompilable = false;
+    if (!hadLive && after.artifact && isLive(after)) {
+      const c = await deps.compile(after.spec, after.artifact.body).catch(() => null);
+      if (c && c.gate.status !== 'fail' && c.js !== null) {
+        revalidated = { ...after.artifact, js: c.js, returnType: c.returnType, source: c.source };
+        program = withArtifact(program, name, revalidated);
+      } else {
+        unrecompilable = true;
+        program = { functions: { ...program.functions, [name]: { ...after, artifact: null } } };
+      }
+      after = program.functions[name]!;
+    }
+    if (invalidates) await runtime?.undefine(name).catch(() => undefined);
+    if (revalidated && runtime) await runtime.define(name, revalidated.js, after.spec.budgetMs);
     const env = await snapshotEnv();
     const title =
       opts.title ??
       (before
         ? !specChanged && !testsChanged
-          ? `Spec edited: ${next.name} — artifact unaffected`
-          : invalidates || (before.artifact && !isLive(after))
-            ? `Spec edited: ${next.name} — artifact invalidated`
-            : `Spec edited: ${next.name} — no artifact yet`
-        : `Spec added: ${next.name} — no artifact yet`);
+          ? `Spec edited: ${name} — artifact unaffected`
+          : revalidated
+            ? `Spec edited: ${name} — artifact revalidated (certified r${revalidated.revision})`
+            : unrecompilable
+              ? `Spec edited: ${name} — artifact dropped (its body no longer compiles)`
+              : invalidates || (before.artifact && !isLive(after))
+                ? `Spec edited: ${name} — artifact invalidated`
+                : `Spec edited: ${name} — no artifact yet`
+        : `Spec added: ${name} — no artifact yet`);
     const changes: string[] = [];
     if (before && specChanged) changes.push(`spec hash ${short(before.specHash)} → ${short(after.specHash)}`);
     if (before && testsChanged) changes.push(`tests hash ${short(before.testsHash)} → ${short(after.testsHash)}`);
     const rev = newRevision(history, {
       kind: opts.kind,
       title,
-      fn: next.name,
+      fn: name,
       program,
       env,
       at: deps.now(),
@@ -1037,17 +1229,20 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     if (before) {
       const tail = invalidates
         ? 'artifact invalidated; the next call regenerates'
-        : !specChanged && !testsChanged
-          ? before.artifact
-            ? 'hashes unchanged; the artifact is still valid'
-            : 'hashes unchanged'
-          : 'no live artifact; the next call generates';
-      info(`${next.name}: ${changes.length ? `${changes.join(' · ')} · ` : ''}${tail}`, invalidates ? 'warn' : 'muted');
+        : revalidated
+          ? `artifact revalidated (certified r${revalidated.revision}); calls use it again`
+          : unrecompilable
+            ? 'the artifact certified for this text no longer compiles and was dropped; the next call generates'
+            : !specChanged && !testsChanged
+              ? before.artifact
+                ? 'hashes unchanged; the artifact is still valid'
+                : 'hashes unchanged'
+              : 'no live artifact; the next call generates';
+      info(`${name}: ${changes.length ? `${changes.join(' · ')} · ` : ''}${tail}`, invalidates || unrecompilable ? 'warn' : 'muted');
     }
   }
 
-  async function editSpec(fn: string, patch: SpecPatch): Promise<void> {
-    if (refuseWhileBusy('edit a spec')) return;
+  async function editSpecInner(fn: string, patch: SpecPatch): Promise<void> {
     try {
       const rec = headRev().program.functions[fn];
       if (!rec) {
@@ -1062,28 +1257,32 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     }
   }
 
-  async function upsertSpec(spec: FunctionSpec): Promise<void> {
-    if (refuseWhileBusy('change a spec')) return;
-    try {
-      const reason = notGrowableReason(spec.name);
-      if (reason) {
-        notice('error', reason);
-        return;
-      }
-      await applySpec(spec, { kind: 'spec-edit' });
-    } catch (e) {
-      notice('error', `Saving the spec failed: ${errorText(e)}`);
-    }
+  function editSpec(fn: string, patch: SpecPatch): Promise<void> {
+    return exclusive('edit the spec', () => editSpecInner(fn, patch));
   }
 
-  async function loadExample(exampleId: string): Promise<void> {
+  function upsertSpec(spec: FunctionSpec): Promise<void> {
+    return exclusive('change the spec', async () => {
+      try {
+        const reason = notGrowableReason(spec.name);
+        if (reason) {
+          notice('error', reason);
+          return;
+        }
+        await applySpec(spec, { kind: 'spec-edit' });
+      } catch (e) {
+        notice('error', `Saving the spec failed: ${errorText(e)}`);
+      }
+    });
+  }
+
+  async function loadExampleInner(exampleId: string): Promise<void> {
     const ex = examples.find((e) => e.id === exampleId);
     if (!ex) {
       notice('error', `Unknown example: ${exampleId}`);
       return;
     }
     if (!headRev().program.functions[ex.fn]) {
-      if (refuseWhileBusy('load an example')) return;
       try {
         await applySpec(ex.spec, { kind: 'example', title: `Loaded example: ${ex.title}` });
       } catch (e) {
@@ -1094,91 +1293,100 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     set({ replInput: ex.call });
   }
 
-  async function breakIt(exampleId: string): Promise<void> {
-    const ex = examples.find((e) => e.id === exampleId);
-    if (!ex) {
-      notice('error', `Unknown example: ${exampleId}`);
-      return;
-    }
-    if (refuseWhileBusy('break the spec')) return;
-    if (!headRev().program.functions[ex.fn]) await loadExample(exampleId);
-    await editSpec(ex.fn, ex.breakPatch);
-    set({ replInput: ex.call });
+  function loadExample(exampleId: string): Promise<void> {
+    return exclusive('load an example', () => loadExampleInner(exampleId));
+  }
+
+  function breakIt(exampleId: string): Promise<void> {
+    return exclusive('break the spec', async () => {
+      const ex = examples.find((e) => e.id === exampleId);
+      if (!ex) {
+        notice('error', `Unknown example: ${exampleId}`);
+        return;
+      }
+      if (!headRev().program.functions[ex.fn]) await loadExampleInner(exampleId);
+      await editSpecInner(ex.fn, ex.breakPatch);
+      set({ replInput: ex.call });
+    });
   }
 
   // ───────────────────────── history ─────────────────────────
 
-  async function rollback(target: number): Promise<void> {
-    if (refuseWhileBusy('roll back')) return;
-    if (!history.some((r) => r.id === target)) {
+  async function rollbackInner(target: number): Promise<void> {
+    const source = history.find((r) => r.id === target);
+    if (!source) {
       notice('error', `There is no revision r${target}`);
       return;
     }
     try {
+      const fns = jsFunctions(source.program);
+      const lost = await resetRuntime(fns, source.env);
+      // The new id is derived from the history as it is now (no await between this and the commit's push).
       const rev = { ...rollbackRevision(history, target), at: deps.now() };
-      const fns = jsFunctions(rev.program);
-      await runtime!.reset(fns, rev.env);
       await commitRevision(rev);
       set({ generation: null });
       await refreshEnv();
-      info(
-        `Rolled back to r${target} — restored ${plural(Object.keys(fns).length, 'function')} and ${plural(Object.keys(rev.env).length, 'variable')}`,
-      );
+      const restored = Object.keys(rev.env).filter((k) => !lost.includes(k)).length;
+      info(`Rolled back to r${target} — restored ${plural(Object.keys(fns).length, 'function')} and ${plural(restored, 'variable')}`);
+      reportLost(lost);
     } catch (e) {
       notice('error', `Rollback failed: ${errorText(e)}`);
       await runtime?.reset(jsFunctions(headRev().program), headRev().env).catch(() => undefined);
     }
   }
 
-  async function invokeRestart(entryId: string, restart: RestartId): Promise<void> {
+  function rollback(target: number): Promise<void> {
+    return exclusive('roll back', () => rollbackInner(target));
+  }
+
+  function invokeRestart(entryId: string, restart: RestartId): Promise<void> {
     const entry = state.value.repl.find((e) => e.id === entryId);
-    if (!entry || entry.kind !== 'error' || entry.resolved) return;
+    if (!entry || entry.kind !== 'error' || entry.resolved) return Promise.resolve();
     const ctx = contexts.get(entryId);
-    if (restart !== 'dismiss' && !ctx) return;
-    if (restart === 'retry' || restart === 'rollback') {
-      if (refuseWhileBusy(restart === 'retry' ? 'retry' : 'roll back')) return;
-    }
-    const resolve = (): void =>
-      set({ repl: state.value.repl.map((e) => (e.id === entryId && e.kind === 'error' ? { ...e, resolved: true } : e)) });
-    resolve();
-    if (restart === 'dismiss' || !ctx) return;
+    if (restart !== 'dismiss' && !ctx) return Promise.resolve();
+    set({ repl: state.value.repl.map((e) => (e.id === entryId && e.kind === 'error' ? { ...e, resolved: true } : e)) });
+    if (restart === 'dismiss' || !ctx) return Promise.resolve();
 
     if (restart === 'edit-spec') {
       set({ focusSpec: { fn: ctx.fn, nonce: ++focusNonce } });
-      return;
+      return Promise.resolve();
     }
     if (restart === 'rollback') {
-      const before = ctx.artifactRevision !== undefined ? [...history].reverse().find((r) => r.id < ctx.artifactRevision!) : undefined;
-      await rollback(before?.id ?? 1);
-      return;
+      return exclusive('roll back', async () => {
+        const before = ctx.artifactRevision !== undefined ? [...history].reverse().find((r) => r.id < ctx.artifactRevision!) : undefined;
+        await rollbackInner(before?.id ?? 1);
+      });
     }
-    // retry
+    // retry: an evaluation like submit, so it counts as busy from the moment it is requested
     const myEpoch = epoch;
-    set({ busy: true });
-    try {
-      const rec = headRev().program.functions[ctx.fn];
-      const spec = rec?.spec ?? ctx.spec;
-      if (!spec) {
-        errorEntry('Error', `${ctx.fn} has no spec any more; call it again to grow it from the call`);
-        return;
+    busyStart();
+    return exclusive('retry', async () => {
+      try {
+        const rec = headRev().program.functions[ctx.fn];
+        const spec = rec?.spec ?? ctx.spec;
+        if (!spec) {
+          errorEntry('Error', `${ctx.fn} has no spec any more; call it again to grow it from the call`);
+          return;
+        }
+        info(ctx.kind === 'grow-failed' ? `Retrying ${ctx.fn}…` : `Regenerating ${ctx.fn} with the error fed back…`, 'accent');
+        const growReq: GrowRequest = { fn: ctx.fn, call: ctx.call, spec };
+        if (spec.origin === 'call' && ctx.callArgTypes) growReq.callArgTypes = ctx.callArgTypes;
+        if (ctx.callArgs) growReq.callArgs = ctx.callArgs;
+        // A fault/timeout retry feeds the error back; so does re-running a grow that was itself such a retry.
+        if (ctx.fault) {
+          growReq.runtimeFault = { call: ctx.call, errorName: ctx.fault.errorName, message: ctx.fault.message, previousBody: ctx.fault.previousBody };
+        }
+        const result = await grow(growReq, ctx.input, myEpoch);
+        if (result.kind === 'committed' && myEpoch === epoch) await runInput(ctx.input, true, myEpoch, result.revision);
+      } catch (e) {
+        if (!(e instanceof Aborted) && myEpoch === epoch) errorEntry('InternalError', errorText(e));
+      } finally {
+        if (myEpoch === epoch) {
+          await refreshEnv();
+          busyEnd();
+        }
       }
-      info(ctx.kind === 'grow-failed' ? `Retrying ${ctx.fn}…` : `Regenerating ${ctx.fn} with the error fed back…`, 'accent');
-      const growReq: GrowRequest = { fn: ctx.fn, call: ctx.call, spec };
-      if (spec.origin === 'call' && ctx.callArgTypes) growReq.callArgTypes = ctx.callArgTypes;
-      // A fault/timeout retry feeds the error back; so does re-running a grow that was itself such a retry.
-      if (ctx.fault) {
-        growReq.runtimeFault = { call: ctx.call, errorName: ctx.fault.errorName, message: ctx.fault.message, previousBody: ctx.fault.previousBody };
-      }
-      const result = await grow(growReq, ctx.input, myEpoch);
-      if (result.kind === 'committed' && myEpoch === epoch) await runInput(ctx.input, true, myEpoch, result.revision);
-    } catch (e) {
-      if (!(e instanceof Aborted) && myEpoch === epoch) errorEntry('InternalError', errorText(e));
-    } finally {
-      if (myEpoch === epoch) {
-        await refreshEnv();
-        set({ busy: false });
-      }
-    }
+    });
   }
 
   // ───────────────────────── service ─────────────────────────
@@ -1203,8 +1411,11 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     return JSON.stringify(store.toImage(history, head), null, 2);
   }
 
-  async function importImage(json: string): Promise<void> {
-    if (refuseWhileBusy('import an image')) return;
+  function importImage(json: string): Promise<void> {
+    return exclusive('import an image', () => importImageInner(json));
+  }
+
+  async function importImageInner(json: string): Promise<void> {
     let raw: unknown;
     try {
       raw = JSON.parse(json);
@@ -1218,7 +1429,11 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       return;
     }
     try {
-      const image = await store.reverify(checked.image);
+      const verified = await store.reverify(checked.image);
+      // Imported js is never trusted: every live artifact is recompiled from its body (provenance and candidate
+      // history are kept); an artifact whose body does not compile is dropped.
+      const fresh = await recompileArtifacts(verified.revisions);
+      const image = { ...verified, revisions: fresh.revisions };
       const importedHead = image.revisions.find((r) => r.id === image.head)!;
       const rev = newRevision(image.revisions, {
         kind: 'import',
@@ -1227,7 +1442,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         env: structuredClone(importedHead.env),
         at: deps.now(),
       });
-      await runtime!.reset(jsFunctions(rev.program), rev.env);
+      const lost = await resetRuntime(jsFunctions(rev.program), rev.env);
       history = [...image.revisions, rev];
       head = rev.id;
       publishHistory();
@@ -1237,6 +1452,8 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       await persistFlags();
       await refreshEnv();
       info(`Imported image: ${plural(image.revisions.length, 'revision')}, head r${image.head} restored as r${rev.id}`);
+      reportLost(lost);
+      notice(fresh.dropped.length > 0 ? 'error' : 'info', `Imported image: ${recompileSummary(fresh)}.`);
     } catch (e) {
       notice('error', `Import failed: ${errorText(e)}`);
       await runtime?.reset(jsFunctions(headRev().program), headRev().env).catch(() => undefined);
@@ -1249,35 +1466,40 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     return sink.toRecording({ id: `${fns.join('-') || 'session'}-${stamp}`, title: `Live session: ${fns.join(', ')}` });
   }
 
-  async function resetImage(): Promise<void> {
+  function resetImage(): Promise<void> {
+    // Abort first, synchronously: an in-flight grow may only end on abort, and the reset waits for it in the queue.
+    // Everything requested before this point is superseded (see `exclusive`).
     epoch++;
     growCtrl?.abort();
     growCtrl = null;
     contexts.clear();
-    try {
-      await deps.store.clearAll();
-      const r1 = await seedProgram();
-      history = [r1];
-      head = 1;
-      flags = { takeawayShown: false, openerDismissed: false };
-      await deps.store.appendRevision(r1, 1);
-      await persistFlags();
-      await runtime?.reset({}, {});
-      publishHistory();
-      set({
-        repl: [],
-        replInput: initialExample()?.call ?? '',
-        generation: null,
-        env: {},
-        busy: false,
-        hints: { opener: true, takeaway: false },
-        notice: { tone: 'info', text: 'Image reset: r1 reseeded' },
-      });
-      await refreshEnv();
-    } catch (e) {
-      set({ busy: false });
-      notice('error', `Reset failed: ${errorText(e)}`);
-    }
+    busyCount = 0;
+    return exclusive(null, async () => {
+      try {
+        await deps.store.clearAll();
+        const r1 = await seedProgram();
+        history = [r1];
+        head = 1;
+        flags = { takeawayShown: false, openerDismissed: false };
+        await deps.store.appendRevision(r1, 1);
+        await persistFlags();
+        await runtime?.reset({}, {});
+        publishHistory();
+        set({
+          repl: [],
+          replInput: initialExample()?.call ?? '',
+          generation: null,
+          env: {},
+          busy: busyCount > 0,
+          hints: { opener: true, takeaway: false },
+          notice: { tone: 'info', text: 'Image reset: r1 reseeded' },
+        });
+        await refreshEnv();
+      } catch (e) {
+        set({ busy: busyCount > 0 });
+        notice('error', `Reset failed: ${errorText(e)}`);
+      }
+    });
   }
 
   function dispose(): void {
@@ -1290,15 +1512,16 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
 
   return {
     state: state as ReadonlySignal<EngineState>,
-    init: async () => {
-      try {
-        await init();
-      } catch (e) {
-        // Never leave the UI on the loading screen: surface what failed and stay usable.
-        notice('error', `Startup problem: ${errorText(e)}`);
-        set({ ready: true });
-      }
-    },
+    init: () =>
+      exclusive(null, async () => {
+        try {
+          await init();
+        } catch (e) {
+          // Never leave the UI on the loading screen: surface what failed and stay usable.
+          notice('error', `Startup problem: ${errorText(e)}`);
+          set({ ready: true });
+        }
+      }),
     setInput: (text) => set({ replInput: text }),
     submit,
     upsertSpec,

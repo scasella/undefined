@@ -124,6 +124,7 @@ describe('ReplCore — undefined names', () => {
       name: 'median',
       argTypes: ['number[]'],
       argShown: ['[3, 1, 4, 2]'],
+      args: [[3, 1, 4, 2]],
       call: 'median([3, 1, 4, 2])',
     });
   });
@@ -291,5 +292,79 @@ describe('createDispatcher', () => {
       { type: 'reply', id: 2, ok: true, result: expect.objectContaining({ kind: 'value', shown: '42', calls: ['double'] }), env: { x: 42 } },
       { type: 'reply', id: 3, ok: false, error: expect.stringContaining('SyntaxError') },
     ]);
+  });
+});
+
+describe('ReplCore — review fixes', () => {
+  it('undefined-call carries the evaluated arguments encoded with encodeValue', () => {
+    const core = coreWith({});
+    core.evaluate('xs = [3, 1]');
+    const out = core.evaluate('join(xs, 2n, new Map([["a", NaN]]), undefined)');
+    expect(out).toMatchObject({
+      kind: 'undefined-call',
+      name: 'join',
+      args: [[3, 1], { $t: 'bigint', v: '2' }, { $t: 'Map', v: [['a', { $t: 'number', v: 'NaN' }]] }, { $t: 'undefined' }],
+    });
+  });
+
+  it('reports an undefined name nested inside an argument as a ReferenceError, not a fault of the committed function', () => {
+    const core = coreWith();
+    for (const src of ['median([1, foo])', 'median({ a: foo })', 'median([[1, [foo]]])', 'median(new Map([[foo, 1]]))', 'median(new Set([foo]))', 'median(new Map([[1, { b: foo }]]))']) {
+      expect(core.evaluate(src), src).toEqual({ kind: 'error', errorName: 'ReferenceError', message: 'foo is not defined' });
+    }
+  });
+
+  it('does not bind or show a value that contains an undefined name', () => {
+    const core = coreWith();
+    expect(core.evaluate('x = [foo]')).toEqual({ kind: 'error', errorName: 'ReferenceError', message: 'foo is not defined' });
+    expect(core.evaluate('(y = { a: [foo] }) && 1')).toEqual({ kind: 'error', errorName: 'ReferenceError', message: 'foo is not defined' });
+    expect(core.evaluate('[1, { b: foo }]')).toEqual({ kind: 'error', errorName: 'ReferenceError', message: 'foo is not defined' });
+    expect(core.envShown()).toEqual({});
+  });
+
+  it('a nested undefined name inside an undefined call names that inner name', () => {
+    const core = coreWith({});
+    expect(core.evaluate('foo([1, bar])')).toEqual({ kind: 'error', errorName: 'ReferenceError', message: 'bar is not defined' });
+    expect(core.evaluate('foo({ k: new Set([bar]) })')).toEqual({ kind: 'error', errorName: 'ReferenceError', message: 'bar is not defined' });
+  });
+
+  it('thunk scan survives cycles and hostile proxies', () => {
+    const core = coreWith();
+    expect(core.evaluate('(c = [1, 2], c.push(c), median([3]))')).toMatchObject({ kind: 'value', shown: '3' });
+    expect(core.evaluate('median([new Proxy({}, { ownKeys() { throw 1; } }) && 5])')).toMatchObject({ kind: 'value', shown: '5' });
+    expect(core.evaluate('c.length')).toMatchObject({ kind: 'value', shown: '3' });
+  });
+
+  it('a REPL alias of a committed function stops working after undefine or redefine', () => {
+    const core = coreWith({ double: DOUBLE });
+    core.evaluate('g = double');
+    expect(core.evaluate('g(2)')).toMatchObject({ kind: 'value', shown: '4' });
+    core.define('double', TRIPLE_AS_DOUBLE);
+    expect(core.evaluate('g(2)')).toEqual({ kind: 'error', errorName: 'ReferenceError', message: 'double is not defined' });
+    expect(core.evaluate('double(2)')).toMatchObject({ kind: 'value', shown: '6' });
+    core.evaluate('h = double');
+    core.undefine('double');
+    expect(core.evaluate('h(2)')).toEqual({ kind: 'error', errorName: 'ReferenceError', message: 'double is not defined' });
+  });
+
+  it('restoreEnv/reset drop variables whose encoded value holds an unserializable placeholder and report them', () => {
+    const core = coreWith({});
+    const lost = core.reset({}, { f: { $t: 'unserializable', show: '[Function f]' }, g: [1, { $t: 'unserializable', show: '[Function]' }], y: 1 });
+    expect(lost).toEqual(['f', 'g']);
+    expect(core.envShown()).toEqual({ y: '1' });
+    expect(core.evaluate('f')).toMatchObject({ kind: 'error', errorName: 'ReferenceError' });
+  });
+
+  it('a committed function that modifies an intrinsic faults, and the intrinsic is restored', () => {
+    const core = coreWith({ cheat: 'function cheat() { Object.is = () => true; return 1; }' });
+    expect(core.evaluate('cheat()')).toMatchObject({ kind: 'fault', fn: 'cheat', errorName: 'InvariantViolation', message: 'candidate modified Object.is' });
+    expect(core.evaluate('Object.is(1, 2)')).toMatchObject({ kind: 'value', shown: 'false' });
+  });
+
+  it('dispatcher reset replies with the lost names', () => {
+    const msgs: RuntimeMessage[] = [];
+    const dispatch = createDispatcher((m) => msgs.push(m));
+    dispatch({ id: 1, type: 'reset', functions: {}, env: { f: { $t: 'unserializable', show: 'x' }, y: 2 } });
+    expect(msgs).toEqual([{ type: 'reply', id: 1, ok: true, result: { lost: ['f'] } }]);
   });
 });

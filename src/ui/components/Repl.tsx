@@ -2,10 +2,10 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Engine, EngineState, GenerationView, ReplEntry, RestartId } from '../../types';
 import { fmtElapsed, fmtMs } from '../format';
 import { inputHistory } from '../select';
-import { focusFn, lowerTab, useElapsed } from '../uiState';
+import { useElapsed } from '../uiState';
 import { PanelHead } from './common';
 
-function Entry({ e, engine, fnNames }: { e: ReplEntry; engine: Engine; fnNames: string[] }) {
+function Entry({ e, engine, live }: { e: ReplEntry; engine: Engine; live: boolean }) {
   switch (e.kind) {
     case 'input':
       return (
@@ -28,17 +28,8 @@ function Entry({ e, engine, fnNames }: { e: ReplEntry; engine: Engine; fnNames: 
         </li>
       );
     case 'error': {
-      const invoke = (id: RestartId) => {
-        void engine.invokeRestart(e.id, id);
-        if (id === 'edit-spec') {
-          lowerTab.value = 'repo';
-          // the tabs sit below the fold; bring them up even when no specific function can be focused
-          // the contract's error entry has no fn field; only focus a spec when the message names a known function call
-          const fn = /^([A-Za-z_$][\w$]*)\(/.exec(e.message)?.[1];
-          if (fn && fnNames.includes(fn)) focusFn.value = fn;
-          else requestAnimationFrame(() => document.querySelector('.lower')?.scrollIntoView({ block: 'start' }));
-        }
-      };
+      // 'edit-spec' needs no UI glue here: the engine sets state.focusSpec and App opens the spec from that
+      const invoke = (id: RestartId) => void engine.invokeRestart(e.id, id);
       return (
         <li class={`r-error${e.resolved ? ' is-resolved' : ''}`}>
           <p>
@@ -64,8 +55,19 @@ function Entry({ e, engine, fnNames }: { e: ReplEntry; engine: Engine; fnNames: 
         </li>
       );
     }
-    case 'info':
-      return <li class={`r-info tone-${e.tone ?? 'muted'}`}>{e.text}</li>;
+    case 'info': {
+      // an accent row ending in '…' ("Generating…") describes work in flight; once that work is over it must
+      // not keep looking busy, so it settles into a static, muted line
+      const inFlight = e.tone === 'accent' && e.text.endsWith('…');
+      if (inFlight && !live) {
+        return (
+          <li class="r-info tone-muted is-past">
+            {e.text.slice(0, -1)} <span class="small">· finished</span>
+          </li>
+        );
+      }
+      return <li class={`r-info tone-${e.tone ?? 'muted'}${inFlight ? ' is-live' : ''}`}>{e.text}</li>;
+    }
     case 'takeaway':
       return <li class="r-takeaway">{e.text}</li>;
   }
@@ -109,6 +111,7 @@ function LiveGeneration({ gen }: { gen: GenerationView }) {
 export function Repl({ state, engine }: { state: EngineState; engine: Engine }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLOListElement>(null);
   const [histIdx, setHistIdx] = useState<number | null>(null);
   const history = inputHistory(state.repl);
   const gen = state.generation;
@@ -118,10 +121,39 @@ export function Repl({ state, engine }: { state: EngineState; engine: Engine }) 
   useEffect(() => {
     if (!state.busy) inputRef.current?.focus({ preventScroll: true });
   }, [state.busy]);
+  // Stick to the newest entry. Anything that changes the transcript's height (new entries, the live
+  // generation row growing or shrinking, the env bar appearing and squeezing the scroll box) re-pins it,
+  // unless the reader has scrolled up to look at something older. A new input always re-pins.
+  const pinned = useRef(true);
+  const lastEntry = state.repl[state.repl.length - 1];
+  useEffect(() => {
+    if (lastEntry?.kind === 'input') pinned.current = true;
+  }, [lastEntry?.id]);
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [state.repl.length, gen?.progress.length, gen?.attempt, live]);
+    const list = listRef.current;
+    if (!el || !list) return;
+    const stick = () => {
+      if (pinned.current) el.scrollTop = el.scrollHeight;
+    };
+    const onScroll = () => {
+      pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 32;
+    };
+    stick();
+    el.addEventListener('scroll', onScroll, { passive: true });
+    if (typeof ResizeObserver === 'undefined') return () => el.removeEventListener('scroll', onScroll);
+    const ro = new ResizeObserver(stick);
+    ro.observe(list);
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      el.removeEventListener('scroll', onScroll);
+    };
+  }, []);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el && pinned.current) el.scrollTop = el.scrollHeight;
+  }, [state.repl.length, lastEntry?.id, gen?.progress.length, gen?.attempt, live]);
 
   const onKeyDown = (ev: KeyboardEvent) => {
     if (ev.key === 'Enter') {
@@ -149,7 +181,17 @@ export function Repl({ state, engine }: { state: EngineState; engine: Engine }) 
   };
 
   const envNames = Object.keys(state.env);
-  const fnNames = Object.keys(state.program.functions);
+  // only the newest in-flight info row can still be in flight, and only while a generation runs
+  let liveInfoId: string | undefined;
+  if (live) {
+    for (let i = state.repl.length - 1; i >= 0; i--) {
+      const e = state.repl[i];
+      if (e.kind === 'info' && e.tone === 'accent' && e.text.endsWith('…')) {
+        liveInfoId = e.id;
+        break;
+      }
+    }
+  }
 
   return (
     <section class="panel panel-repl" aria-label="REPL">
@@ -158,9 +200,9 @@ export function Repl({ state, engine }: { state: EngineState; engine: Engine }) 
       </PanelHead>
       <div class="panel-body repl-scroll" ref={scrollRef}>
         {state.hints.opener && <p class="opener">This function doesn't exist. Press Enter.</p>}
-        <ol class="transcript" aria-live="polite" aria-relevant="additions">
+        <ol class="transcript" ref={listRef} aria-live="polite" aria-relevant="additions">
           {state.repl.map((e) => (
-            <Entry key={e.id} e={e} engine={engine} fnNames={fnNames} />
+            <Entry key={e.id} e={e} engine={engine} live={e.id === liveInfoId} />
           ))}
           {live && <LiveGeneration gen={gen} />}
         </ol>

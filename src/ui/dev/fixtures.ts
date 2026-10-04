@@ -18,6 +18,7 @@ import type {
   RestartOption,
   Revision,
 } from '../../types';
+import { EXAMPLES as REAL_EXAMPLES } from '../../examples';
 
 export const T0 = Date.UTC(2026, 9, 4, 9, 0, 0);
 const h = (seed: string): string => seed.repeat(64).slice(0, 64);
@@ -284,32 +285,15 @@ export function progressLines(): ProgressLine[] {
 
 // ───────── state pieces ─────────
 
-export const EXAMPLES: ExampleInfo[] = [
-  {
-    id: 'median',
-    title: 'median',
-    blurb: 'Off-by-one on even lengths; a property catches it.',
-    call: 'median([3, 1, 4, 2])',
-    fn: 'median',
-    breakIt: { label: 'Break it: ignore NaN', description: 'Changes the spec to skip NaN values; the current artifact no longer satisfies it.' },
-  },
-  {
-    id: 'slugify',
-    title: 'slugify',
-    blurb: 'Unicode, accents, separators.',
-    call: 'slugify("Crème Brûlée — 2 ways")',
-    fn: 'slugify',
-    breakIt: { label: 'Break it: keep digits apart', description: 'Adds a test requiring digits to be separated from words.' },
-  },
-  {
-    id: 'fibonacci',
-    title: 'fibonacci',
-    blurb: 'The naive version never finishes; the bounded invariant kills it.',
-    call: 'fibonacci(90)',
-    fn: 'fibonacci',
-    breakIt: { label: 'Break it: bigint', description: 'Switches the return type to bigint so fibonacci(90) is exact.' },
-  },
-];
+/** The real example list (blurbs, calls, break-it labels), reduced to what the UI sees, so fixtures cannot drift. */
+export const EXAMPLES: ExampleInfo[] = REAL_EXAMPLES.map(({ id, title, blurb, call, fn, breakIt }) => ({
+  id,
+  title,
+  blurb,
+  call,
+  fn,
+  breakIt: { ...breakIt },
+}));
 
 function rec(spec: FunctionSpec, artifact: Artifact | null, specSeed = 'a3', testsSeed = '7c'): FunctionRecord {
   return { spec, specHash: h(specSeed), testsHash: h(testsSeed), artifact };

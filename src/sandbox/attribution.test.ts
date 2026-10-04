@@ -19,6 +19,8 @@ describe('attribution helpers', () => {
     expect(pureMessage('Math.random')).toBe("candidate read global 'Math.random'");
     expect(pureMessage('Date (reads the clock)')).toBe("candidate read global 'Date'");
     expect(pureMessage("wrote global 'x'")).toBe("candidate wrote global 'x'");
+    expect(pureMessage('modified Object.is')).toBe('candidate modified Object.is');
+    expect(pureMessage('added property foo to Array.prototype')).toBe('candidate added property foo to Array.prototype');
   });
 
   it('applies the rule: completed kept, interrupted and later skipped, Invariants reports', () => {
