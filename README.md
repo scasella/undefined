@@ -4,6 +4,8 @@
 
 **A live program that grows the functions you call but haven't written. The model proposes; your toolchain decides.**
 
+**[Try it in your browser](https://scasella.github.io/undefined/)** (replays recorded `gpt-6-luna` sessions; the gates run live in your browser, no install, no account). To run it live against your own Codex login, see [Run it](#run-it).
+
 ![The opening sequence: an undefined call, a rejected candidate, a retry, a commit](docs/opening.gif)
 
 [Watch the 30-second demo](docs/demo.mp4) (2880×1800 MP4: the opening sequence, then the data scratchpad: load a dataset, call a function over it with no spec, get a table, pin the result as a test).
