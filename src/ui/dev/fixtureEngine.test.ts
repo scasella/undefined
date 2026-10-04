@@ -5,13 +5,16 @@ import { SCENARIO_NAMES, SCENARIOS } from './fixtures';
 
 const REQUIRED = [
   'opening', 'generating', 'rejected-properties', 'committed', 'cached', 'compile-rejected', 'invariant-timeout',
-  'no-tests', 'budget-exhausted', 'service-error', 'fault-restart', 'replay-banner', 'repo-stale', 'many-revisions',
+  'no-tests', 'budget-exhausted', 'rejected-silent', 'service-error', 'fault-restart', 'replay-banner', 'repo-stale', 'many-revisions',
 ];
 
 function checkInvariants(s: EngineState): void {
   for (const a of s.generation?.attempts ?? []) {
     if (a.gates.length) expect(a.gates.map((g) => g.gate)).toEqual(GATE_ORDER);
     if (a.candidate) expect(a.candidate.gates.map((g) => g.gate)).toEqual(GATE_ORDER);
+    // "What the model saw" must be visible with ?fixture=: every candidate carries the real prompt
+    if (a.candidate) expect(a.candidate.prompt).toContain('HARD RULES');
+    if (a.candidate) expect(a.candidate.prompt!.includes('PREVIOUS ATTEMPT')).toBe(a.attempt > 1);
     if (a.status === 'rejected') expect(a.gates.some((g) => g.status === 'fail')).toBe(true);
   }
   const ids = s.repl.map((e) => e.id);

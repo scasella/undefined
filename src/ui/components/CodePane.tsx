@@ -3,6 +3,7 @@ import { codeAttempt, compileMarks, latestCommitted, signatureOf } from '../sele
 import { selection } from '../uiState';
 import { CodeView } from './CodeView';
 import { GeneratedBadge, PanelHead } from './common';
+import { ModelSaw } from './ModelSaw';
 
 const STATUS_TEXT: Record<AttemptStatus, string> = {
   generating: 'generating',
@@ -53,6 +54,14 @@ export function CodePane({ state }: { state: EngineState }) {
             <p class="model-notes">
               <span class="label">model's note</span> {attempt.candidate.notes}
             </p>
+          )}
+          {attempt.candidate?.prompt && (
+            <ModelSaw
+              key={`${gen.id}:${attempt.attempt}`}
+              prompt={attempt.candidate.prompt}
+              spec={state.program.functions[gen.fn]?.spec}
+              attempt={attempt.attempt}
+            />
           )}
         </div>
       </section>

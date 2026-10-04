@@ -7,6 +7,9 @@ import type { ExampleDef } from './index';
  *   - even length returns one middle value, not the mean  → tests
  *   - empty list throws instead of returning NaN          → properties (the reference-comparison property generates [])
  *   - `numbers.sort(...)` sorts the caller's array        → invariants (pure: frozen-argument replay)
+ * The doc says nothing about the empty list, so the reference property carries a "spec was silent" marker whose
+ * `when` holds only at an empty counterexample: an empty-list rejection says "the spec didn't say what the median of
+ * nothing is", while a real even-length or sorting bug caught by the same property gets no such excuse.
  */
 
 const DOC = `Returns the median of a list of numbers.`;
@@ -37,7 +40,11 @@ const reference = (xs: number[]): number => {
   return s.length % 2 === 1 ? s[m] : (s[m - 1] + s[m]) / 2;
 };
 
-matchesReference('agrees with a sort-based reference', [fc.array(fc.integer({ min: -1000, max: 1000 }))], reference);
+matchesReference('agrees with a sort-based reference', [fc.array(fc.integer({ min: -1000, max: 1000 }))], reference, {
+  silentOn: 'what the median of nothing is',
+  reasonable: 'Throwing on an empty list is a common, defensible choice; so is returning NaN.',
+  when: (xs: number[]) => xs.length === 0,
+});
 
 property('the order of the input does not matter', [ints], (xs: number[]) => {
   const reversed = median([...xs].reverse());
@@ -101,12 +108,12 @@ property('result is one of the input values', [ints], (xs: number[]) => xs.inclu
 export const median: ExampleDef = {
   id: 'median',
   title: 'median',
-  blurb: 'Even-length lists, empty input and numeric sorting: unit tests and a reference property check each one.',
+  blurb: 'The doc says only "the median of a list of numbers". Even-length averaging and numeric sorting follow from that; the empty list does not, so when the tests reject a throw on [] the verdict says the spec was silent and the tests chose NaN.',
   call: 'median([3, 1, 4, 2])',
   fn: 'median',
   breakIt: {
     label: 'Break it: low median',
-    description: 'The doc and tests now demand the lower middle value for even-length lists. The certified 2.5 for median([3, 1, 4, 2]) becomes wrong (expected 2), so the function must be regenerated.',
+    description: 'The doc now states the contract in full (the lower middle value for even-length lists, a RangeError for an empty list) and the tests check exactly that. The certified 2.5 for median([3, 1, 4, 2]) becomes wrong (expected 2), so the function must be regenerated.',
   },
   spec: {
     name: 'median',
@@ -153,7 +160,8 @@ const sorted = [...numbers].sort((a, b) => a - b);
 const mid = Math.floor(sorted.length / 2);
 return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;`,
       rejectedBy: 'properties',
-      why: 'Mishandles the empty list: throws an Error where the reference returns NaN (fast-check generates [] and shrinks to it).',
+      why: 'Throws on the empty list where the reference returns NaN (fast-check generates [] and shrinks to it). The doc is silent on []: a defensible choice that the tests, not the spec, rule out, and the diagnostic says so.',
+      silentOn: 'what the median of nothing is',
     },
     {
       body: String.raw`if (numbers.length === 0) return NaN;

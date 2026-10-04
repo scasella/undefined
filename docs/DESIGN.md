@@ -70,17 +70,27 @@ Enter → Runtime.evaluate(expr)           (runtime worker; name lookup is a Pro
 Globals in scope: the candidate under test *by its own name* (e.g. `median`), plus
 
 ```ts
-declare function test(name: string, body: () => void): void;
+interface Silence { silentOn?: string; reasonable?: string }                        // see "the spec was silent" below
+declare function test(name: string, body: () => void, meta?: Silence): void;
 declare function eq(actual: unknown, expected: unknown, message?: string): void;      // deep equality, Object.is for primitives, bigint-safe; throws AssertionFailure{actual,expected}
 declare function throws(fn: () => unknown, match?: RegExp | string): void;
-declare function property<A extends unknown[]>(name: string, arbs: { [K in keyof A]: Arbitrary<A[K]> }, predicate: (...args: A) => boolean | void, opts?: { numRuns?: number }): void;
-declare function matchesReference<A extends unknown[], R>(name: string, arbs: { [K in keyof A]: Arbitrary<A[K]> }, reference: (...args: A) => R, opts?: { numRuns?: number }): void;
+declare function property<A extends unknown[]>(name: string, arbs: { [K in keyof A]: Arbitrary<A[K]> }, predicate: (...args: A) => boolean | void, opts?: { numRuns?: number; when?: (...args: A) => boolean } & Silence): void;
+declare function matchesReference<A extends unknown[], R>(name: string, arbs: { [K in keyof A]: Arbitrary<A[K]> }, reference: (...args: A) => R, opts?: { numRuns?: number; when?: (...args: A) => boolean } & Silence): void;
 declare const fc: typeof import('fast-check');
 ```
 
 - `property` passes iff the predicate returns anything but `false` and does not throw. On failure, the harness re-runs the predicate on the *shrunk* counterexample with call instrumentation so it can report the exact call, actual and expected (from an `eq` AssertionFailure, or from the reference in `matchesReference`).
 - `matchesReference` calls `reference(...args)` and the candidate with deep-cloned args and compares with the same equality as `eq`.
 - The candidate handed to tests is an *instrumented wrapper* (records last call/args/result; sends enter/leave to the watchdog; samples arg lists for the Invariants replay).
+- **"The spec was silent" markers.** A rejection must say who held the contract. Some checks encode a convention the doc does not state (what the median of `[]` is, whether an apostrophe splits a slug word); the author marks such a check with `silentOn` (completes "The spec didn't say ___", e.g. `"what the median of nothing is"`) and `reasonable` (one sentence on why a different choice is defensible). The marker lives in the check, never as a blanket on a spec, and for properties it is narrowed by `when`, a predicate evaluated on the **shrunk counterexample** arguments (fresh clones) after the failure has been described; it applies only if `when` returns exactly `true` (a throw, or any other value, counts as false; when fast-check reports no counterexample, a conditional marker does not apply). Example:
+  ```ts
+  matchesReference('agrees with a sort-based reference', [fc.array(fc.integer())], reference, {
+    silentOn: 'what the median of nothing is',
+    reasonable: 'Throwing on an empty list is a common, defensible choice; so is returning NaN.',
+    when: (xs: number[]) => xs.length === 0,   // an even-length bug caught by the same property is NOT labelled silent
+  });
+  ```
+  When a marked check fails and the marker applies, the executor copies `silentOn`/`reasonable` onto that check's `Diagnostic` (`kind: 'test' | 'property'`). Nothing else changes: same verdict, same headline (`Rejected: median([]) threw Error: empty list, expected NaN`), same counterexample; passing checks carry no marker fields. The UI may add "The spec didn't say X. Your tests did." under the headline. Markers are part of the tests source, so they are covered by `testsHash` like everything else there. A malformed marker (non-string or empty `silentOn`/`reasonable`, a non-function `when`, or `when`/`numRuns` on a unit test) is a spec error.
 - Test names are found statically by `shared/specInfo.ts` `listTestNames(src)` (a small tokenizer-aware scanner over `test(`/`property(`/`matchesReference(` with a string literal first argument; skips comments and regex literals).
 
 ## What the model sees (decided)
@@ -198,7 +208,9 @@ export class ReplayGenerator implements Generator {
   /** find session by fn+specHash+testsHash; attempts[req.attempt]; plays progress lines with their recorded relative times (scaled/capped); no_recording / recording_exhausted errors carry a fix[] telling how to run live. */
 }
 export async function loadBundledRecordings(): Promise<Recording[]>;  // fetch('./recordings/index.json') then each file; [] on failure
-export class RecordingSink { add(req, prompt, result): void; toRecording(meta): Recording | null }
+export class RecordingSink { add(req, result, label, ctx?: { spec, call, datasets, datasetRefs }): void; toRecording(meta): Recording | null }
+// Recording v2: each session also carries the full `spec`, the REPL `calls`, and (Phase 3) `datasets`/`datasetRefs`, so a recording
+// can be loaded by someone who lacks the spec. v1 files (hashes only) still validate and still replay by hash.
 ```
 All URLs relative (`./generate`) so the static build works from a sub-path.
 

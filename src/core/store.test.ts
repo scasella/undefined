@@ -130,7 +130,7 @@ describe('validateImage', () => {
     ['revisions not an array', (r) => (r.revisions = {}), 'revisions must be an array'],
     ['empty revisions', (r) => (r.revisions = []), 'revisions must not be empty'],
     ['ids not increasing', (r) => (r.revisions[2].id = 2), 'revisions[2].id must be greater than the previous id 2 (got 2)'],
-    ['bad kind', (r) => (r.revisions[0].kind = 'merge'), 'revisions[0].kind must be one of init, commit, spec-edit, rollback, import, example, delete'],
+    ['bad kind', (r) => (r.revisions[0].kind = 'merge'), 'revisions[0].kind must be one of init, commit, spec-edit, rollback, import, example, delete, recertify, pin, dataset'],
     ['budgetMs', (r) => (r.revisions[2].program.functions.median.spec.budgetMs = '1500'), 'revisions[2].program.functions.median.spec.budgetMs must be a number'],
     ['returns', (r) => (r.revisions[1].program.functions.median.spec.returns = 3), 'revisions[1].program.functions.median.spec.returns must be a string'],
     ['param type', (r) => (r.revisions[1].program.functions.median.spec.params[0].type = null), 'revisions[1].program.functions.median.spec.params[0].type must be a string'],

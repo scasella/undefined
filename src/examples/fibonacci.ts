@@ -7,9 +7,13 @@ import type { ExampleDef } from './index';
  * model to fast doubling (~4 ms). Measured with gpt-6-luna: it never writes the naive double recursion on its own, so
  * the demo's bounded-runtime rejection is the loop at n = 1,000,000, not the recursion at n = 90.
  * The return type is bigint because fibonacci(90) = 2880067194370816120 exceeds Number.MAX_SAFE_INTEGER.
+ * The doc states everything the checks hold (exactness, the range up to 1,000,000, the recurrence); the time budget is
+ * stated in the prompt. Nothing here is a convention the doc is silent on, so no check carries a silentOn marker.
+ * Measured with the stated doc: the model still writes the O(n) loop first (8/8) and the bounded diagnostic still
+ * steers it to fast doubling (8/8).
  */
 
-const DOC = `Returns the nth Fibonacci number: F(0) = 0, F(1) = 1, and F(n) = F(n - 1) + F(n - 2).`;
+const DOC = `Returns the nth Fibonacci number, exactly, for any n from 0 to 1,000,000: F(0) = 0, F(1) = 1, and F(n) = F(n - 1) + F(n - 2).`;
 
 const TESTS = String.raw`test('first values', () => {
   const expected = [0n, 1n, 1n, 2n, 3n, 5n, 8n];
@@ -40,7 +44,7 @@ const PROPERTIES = String.raw`property('recurrence', [fc.integer({ min: 0, max: 
 property('monotonic', [fc.integer({ min: 0, max: 89 })], (n: number) => fibonacci(n) <= fibonacci(n + 1));
 `;
 
-const DOC_AFTER_BREAK = `Returns the nth Fibonacci number as an exact bigint, where fibonacci(0) = 0n, fibonacci(1) = 1n and fibonacci(n + 2) = fibonacci(n + 1) + fibonacci(n) for every integer n. n is an integer from -90 to 90. Negative n follows the same recurrence run backwards (the "negafibonacci" numbers): fibonacci(-n) = (-1)^(n+1) · fibonacci(n), so fibonacci(-1) = 1n and fibonacci(-2) = -1n. Callers use it interactively, so every call must return quickly.`;
+const DOC_AFTER_BREAK = `Returns the nth Fibonacci number, exactly, for any n from -1,000,000 to 1,000,000: F(0) = 0, F(1) = 1, and F(n) = F(n - 1) + F(n - 2). For negative n the same rule runs backwards (the negafibonacci numbers): F(-n) = (-1)^(n+1) · F(n), so F(-1) = 1, F(-2) = -1 and F(-1,000,000) = -F(1,000,000).`;
 
 const TESTS_AFTER_BREAK = String.raw`test('starts 0, 1, 1, 2, 3, 5, 8', () => {
   const expected = [0n, 1n, 1n, 2n, 3n, 5n, 8n];
@@ -54,7 +58,7 @@ test('extends to negative n with alternating signs', () => {
   eq(fibonacci(-10), -55n);
 });
 
-test('is exact at both ends of the range', () => {
+test('is exact past 2^53 in both directions', () => {
   eq(fibonacci(90), 2880067194370816120n);
   eq(fibonacci(-90), -2880067194370816120n);
 });
@@ -63,6 +67,10 @@ test('a very late value', () => {
   const f = fibonacci(1000000);
   eq(f % 1000000007n, 918091266n);
   eq(f.toString().length, 208988);
+});
+
+test('a very early value', () => {
+  eq(fibonacci(-1000000), -fibonacci(1000000));
 });
 `;
 
@@ -83,12 +91,12 @@ property('negative n mirrors positive n up to sign', [fc.integer({ min: 1, max: 
 export const fibonacci: ExampleDef = {
   id: 'fibonacci',
   title: 'fibonacci',
-  blurb: 'The obvious loop is correct but takes seconds at n = 1,000,000: the bounded invariant (a per-call time limit) stops it, and the diagnostic steers the model to fast doubling.',
+  blurb: 'Here the doc states everything the tests check, n up to 1,000,000 included. The obvious loop is correct but takes seconds at that n: the bounded invariant (a per-call time limit) stops it, and the diagnostic steers the model to fast doubling.',
   call: 'fibonacci(90)',
   fn: 'fibonacci',
   breakIt: {
     label: 'Break it: negative n',
-    description: 'The doc and tests now extend the range to n = -90 using the negafibonacci rule. The certified artifact returns 0n for every negative n, so it must be regenerated.',
+    description: 'The doc now states the range -1,000,000 to 1,000,000 and the negafibonacci rule, and the tests check both. An artifact written for n ≥ 0 gets negative n wrong (the example\'s fast-doubling body returns 1n for fibonacci(-2), expected -1n), so it must be regenerated.',
   },
   spec: {
     name: 'fibonacci',

@@ -20,7 +20,16 @@ async function gate(spec: FunctionSpec, body: string): Promise<GateResult[]> {
       vm.runInNewContext(c.js + '\nfibonacci(1000000);', {}, { timeout: Math.max(spec.budgetMs, 1500) });
     } catch (e) {
       if (String((e as Error).message).includes('timed out'))
-        return [c.gate, { gate: 'tests', status: 'skipped', ms: 0, summary: 'interrupted', diagnostics: [] }, { gate: 'properties', status: 'skipped', ms: 0, summary: 'interrupted', diagnostics: [] }, { gate: 'invariants', status: 'fail', ms: 0, summary: 'bounded', headline: 'Rejected: fibonacci(1000000) did not return within the budget (bounded)', diagnostics: [] }] as GateResult[];
+        return [
+          c.gate,
+          { gate: 'tests', status: 'skipped', ms: 0, summary: 'interrupted', note: 'interrupted: invariant violated', diagnostics: [] },
+          { gate: 'properties', status: 'skipped', ms: 0, summary: 'not reached', note: 'not reached', diagnostics: [] },
+          {
+            gate: 'invariants', status: 'fail', ms: 1500, summary: 'bounded violated',
+            headline: `Rejected: fibonacci(1000000) did not return within ${spec.budgetMs} ms (bounded)`,
+            diagnostics: [{ kind: 'invariant', invariant: 'bounded', message: `fibonacci(1000000) did not return within ${spec.budgetMs} ms`, call: 'fibonacci(1000000)', phase: 'tests', budgetMs: spec.budgetMs, elapsedMs: spec.budgetMs + 20 }],
+          },
+        ] as GateResult[];
     }
   }
   if (c.gate.status !== 'pass' || c.js === null) return gates.concat(['tests', 'properties', 'invariants'].map((g) => ({ gate: g, status: 'skipped', ms: 0, summary: 'not reached', diagnostics: [] }) as GateResult));
@@ -39,7 +48,8 @@ it('tune', async () => {
   const broken = process.env.TUNE_BROKEN === '1';
   const out: unknown[] = [];
   for (const ex of EXAMPLES.filter((e) => only.includes(e.id))) {
-    const spec = broken ? brokenSpec(ex) : ex.spec;
+    const base = broken ? brokenSpec(ex) : ex.spec;
+    const spec = process.env.TUNE_DOC ? { ...base, doc: process.env.TUNE_DOC } : base;
     const runs = await Promise.all(
       Array.from({ length: N }, async (_, i) => {
         const svc = createCodexService();

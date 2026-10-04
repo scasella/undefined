@@ -283,7 +283,7 @@ export function executeGates(input: ExecGateInput, hooks: ExecHooks): GateResult
     } catch (e) {
       if (violation) return null;
       const { headline, fields } = describe(e, c.name, 'test');
-      return { headline, diag: { kind: 'test', name: c.name, ...fields } };
+      return { headline, diag: { kind: 'test', name: c.name, ...fields, ...silence(c) } };
     }
   };
 
@@ -303,7 +303,9 @@ export function executeGates(input: ExecGateInput, hooks: ExecHooks): GateResult
     const errorText = details.errorInstance == null ? undefined : show(details.errorInstance);
     if (!cx) {
       const message = errorText ?? 'property failed';
-      return { failure: { headline: `Rejected: property "${c.name}" failed: ${message}`, diag: { ...base, counterexample: '(none)', error: message } }, runs: details.numRuns };
+      // No counterexample to evaluate `when` on: the marker applies only when it is unconditional.
+      const marker = c.when === undefined ? silence(c) : {};
+      return { failure: { headline: `Rejected: property "${c.name}" failed: ${message}`, diag: { ...base, counterexample: '(none)', error: message, ...marker } }, runs: details.numRuns };
     }
     const counterexample = show(cx);
 
@@ -334,6 +336,19 @@ export function executeGates(input: ExecGateInput, hooks: ExecHooks): GateResult
         diag: { ...base, counterexample, call: rec?.label, error: errorText },
       };
     }
+    // The "spec was silent" marker, only when `when` holds at the shrunk counterexample. Evaluated after the failure
+    // is described: `when` is user code and could call the candidate, which would overwrite `last`.
+    let applies = true;
+    if (c.when !== undefined) {
+      try {
+        applies = c.when(...cx.map(cloneOrSelf)) === true;
+      } catch {
+        applies = false;
+      }
+      collectViolations(); // a `when` that trips the mask is still a violation, never swallowed
+      if (violation) return { failure: null, runs: details.numRuns };
+    }
+    if (applies) failure.diag = { ...failure.diag, ...silence(c) } as Diagnostic;
     return { failure, runs: details.numRuns };
   };
 
@@ -492,6 +507,14 @@ export function executeGates(input: ExecGateInput, hooks: ExecHooks): GateResult
       counts: { passed, total },
     };
   }
+}
+
+/** The check's "spec was silent" marker, as Diagnostic fields (absent keys when unset). */
+function silence(c: { silentOn?: string; reasonable?: string }): { silentOn?: string; reasonable?: string } {
+  const out: { silentOn?: string; reasonable?: string } = {};
+  if (c.silentOn !== undefined) out.silentOn = c.silentOn;
+  if (c.reasonable !== undefined) out.reasonable = c.reasonable;
+  return out;
 }
 
 function withoutMessage<T extends { message: string }>(f: T): Omit<T, 'message'> {

@@ -5,6 +5,9 @@ import type { ExampleDef } from './index';
  * The realistic trap: `normalize('NFD')` + stripping combining marks handles é/ü/å, but letters such as ß, æ, ø and Ł
  * have no decomposition, so they silently turn into separators ("Straße" → "stra-e"). The unit tests catch it with
  * a concrete case. `\w`-based cleaning keeps "_" and is caught by the output-shape property.
+ * The doc says only "URL slug". How to spell letters outside a–z, what "&" becomes and whether an apostrophe splits a
+ * word are conventions the tests choose, so those three tests carry a "spec was silent" marker; separators, trimming,
+ * digits and the empty result follow from "URL slug" and are unmarked.
  */
 
 const DOC = `Turns a title into a URL slug.`;
@@ -23,14 +26,23 @@ test('special letters', () => {
   eq(slugify('Smørrebrød'), 'smorrebrod');
   eq(slugify('Łódź'), 'lodz');
   eq(slugify('Ærø'), 'aero');
+}, {
+  silentOn: 'how to spell letters outside a–z',
+  reasonable: 'Dropping or spelling them out are both used in the wild; the doc only said URL slug.',
 });
 
 test('ampersands', () => {
   eq(slugify('Tom & Jerry'), 'tom-and-jerry');
+}, {
+  silentOn: 'what an ampersand should become',
+  reasonable: 'Spelling it out as "and" and dropping it are both common slug conventions.',
 });
 
 test('apostrophes', () => {
   eq(slugify("Don't Stop"), 'dont-stop');
+}, {
+  silentOn: 'whether an apostrophe splits a word',
+  reasonable: 'Both don-t-stop and dont-stop are common slug conventions.',
 });
 
 test('repeated separators', () => {
@@ -143,12 +155,12 @@ return ascii.replace(/[^a-z0-9]+/g, '${sep}').replace(/^${sep}+|${sep}+$/g, '');
 export const slugify: ExampleDef = {
   id: 'slugify',
   title: 'slugify',
-  blurb: 'Unicode beyond accents: stripping marks handles é, but ß, ø and Ł need spelling out, and a unit test names the exact title that breaks.',
+  blurb: 'The doc says only "URL slug". Separators and trimming follow from that; spelling ß as ss, & as and, and dropping apostrophes do not, so when one of those tests rejects, the verdict says the spec was silent and the tests chose.',
   call: 'slugify("Hello, World! Crème Brûlée")',
   fn: 'slugify',
   breakIt: {
     label: 'Break it: underscores',
-    description: 'The doc and tests now ask for underscores as the separator (file-name slugs). The certified "hello-world-creme-brulee" becomes wrong, so the function must be regenerated.',
+    description: 'The doc now states the whole file-name convention (underscores, letters spelled out as ASCII, every other run of characters one underscore) and the tests check what it states. The certified "hello-world-creme-brulee" becomes wrong, so the function must be regenerated.',
   },
   spec: {
     name: 'slugify',
@@ -186,7 +198,8 @@ return out.trim().split(/ +/).filter((w) => w !== '').join('-');`,
   .replace(/[^a-z0-9]+/g, '-')
   .replace(/^-+|-+$/g, '');`,
       rejectedBy: 'tests',
-      why: 'NFD plus stripping combining marks handles é and ü, but ß has no decomposition, so it becomes a separator.',
+      why: 'NFD plus stripping combining marks handles é and ü, but ß has no decomposition, so it becomes a separator. The doc never said how to spell ß: the special-letters test holds that convention, and the diagnostic says so.',
+      silentOn: 'how to spell letters outside a–z',
     },
     {
       body: String.raw`return title
@@ -197,7 +210,23 @@ return out.trim().split(/ +/).filter((w) => w !== '').join('-');`,
   .replace(/[^a-z0-9]+/g, '-')
   .replace(/^-+|-+$/g, '');`,
       rejectedBy: 'tests',
-      why: 'Special-cases only the example in the doc (ß); ø, Ł and æ still have no decomposition and turn into separators.',
+      why: 'Special-cases only ß; ø, Ł and æ still have no decomposition and turn into separators. Again a convention the tests hold, not the doc.',
+      silentOn: 'how to spell letters outside a–z',
+    },
+    {
+      body: String.raw`const special: Record<string, string> = {
+  'ß': 'ss', 'æ': 'ae', 'œ': 'oe', 'ø': 'o', 'ł': 'l', 'đ': 'd', 'ð': 'd', 'þ': 'th', 'ı': 'i', 'ŋ': 'ng',
+};
+const ascii = title
+  .toLowerCase()
+  .normalize('NFKD')
+  .replace(/\p{M}+/gu, '')
+  .replace(/[ßæœøłđðþıŋ]/g, (ch) => special[ch] ?? ch)
+  .replace(/&/g, ' and ');
+return ascii.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');`,
+      rejectedBy: 'tests',
+      why: 'Treats an apostrophe like any other punctuation, so "Don\'t Stop" becomes "don-t-stop". A defensible slug; the doc never said, and the apostrophes test (not the spec) asks for "dont-stop".',
+      silentOn: 'whether an apostrophe splits a word',
     },
     {
       body: String.raw`const special: Record<string, string> = { 'ß': 'ss', 'æ': 'ae', 'ø': 'o', 'ł': 'l' };
@@ -210,7 +239,7 @@ return title
   .replace(/['’]/g, '')
   .replace(/[^a-z0-9]+/g, '-');`,
       rejectedBy: 'tests',
-      why: 'Never trims: leading and trailing punctuation leave hyphens at the ends of the slug.',
+      why: 'Never trims: leading and trailing punctuation leave hyphens at the ends of the slug. A real mistake for a URL slug, so no "spec was silent" marker.',
     },
     {
       body: String.raw`const special: Record<string, string> = { 'ß': 'ss', 'æ': 'ae', 'ø': 'o', 'ł': 'l' };

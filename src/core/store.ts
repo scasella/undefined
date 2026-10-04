@@ -9,12 +9,15 @@ import { hashesFor } from '../shared/hash';
 import type {
   Artifact,
   Candidate,
+  DatasetRef,
   Diagnostic,
+  Evidence,
   FunctionRecord,
   FunctionSpec,
   GateResult,
   Image,
   Json,
+  Pin,
   Program,
   Revision,
 } from '../types';
@@ -23,6 +26,8 @@ export interface Persisted {
   image: Image;
   flags: { takeawayShown: boolean; openerDismissed: boolean };
   liveEnv: Record<string, Json>;
+  /** Dataset rows, encoded, content-addressed (also inside `image.datasets`). */
+  datasets: Record<string, Json>;
 }
 
 // ───────────────────────── backends ─────────────────────────
@@ -225,6 +230,7 @@ async function safely<T>(what: string, fallback: T, op: () => Promise<T>): Promi
 const K_HEAD = 'head';
 const K_FLAGS = 'flags';
 const K_ENV = 'liveEnv';
+const K_DATASETS = 'datasets';
 
 /**
  * The stored image, flags and live env; null when nothing is stored or the stored data fails validation
@@ -238,7 +244,8 @@ export function loadPersisted(): Promise<Persisted | null> {
     const storedHead = kv[K_HEAD];
     const head =
       typeof storedHead === 'number' && revisions.some((r) => r.id === storedHead) ? storedHead : lastId;
-    const checked = validateImage(toImage(revisions, head));
+    const storedDatasets = isObject(kv[K_DATASETS]) && Object.values(kv[K_DATASETS]).every(isJson) ? (kv[K_DATASETS] as Record<string, Json>) : {};
+    const checked = validateImage(toImage(revisions, head, storedDatasets));
     if (!checked.ok) {
       // Clear it: otherwise reseeding r1 would overwrite id 1 only and leave the broken rows behind.
       console.warn(`[store] discarding stored image: ${checked.error}`);
@@ -251,6 +258,7 @@ export function loadPersisted(): Promise<Persisted | null> {
       image: checked.image,
       flags: { takeawayShown: f.takeawayShown === true, openerDismissed: f.openerDismissed === true },
       liveEnv: isObject(env) && Object.values(env).every(isJson) ? (env as Record<string, Json>) : {},
+      datasets: checked.image.datasets ?? {},
     };
   });
 }
@@ -263,6 +271,10 @@ export function saveFlags(flags: Persisted['flags']): Promise<void> {
   return safely('saveFlags', undefined, () => current().write({ kv: { [K_FLAGS]: flags } }));
 }
 
+export function saveDatasets(datasets: Record<string, Json>): Promise<void> {
+  return safely('saveDatasets', undefined, () => current().write({ kv: { [K_DATASETS]: datasets } }));
+}
+
 export function saveLiveEnv(env: Record<string, Json>): Promise<void> {
   return safely('saveLiveEnv', undefined, () => current().write({ kv: { [K_ENV]: env } }));
 }
@@ -273,8 +285,10 @@ export function clearAll(): Promise<void> {
 
 // ───────────────────────── image ─────────────────────────
 
-export function toImage(revisions: Revision[], head: number): Image {
-  return { format: 'undefined-image', version: 1, exportedAt: new Date().toISOString(), head, revisions };
+export function toImage(revisions: Revision[], head: number, datasets?: Record<string, Json>): Image {
+  const image: Image = { format: 'undefined-image', version: 1, exportedAt: new Date().toISOString(), head, revisions };
+  if (datasets && Object.keys(datasets).length > 0) image.datasets = datasets;
+  return image;
 }
 
 /**
@@ -358,7 +372,7 @@ function opt<T extends object>(base: T, extra: Obj): T {
 }
 
 const GATE_IDS = ['compile', 'tests', 'properties', 'invariants'] as const;
-const KINDS = ['init', 'commit', 'spec-edit', 'rollback', 'import', 'example', 'delete'] as const;
+const KINDS = ['init', 'commit', 'spec-edit', 'rollback', 'import', 'example', 'delete', 'recertify', 'pin', 'dataset'] as const;
 
 function vSpec(v: unknown, path: string): FunctionSpec {
   const o = obj(v, path);
@@ -380,8 +394,27 @@ function vSpec(v: unknown, path: string): FunctionSpec {
       maxAttempts: int(o, 'maxAttempts', path, 1),
       origin: oneOf(o, 'origin', path, ['call', 'user', 'example'] as const),
     } as FunctionSpec,
-    { exampleId: optStr(o, 'exampleId', path) },
+    { exampleId: optStr(o, 'exampleId', path), typeDecls: optStr(o, 'typeDecls', path), pins: o.pins === undefined ? undefined : vPins(o.pins, `${path}.pins`) },
   );
+}
+
+function vPins(v: unknown, path: string): Pin[] {
+  if (!Array.isArray(v)) bad(path, 'must be an array');
+  return (v as unknown[]).map((raw, i) => {
+    const p = `${path}[${i}]`;
+    const o = obj(raw, p);
+    const args = arr(o, 'args', p).map((a, j) => {
+      const ao = obj(a, `${p}.args[${j}]`);
+      if (ao.kind === 'dataset') return { kind: 'dataset' as const, name: str(ao, 'name', `${p}.args[${j}]`), hash: str(ao, 'hash', `${p}.args[${j}]`) };
+      if (ao.kind === 'value') {
+        if (!isJson(ao.encoded)) bad(`${p}.args[${j}].encoded`, 'must be JSON');
+        return { kind: 'value' as const, encoded: structuredClone(ao.encoded) as Json };
+      }
+      return bad(`${p}.args[${j}].kind`, 'must be "dataset" or "value"');
+    });
+    if (!isJson(o.expected)) bad(`${p}.expected`, 'must be JSON');
+    return { id: str(o, 'id', p), label: str(o, 'label', p), args, expected: structuredClone(o.expected) as Json, pinnedAt: num(o, 'pinnedAt', p) };
+  });
 }
 
 function vDiagnostic(v: unknown, path: string): Diagnostic {
@@ -443,6 +476,7 @@ function vCandidate(v: unknown, path: string): Candidate {
     {
       rejectedBy: o.rejectedBy === undefined ? undefined : oneOf(o, 'rejectedBy', path, GATE_IDS),
       headline: optStr(o, 'headline', path),
+      prompt: optStr(o, 'prompt', path),
     },
   );
 }
@@ -462,7 +496,40 @@ function vArtifact(v: unknown, path: string): Artifact | null {
     committedAt: num(o, 'committedAt', path),
     candidates: arr(o, 'candidates', path).map((c, i) => vCandidate(c, `${path}.candidates[${i}]`)),
     revision: int(o, 'revision', path, 1),
+    ...(o.evidence === undefined ? {} : { evidence: vJsonObject(o.evidence, `${path}.evidence`) as unknown as Evidence }),
+    ...(o.recertified === undefined ? {} : { recertified: vJsonArray(o.recertified, `${path}.recertified`) as unknown as NonNullable<Artifact['recertified']> }),
   };
+}
+
+function vJsonObject(v: unknown, path: string): Obj {
+  const o = obj(v, path);
+  if (!isJson(o)) bad(path, 'must be plain JSON');
+  return structuredClone(o) as Obj;
+}
+function vJsonArray(v: unknown, path: string): unknown[] {
+  if (!Array.isArray(v)) bad(path, 'must be an array');
+  if (!isJson(v)) bad(path, 'must be plain JSON');
+  return structuredClone(v) as unknown[];
+}
+
+function vDatasetRef(v: unknown, path: string): DatasetRef {
+  const o = obj(v, path);
+  return opt(
+    {
+      name: str(o, 'name', path),
+      hash: str(o, 'hash', path),
+      typeName: str(o, 'typeName', path),
+      typeDecl: str(o, 'typeDecl', path),
+      rowCount: int(o, 'rowCount', path, 0),
+      columns: arr(o, 'columns', path).map((c, i) => {
+        const co = obj(c, `${path}.columns[${i}]`);
+        return { name: str(co, 'name', `${path}.columns[${i}]`), type: str(co, 'type', `${path}.columns[${i}]`) };
+      }),
+      source: oneOf(o, 'source', path, ['paste', 'file', 'bundled'] as const),
+      bytes: int(o, 'bytes', path, 0),
+    } as DatasetRef,
+    { filename: optStr(o, 'filename', path) },
+  );
 }
 
 function vProgram(v: unknown, path: string): Program {
@@ -481,7 +548,18 @@ function vProgram(v: unknown, path: string): Program {
       artifact: vArtifact(r.artifact, `${p}.artifact`),
     };
   }
-  return { functions };
+  const program: Program = { functions };
+  if (o.datasets !== undefined) {
+    const ds = obj(o.datasets, `${path}.datasets`);
+    program.datasets = {};
+    for (const [name, raw] of Object.entries(ds)) {
+      const p = key(`${path}.datasets`, name);
+      const ref = vDatasetRef(raw, p);
+      if (ref.name !== name) bad(`${p}.name`, `must equal its key ${JSON.stringify(name)}`);
+      program.datasets[name] = ref;
+    }
+  }
+  return program;
 }
 
 function vRevision(v: unknown, path: string, earlier: Set<number>): Revision {
@@ -531,7 +609,22 @@ export function validateImage(raw: unknown): { ok: true; image: Image } | { ok: 
       return rev;
     });
     if (!seen.has(head)) bad('head', `must be the id of a revision (got ${head})`);
-    return { ok: true, image: { format: 'undefined-image', version: 1, exportedAt, head, revisions } };
+    const image: Image = { format: 'undefined-image', version: 1, exportedAt, head, revisions };
+    if (o.datasets !== undefined) {
+      const ds = obj(o.datasets, 'datasets');
+      image.datasets = {};
+      for (const [h, rows] of Object.entries(ds)) {
+        if (!/^[0-9a-f]{64}$/.test(h)) bad(key('datasets', h), 'dataset keys must be sha256 hashes');
+        if (!Array.isArray(rows) || !isJson(rows)) bad(key('datasets', h), 'must be a JSON array of rows');
+        image.datasets[h] = structuredClone(rows) as Json;
+      }
+    }
+    for (const rev of revisions) {
+      for (const ref of Object.values(rev.program.datasets ?? {})) {
+        if (!image.datasets || !(ref.hash in image.datasets)) bad(`revisions[${rev.id}].program.datasets.${ref.name}`, 'refers to a dataset that is not in the image');
+      }
+    }
+    return { ok: true, image };
   } catch (e) {
     if (e instanceof Invalid) return { ok: false, error: e.message.replace(/^image\./, '') };
     throw e;

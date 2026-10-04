@@ -3,11 +3,18 @@
  * Wire format: see the comment above `ServiceHealth` in src/types.ts.
  */
 import type {
+  ColumnInfo,
+  DatasetRef,
+  FunctionSpec,
   GenerateError,
   GenerateErrorCode,
   GenerateRequest,
   GenerateResult,
   Generator,
+  Hash,
+  Json,
+  Pin,
+  PinArg,
   ProgressLine,
   RecordedAttempt,
   RecordedSession,
@@ -453,6 +460,22 @@ export class ReplayGenerator implements Generator {
   }
 }
 
+/**
+ * The prompt that was really sent to the model for a replayed attempt: the one stored in the recording (the same
+ * fn+specHash+testsHash lookup as ReplayGenerator, first recording wins). The prompt the browser builds today can
+ * differ from it (the prompt builder changed after the session was recorded), so "what the model saw" uses this.
+ */
+export function recordedPrompt(recordings: readonly Recording[], req: Pick<GenerateRequest, 'fn' | 'specHash' | 'testsHash' | 'attempt'>): string | undefined {
+  for (const recording of recordings) {
+    for (const session of recording.sessions) {
+      if (session.fn === req.fn && session.specHash === req.specHash && session.testsHash === req.testsHash) {
+        return session.attempts[req.attempt]?.prompt;
+      }
+    }
+  }
+  return undefined;
+}
+
 // ───────────────────────── recording validation / loading ─────────────────────────
 
 export type RecordingValidation = { ok: true; recording: Recording } | { ok: false; error: string };
@@ -509,34 +532,195 @@ function describe(v: unknown): string {
 function readRecording(raw: unknown): Recording {
   const o = obj(raw, '');
   if (o.format !== 'undefined-recording') fail('format', `must be "undefined-recording" (got ${describe(o.format)})`);
-  if (o.version !== 1) fail('version', `must be 1 (got ${describe(o.version)})`);
+  if (o.version !== 1 && o.version !== 2) fail('version', `must be 1 or 2 (got ${describe(o.version)})`);
+  const version = o.version;
   const recordedAt = str(o, 'recordedAt', '');
   if (Number.isNaN(Date.parse(recordedAt))) fail('recordedAt', `must be an ISO date (got ${describe(recordedAt)})`);
   return {
     format: 'undefined-recording',
-    version: 1,
+    version,
     id: str(o, 'id', ''),
     title: str(o, 'title', ''),
     recordedAt,
     model: str(o, 'model', ''),
     codexVersion: str(o, 'codexVersion', ''),
     effort: str(o, 'effort', ''),
-    sessions: arr(o, 'sessions', '').map((s, i) => readSession(s, `sessions[${i}]`)),
+    sessions: arr(o, 'sessions', '').map((s, i) => readSession(s, `sessions[${i}]`, version)),
   };
 }
 
-function readSession(raw: unknown, path: string): RecordedSession {
+const V2_FIELDS = ['spec', 'calls', 'datasets', 'datasetRefs'] as const;
+
+function readSession(raw: unknown, path: string, version: 1 | 2): RecordedSession {
   const o = obj(raw, path);
   const p = `${path}.`;
   const attempts = arr(o, 'attempts', p).map((a, i) => readAttempt(a, `${path}.attempts[${i}]`));
   if (attempts.length === 0) fail(`${path}.attempts`, 'must contain at least one attempt');
-  return {
-    fn: str(o, 'fn', p),
+  const fn = str(o, 'fn', p);
+  const session: RecordedSession = {
+    fn,
     specHash: str(o, 'specHash', p),
     testsHash: str(o, 'testsHash', p),
     label: str(o, 'label', p),
     attempts,
   };
+  if (version === 1) {
+    const v2 = V2_FIELDS.find((k) => o[k] !== undefined);
+    if (v2) fail(`${p}${v2}`, 'is a version 2 field: the recording must declare "version": 2');
+    return session;
+  }
+  // v2: every new field is optional, and strictly checked when present.
+  if (o.spec !== undefined) {
+    const spec = readSpec(o.spec, `${p}spec`);
+    if (spec.name !== fn) fail(`${p}spec.name`, `must equal the session's fn ${JSON.stringify(fn)} (got ${describe(spec.name)})`);
+    session.spec = spec;
+  }
+  if (o.calls !== undefined) {
+    const calls = arr(o, 'calls', p).map((c, i) => {
+      if (typeof c !== 'string' || c.trim() === '') fail(`${p}calls[${i}]`, `must be a non-empty string (got ${describe(c)})`);
+      return c;
+    });
+    const dup = calls.find((c, i) => calls.indexOf(c) !== i);
+    if (dup !== undefined) fail(`${p}calls`, `must not repeat a call (${JSON.stringify(clip(dup, 40))} appears twice)`);
+    session.calls = calls;
+  }
+  if (o.datasets !== undefined) {
+    const ds = obj(o.datasets, `${p}datasets`);
+    const out: Record<Hash, Json> = {};
+    for (const [hash, rows] of Object.entries(ds)) {
+      if (!HASH.test(hash)) fail(`${p}datasets`, `keys must be lowercase hex SHA-256 hashes (got ${describe(hash)})`);
+      if (!isJsonValue(rows)) fail(`${p}datasets.${hash.slice(0, 8)}…`, 'must be plain JSON');
+      out[hash] = structuredClone(rows);
+    }
+    session.datasets = out;
+  }
+  if (o.datasetRefs !== undefined) {
+    const refs = arr(o, 'datasetRefs', p).map((r, i) => readDatasetRef(r, `${p}datasetRefs[${i}]`));
+    refs.forEach((r, i) => {
+      if (!session.datasets || !(r.hash in session.datasets)) {
+        fail(`${p}datasetRefs[${i}].hash`, `must name a dataset stored in ${p}datasets (got ${describe(r.hash)})`);
+      }
+    });
+    session.datasetRefs = refs;
+  }
+  return session;
+}
+
+const HASH = /^[0-9a-f]{64}$/;
+const IDENT = /^[A-Za-z_$][\w$]*$/;
+
+function isJsonValue(v: unknown, depth = 0): v is Json {
+  if (depth > 64) return false;
+  if (v === null || typeof v === 'string' || typeof v === 'boolean') return true;
+  if (typeof v === 'number') return Number.isFinite(v);
+  if (Array.isArray(v)) return v.every((x) => isJsonValue(x, depth + 1));
+  if (isRecord(v)) {
+    const proto = Object.getPrototypeOf(v);
+    return (proto === Object.prototype || proto === null) && Object.values(v).every((x) => isJsonValue(x, depth + 1));
+  }
+  return false;
+}
+
+function int(o: Record<string, unknown>, key: string, path: string, min: number): number {
+  const v = o[key];
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < min) fail(`${path}${key}`, `must be an integer >= ${min} (got ${describe(v)})`);
+  return v;
+}
+
+function optStr(o: Record<string, unknown>, key: string, path: string): string | undefined {
+  return o[key] === undefined ? undefined : str(o, key, path);
+}
+
+function oneOf<T extends string>(o: Record<string, unknown>, key: string, path: string, allowed: readonly T[]): T {
+  const v = o[key];
+  if (!allowed.includes(v as T)) fail(`${path}${key}`, `must be one of ${allowed.map((a) => `"${a}"`).join(', ')} (got ${describe(v)})`);
+  return v as T;
+}
+
+function ident(o: Record<string, unknown>, key: string, path: string): string {
+  const v = str(o, key, path);
+  if (!IDENT.test(v)) fail(`${path}${key}`, `must be a JavaScript identifier (got ${describe(v)})`);
+  return v;
+}
+
+/** A FunctionSpec, field by field (unknown extra fields are dropped; the optional ones are kept when valid). */
+function readSpec(raw: unknown, path: string): FunctionSpec {
+  const o = obj(raw, path);
+  const p = `${path}.`;
+  const params = arr(o, 'params', p).map((x, i) => {
+    const pp = obj(x, `${p}params[${i}]`);
+    return { name: ident(pp, 'name', `${p}params[${i}].`), type: str(pp, 'type', `${p}params[${i}].`) };
+  });
+  const returns = o.returns === null ? null : str(o, 'returns', p);
+  const budgetMs = num(o, 'budgetMs', p);
+  if (budgetMs < 1) fail(`${p}budgetMs`, `must be at least 1 (got ${describe(budgetMs)})`);
+  const spec: FunctionSpec = {
+    name: ident(o, 'name', p),
+    params,
+    returns,
+    doc: str(o, 'doc', p),
+    tests: str(o, 'tests', p),
+    properties: str(o, 'properties', p),
+    budgetMs,
+    maxAttempts: int(o, 'maxAttempts', p, 1),
+    origin: oneOf(o, 'origin', p, ['call', 'user', 'example'] as const),
+  };
+  const exampleId = optStr(o, 'exampleId', p);
+  if (exampleId !== undefined) spec.exampleId = exampleId;
+  const typeDecls = optStr(o, 'typeDecls', p);
+  if (typeDecls !== undefined) spec.typeDecls = typeDecls;
+  if (o.pins !== undefined) spec.pins = arr(o, 'pins', p).map((x, i) => readPin(x, `${p}pins[${i}]`));
+  return spec;
+}
+
+function readPin(raw: unknown, path: string): Pin {
+  const o = obj(raw, path);
+  const p = `${path}.`;
+  if (!isJsonValue(o.expected)) fail(`${p}expected`, 'must be plain JSON');
+  return {
+    id: str(o, 'id', p),
+    label: str(o, 'label', p),
+    args: arr(o, 'args', p).map((x, i) => readPinArg(x, `${p}args[${i}]`)),
+    expected: structuredClone(o.expected),
+    pinnedAt: num(o, 'pinnedAt', p),
+  };
+}
+
+function readPinArg(raw: unknown, path: string): PinArg {
+  const o = obj(raw, path);
+  const p = `${path}.`;
+  const kind = oneOf(o, 'kind', p, ['dataset', 'value'] as const);
+  if (kind === 'dataset') {
+    const hash = str(o, 'hash', p);
+    if (!HASH.test(hash)) fail(`${p}hash`, `must be a lowercase hex SHA-256 hash (got ${describe(hash)})`);
+    return { kind, name: ident(o, 'name', p), hash };
+  }
+  if (!('encoded' in o) || !isJsonValue(o.encoded)) fail(`${p}encoded`, 'must be plain JSON');
+  return { kind, encoded: structuredClone(o.encoded) };
+}
+
+function readDatasetRef(raw: unknown, path: string): DatasetRef {
+  const o = obj(raw, path);
+  const p = `${path}.`;
+  const hash = str(o, 'hash', p);
+  if (!HASH.test(hash)) fail(`${p}hash`, `must be a lowercase hex SHA-256 hash (got ${describe(hash)})`);
+  const columns: ColumnInfo[] = arr(o, 'columns', p).map((x, i) => {
+    const c = obj(x, `${p}columns[${i}]`);
+    return { name: str(c, 'name', `${p}columns[${i}].`), type: str(c, 'type', `${p}columns[${i}].`) };
+  });
+  const ref: DatasetRef = {
+    name: ident(o, 'name', p),
+    hash,
+    typeName: ident(o, 'typeName', p),
+    typeDecl: str(o, 'typeDecl', p),
+    rowCount: int(o, 'rowCount', p, 0),
+    columns,
+    source: oneOf(o, 'source', p, ['paste', 'file', 'bundled'] as const),
+    bytes: int(o, 'bytes', p, 0),
+  };
+  const filename = optStr(o, 'filename', p);
+  if (filename !== undefined) ref.filename = filename;
+  return ref;
 }
 
 function readAttempt(raw: unknown, path: string): RecordedAttempt {
@@ -611,6 +795,17 @@ export async function loadBundledRecordings(fetchImpl: FetchFn = globalThis.fetc
 
 // ───────────────────────── recording sink ─────────────────────────
 
+/** What the engine knows about a generation beyond the request (all optional; each becomes a v2 session field). */
+export interface RecordingContext {
+  /** The full spec the candidate was generated against. */
+  spec?: FunctionSpec;
+  /** The REPL input that triggered this generation. */
+  call?: string;
+  /** Dataset rows the calls run over, by hash (plumbing for datasets; not sent by the engine yet). */
+  datasets?: Record<Hash, Json>;
+  datasetRefs?: DatasetRef[];
+}
+
 /** Collects everything generated live this session so it can be exported as a Recording. */
 export class RecordingSink {
   private readonly sessions = new Map<string, RecordedSession>();
@@ -624,11 +819,13 @@ export class RecordingSink {
   }
 
   /**
-   * Record one live result. Attempt 0 starts a fresh session for its fn+specHash+testsHash (replacing an older one);
+   * Record one live result. Attempt 0 starts a fresh session for its fn+specHash+testsHash (replacing an older one,
+   * whose triggering calls are carried over so the session still lists every input that grew this spec);
    * later attempts append. Replay results, and attempts that would leave a gap in the session, are ignored because
-   * replay indexes attempts by position.
+   * replay indexes attempts by position. `ctx` adds the v2 fields: the spec, the triggering REPL input (deduped,
+   * in order) and, when given, datasets.
    */
-  add(req: GenerateRequest, result: GenerateResult, label: string): void {
+  add(req: GenerateRequest, result: GenerateResult, label: string, ctx: RecordingContext = {}): void {
     if (result.source !== 'live') return;
     const key = sessionKey(req.fn, req.specHash, req.testsHash);
     const attempt: RecordedAttempt = {
@@ -639,16 +836,34 @@ export class RecordingSink {
       progress: result.progress.map((p) => ({ t: Math.max(0, p.t), text: p.text, channel: p.channel })),
     };
     const existing = this.sessions.get(key);
+    let session: RecordedSession;
     if (req.attempt === 0) {
       this.sessions.delete(key); // re-insert so session order follows when it was (re)generated
-      this.sessions.set(key, { fn: req.fn, specHash: req.specHash, testsHash: req.testsHash, label, attempts: [attempt] });
+      session = { fn: req.fn, specHash: req.specHash, testsHash: req.testsHash, label, attempts: [attempt] };
+      if (existing?.calls) session.calls = [...existing.calls];
+      this.sessions.set(key, session);
     } else if (existing && req.attempt === existing.attempts.length) {
       existing.attempts.push(attempt);
+      session = existing;
     } else if (existing && req.attempt < existing.attempts.length) {
       existing.attempts[req.attempt] = attempt;
+      session = existing;
     } else {
       console.warn(`RecordingSink: ignoring attempt ${req.attempt} of ${req.fn}: earlier attempts were not recorded`);
       return;
+    }
+    if (ctx.spec) session.spec = structuredClone(ctx.spec);
+    const call = ctx.call?.trim();
+    if (call) {
+      const calls = session.calls ?? [];
+      if (!calls.includes(call)) calls.push(call);
+      session.calls = calls;
+    }
+    if (ctx.datasets) session.datasets = { ...session.datasets, ...structuredClone(ctx.datasets) };
+    if (ctx.datasetRefs) {
+      const refs = new Map((session.datasetRefs ?? []).map((r) => [r.name, r] as const));
+      for (const r of ctx.datasetRefs) refs.set(r.name, structuredClone(r));
+      session.datasetRefs = [...refs.values()];
     }
     this.first ??= { model: result.model, codexVersion: result.codexVersion };
   }
@@ -657,21 +872,21 @@ export class RecordingSink {
     return this.sessions.size;
   }
 
+  /** version 2 when any session carries a v2 field (spec, calls, datasets, datasetRefs); else version 1. */
   toRecording(meta: { id: string; title: string }): Recording | null {
     if (this.sessions.size === 0 || !this.first) return null;
+    const sessions = [...this.sessions.values()].map((s) => structuredClone(s));
+    const v2 = sessions.some((s) => s.spec !== undefined || s.calls !== undefined || s.datasets !== undefined || s.datasetRefs !== undefined);
     return {
       format: 'undefined-recording',
-      version: 1,
+      version: v2 ? 2 : 1,
       id: meta.id,
       title: meta.title,
       recordedAt: this.now().toISOString(),
       model: this.first.model,
       codexVersion: this.first.codexVersion,
       effort: this.effort,
-      sessions: [...this.sessions.values()].map((s) => ({
-        ...s,
-        attempts: s.attempts.map((a) => ({ ...a, progress: a.progress.map((p) => ({ ...p })) })),
-      })),
+      sessions,
     };
   }
 }

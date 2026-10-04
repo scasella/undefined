@@ -39,6 +39,50 @@ export interface FunctionSpec {
   maxAttempts: number;
   origin: 'call' | 'user' | 'example';
   exampleId?: string;
+  /**
+   * Tests pinned from real results ("Pin as test"). NOT part of specHash/testsHash: pinning invalidates nothing; pins
+   * run against the committed artifact when pinned and make the gate stricter at the next regeneration.
+   */
+  pins?: Pin[];
+  /** Type declarations the signature depends on, e.g. a dataset's `type Row = {…}`. Hashed with the spec. */
+  typeDecls?: string;
+}
+
+/** A call and its result captured from the REPL, turned into a unit test. */
+export interface Pin {
+  id: string;
+  /** e.g. `topCustomersByRevenue(rows)` */
+  label: string;
+  args: PinArg[];
+  /** Expected result, encoded with shared/serialize.ts. */
+  expected: Json;
+  pinnedAt: number;
+}
+export type PinArg = { kind: 'dataset'; name: string; hash: Hash } | { kind: 'value'; encoded: Json };
+
+// ───────────────────────── datasets ─────────────────────────
+
+export interface ColumnInfo {
+  name: string;
+  /** TypeScript type text for the column, e.g. `number`, `string | null`. */
+  type: string;
+}
+
+/** A dataset bound to a REPL variable. Rows live once, content-addressed, in Image.datasets[hash]. */
+export interface DatasetRef {
+  /** REPL variable name, `rows` by default. */
+  name: string;
+  hash: Hash;
+  /** e.g. `Row` */
+  typeName: string;
+  /** e.g. `type Row = { id: number; customer: string; total: number }` */
+  typeDecl: string;
+  rowCount: number;
+  columns: ColumnInfo[];
+  source: 'paste' | 'file' | 'bundled';
+  filename?: string;
+  /** Size of the encoded rows. */
+  bytes: number;
 }
 
 /** A spec plus the cached hashes of its current text, plus the certified artifact (if any). */
@@ -54,6 +98,8 @@ export interface FunctionRecord {
 
 export interface Program {
   functions: Record<string, FunctionRecord>;
+  /** Datasets bound to REPL variables, by variable name. Absent = none. */
+  datasets?: Record<string, DatasetRef>;
 }
 
 /** A candidate that passed every gate and was committed. Read-only in the UI; marked generated. */
@@ -76,9 +122,48 @@ export interface Artifact {
   candidates: Candidate[];
   /** Revision id this artifact was committed in. */
   revision: number;
+  /** Facts about what actually ran against this artifact (never a score). */
+  evidence?: Evidence;
+  /** Times the committed artifact was re-run against a strengthened spec and stayed certified. */
+  recertified?: Array<{ at: number; revision: number; reason: string }>;
 }
 
-export type RevisionKind = 'init' | 'commit' | 'spec-edit' | 'rollback' | 'import' | 'example' | 'delete';
+export interface Evidence {
+  compiled: boolean;
+  unitTests: number;
+  pinnedTests: number;
+  properties: Array<{ name: string; runs: number }>;
+  /** Calls replayed on frozen arguments by the Invariants gate. */
+  sampledCalls: number;
+  mutation?: MutationReport;
+}
+
+/** Four buckets, never folded together. Survivors may be equivalent mutants. */
+export interface MutationReport {
+  total: number;
+  /** Failed a unit test or property. */
+  killed: number;
+  /** Did not return within the bound (an infinite loop is a kill, reported separately). */
+  killedByBound: number;
+  survived: number;
+  /** Mutants that did not compile/parse: not counted as killed. */
+  stillborn: number;
+  survivors: MutantInfo[];
+  ms: number;
+  at: number;
+  /** Set when mutation testing did not run, e.g. "no tests yet: nothing could kill a mutant". */
+  skipped?: string;
+}
+export interface MutantInfo {
+  id: string;
+  kind: string;
+  /** 1-based line in the artifact source body. */
+  line: number;
+  original: string;
+  mutated: string;
+}
+
+export type RevisionKind = 'init' | 'commit' | 'spec-edit' | 'rollback' | 'import' | 'example' | 'delete' | 'recertify' | 'pin' | 'dataset';
 
 /** One numbered, immutable snapshot of the whole program AND its live state. */
 export interface Revision {
@@ -104,6 +189,8 @@ export interface Image {
   exportedAt: string;
   head: number;
   revisions: Revision[];
+  /** Dataset rows, encoded, content-addressed by hash (Program.datasets refers to them). */
+  datasets?: Record<Hash, Json>;
 }
 
 // ───────────────────────── gates ─────────────────────────
@@ -134,6 +221,10 @@ export type Diagnostic =
       kind: 'test';
       name: string;
       message: string;
+      /** Set when the failing check declared that the spec was silent on this: what the spec didn't say. */
+      silentOn?: string;
+      /** The check author's note on why the candidate's choice was defensible. */
+      reasonable?: string;
       /** e.g. `slugify("Crème Brûlée")` — the call that was last made on the candidate. */
       call?: string;
       expected?: string;
@@ -144,6 +235,8 @@ export type Diagnostic =
   | {
       kind: 'property';
       name: string;
+      silentOn?: string;
+      reasonable?: string;
       /** Call made on the SHRUNK counterexample, e.g. `median([1, 2])`. */
       call?: string;
       /** Shrunk counterexample arguments, shown. e.g. `[[1, 2]]`. */
@@ -203,6 +296,8 @@ export interface Candidate {
   rejectedBy?: GateId;
   /** The rejecting gate's headline, copied up for the retry strip. */
   headline?: string;
+  /** The exact prompt sent to the model for this candidate ("what the model saw"). */
+  prompt?: string;
 }
 
 // ───────────────────────── generation ─────────────────────────
@@ -292,6 +387,14 @@ export interface RecordedSession {
   fn: string;
   specHash: Hash;
   testsHash: Hash;
+  /** v2: the full spec this session was generated against, so a recording can be loaded by someone who lacks it. */
+  spec?: FunctionSpec;
+  /** v2: dataset rows the session's calls ran over, encoded, by hash. */
+  datasets?: Record<Hash, Json>;
+  /** v2: dataset bindings (variable name → ref) needed to re-run the calls. */
+  datasetRefs?: DatasetRef[];
+  /** v2: the REPL inputs that triggered/followed this session, in order. */
+  calls?: string[];
   /** Human label, e.g. "median — original spec", "median — after 'break it'". */
   label: string;
   /** Candidates in the order they were generated (index = GenerateRequest.attempt). */
@@ -299,7 +402,7 @@ export interface RecordedSession {
 }
 export interface Recording {
   format: 'undefined-recording';
-  version: 1;
+  version: 1 | 2;
   id: string;
   title: string;
   recordedAt: string;
@@ -320,6 +423,12 @@ export type EvalOutcome =
       ms: number;
       /** Committed functions that were called, in order (for the "cached artifact" label). */
       calls: string[];
+      /** The real value, encoded; omitted when over the size cap. `shown` is display text and not parseable. */
+      encoded?: Json;
+      /** Set when the value is an array of plain objects: rendered as a table. */
+      table?: TablePreview;
+      /** Top-level calls to committed functions, with the real arguments and result (for "Pin as test"). */
+      callRecords?: CallRecord[];
     }
   | {
       /** A name in call position that is not defined. The caller grows it, hot-swaps it, and re-evaluates. */
@@ -344,6 +453,23 @@ export type EvalOutcome =
   | { kind: 'error'; errorName: string; message: string }
   /** `lost`: REPL variables that could not be restored after the worker was rebuilt (unserializable values). */
   | { kind: 'timeout'; ms: number; fn?: string; call?: string; lost?: string[] };
+
+export interface TablePreview {
+  columns: string[];
+  /** Cells rendered with show(); at most 100 rows. */
+  rows: string[][];
+  total: number;
+}
+
+/** One call of a committed function made while evaluating a REPL line. */
+export interface CallRecord {
+  fn: string;
+  call: string;
+  /** Datasets appear as PinArg-style references, never as inlined rows. */
+  args: PinArg[];
+  /** Encoded result; null when it was over the size cap (then the call cannot be pinned). */
+  result: Json | null;
+}
 
 // ───────────────────────── engine (UI-facing) ─────────────────────────
 
@@ -374,6 +500,12 @@ export type ReplEntry =
       label: 'cached artifact' | 'generated' | null;
       /** e.g. "revision 2". */
       detail?: string;
+      /** Array-of-objects results render as a table. */
+      table?: TablePreview;
+      /** Present when the call can be pinned as a unit test. */
+      pinnable?: { fn: string; call: string; args: PinArg[]; expected: Json };
+      /** Set once the pin was made. */
+      pinned?: boolean;
     }
   | { kind: 'error'; id: string; name: string; message: string; restarts?: RestartOption[]; resolved?: boolean }
   | { kind: 'info'; id: string; text: string; tone?: 'muted' | 'accent' | 'warn' }

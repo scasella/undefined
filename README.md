@@ -12,7 +12,7 @@ string checks) reject the first attempt with a concrete counterexample before th
 revision of your running program. Everything runs in your browser except the model call, which goes through your local
 [Codex CLI](https://github.com/openai/codex).
 
-> **You didn't write this. The model wrote it. Your compiler and tests decided whether to keep it.**
+> **You didn't write this. The model wrote it. Your tests hold the contract, and your toolchain enforced it.**
 
 ## Run it
 
@@ -74,9 +74,13 @@ candidate strip, so you can see the toolchain turning work away. If the budget r
 program is unchanged.
 
 **What the model sees:** the signature, the doc, the *names* of your tests and properties (never their bodies or the
-reference implementation), the *types* of the triggering call's arguments (never the values), and on retries the previous
-attempt plus structured diagnostics. It does not see the time budget. The gates know more than the model; that is the
-point.
+reference implementation), the time budget per call, the *types* of the triggering call's arguments (never the values),
+and on retries the previous attempt plus structured diagnostics. Every candidate keeps the exact prompt it was generated
+from: open *What the model saw* under the candidate (or in the Repo tab's candidate history) to read it, headed by a plain
+summary of what was and was not sent. For replayed sessions that is the prompt stored in the recording (older recordings predate
+the budget line, and the summary says only what their prompt contains). The gates know more than the model; that is the
+point. When a failing check declares that the doc never covered the case, the rejection card says so: the spec was
+silent, your tests decided, and the candidate's choice was defensible.
 
 **Gate semantics worth knowing.** An invariant violation seen in *any* phase is reported by the Invariants gate. The
 runaway candidate in `fibonacci` is killed while the Tests gate is running, so Tests and Properties show as "interrupted"

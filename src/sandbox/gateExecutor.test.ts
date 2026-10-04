@@ -418,3 +418,96 @@ describe('executeGates — review fixes', () => {
     expect(d.expected).toContain('(at [260]: "…xxxxxxxxxxxxB")');
   });
 });
+
+describe('executeGates — "the spec was silent" markers', () => {
+  const MEDIAN_EMPTY_THROWS = `function median(numbers) {
+  if (numbers.length === 0) throw new Error('empty list');
+  const s = [...numbers].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}`;
+  const MEDIAN_LOWER_NAN = `function median(numbers) {
+  if (numbers.length === 0) return NaN;
+  const s = [...numbers].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : s[m - 1];
+}`;
+  const REF = `const reference = (xs) => {
+  if (xs.length === 0) return NaN;
+  const s = [...xs].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+};
+`;
+  const SILENT = `silentOn: 'what the median of nothing is', reasonable: 'Throwing is defensible; so is NaN.'`;
+  const refProp = (opts: string): string =>
+    `${REF}matchesReference('ref', [fc.array(fc.integer({ min: -1000, max: 1000 }))], reference${opts ? `, { ${opts} }` : ''});`;
+  const props = (js: string, propertiesJs: string): GateResult[] =>
+    run({ name: 'median', js, testsJs: '', propertiesJs, budgetMs: 1500, seed: 1938244123 }).results;
+
+  it('copies silentOn/reasonable from a failing unit test onto its diagnostic, without touching the headline', () => {
+    const tests = (meta: string): string => `test('even', () => eq(median([1, 2]), 1.5)${meta});\ntest('odd', () => eq(median([3, 1, 2]), 2));`;
+    const marked = run(input({ js: MEDIAN_LOWER, testsJs: tests(`, { ${SILENT} }`) })).results[0];
+    const plain = run(input({ js: MEDIAN_LOWER, testsJs: tests('') })).results[0];
+    expect(marked.status).toBe('fail');
+    expect(marked.diagnostics[0]).toMatchObject({ kind: 'test', name: 'even', silentOn: 'what the median of nothing is', reasonable: 'Throwing is defensible; so is NaN.' });
+    expect(marked.headline).toBe(plain.headline);
+    expect(marked.headline).toBe('Rejected: median([1, 2]) returned 1, expected 1.5');
+    expect(plain.diagnostics[0]).not.toHaveProperty('silentOn');
+    expect(plain.diagnostics[0]).not.toHaveProperty('reasonable');
+  });
+
+  it('marks a property failure when `when` holds at the shrunk counterexample; verdict and counterexample are unchanged', () => {
+    const marked = props(MEDIAN_EMPTY_THROWS, refProp(`${SILENT}, when: (xs) => xs.length === 0`))[1];
+    const plain = props(MEDIAN_EMPTY_THROWS, refProp(''))[1];
+    expect(marked.headline).toBe('Rejected: median([]) threw Error: empty list, expected NaN');
+    expect(marked.diagnostics[0]).toMatchObject({ kind: 'property', counterexample: '[[]]', silentOn: 'what the median of nothing is', reasonable: 'Throwing is defensible; so is NaN.' });
+    // Same seed, same run: everything but the two marker fields is identical to the unmarked property.
+    const { ms: _a, ...m } = marked;
+    const { ms: _b, ...p } = plain;
+    const { silentOn: _s, reasonable: _r, ...markedDiag } = m.diagnostics[0] as { silentOn?: string; reasonable?: string };
+    expect({ ...m, diagnostics: [markedDiag] }).toEqual(p);
+  });
+
+  it('does not mark a property failure when `when` is false at the counterexample (a real mistake keeps no excuse)', () => {
+    const r = props(MEDIAN_LOWER_NAN, refProp(`${SILENT}, when: (xs) => xs.length === 0`))[1];
+    expect(r.status).toBe('fail');
+    expect(r.diagnostics[0]).toMatchObject({ kind: 'property', call: 'median([0, 1])' });
+    expect(r.diagnostics[0]).not.toHaveProperty('silentOn');
+    expect(r.diagnostics[0]).not.toHaveProperty('reasonable');
+  });
+
+  it('treats a throwing `when` as false, and a non-true return as false', () => {
+    const threw = props(MEDIAN_EMPTY_THROWS, refProp(`${SILENT}, when: (xs) => { throw new Error('oops'); }`))[1];
+    expect(threw.headline).toBe('Rejected: median([]) threw Error: empty list, expected NaN');
+    expect(threw.diagnostics[0]).not.toHaveProperty('silentOn');
+    const truthy = props(MEDIAN_EMPTY_THROWS, refProp(`${SILENT}, when: (xs) => 1`))[1];
+    expect(truthy.diagnostics[0]).not.toHaveProperty('silentOn');
+  });
+
+  it('a `when` that calls the candidate does not change the reported call', () => {
+    const r = props(MEDIAN_EMPTY_THROWS, refProp(`${SILENT}, when: (xs) => { median([5]); return xs.length === 0; }`))[1];
+    expect(r.diagnostics[0]).toMatchObject({ call: 'median([])', silentOn: 'what the median of nothing is' });
+  });
+
+  it('marks an unconditional boolean property that returns false', () => {
+    const r = props(MEDIAN_ZERO, `property('positive', [fc.integer({ min: 1, max: 9 })], (n) => median([n]) === n, { silentOn: 'x' });`)[1];
+    expect(r.headline).toBe('Rejected: property "positive" failed for median([1])');
+    expect(r.diagnostics[0]).toMatchObject({ silentOn: 'x' });
+    expect(r.diagnostics[0]).not.toHaveProperty('reasonable');
+  });
+
+  it('adds no marker fields on pass', () => {
+    const results = run(input({ js: MEDIAN, testsJs: `test('odd', () => eq(median([3, 1, 2]), 2), { ${SILENT} });`, propertiesJs: '' })).results;
+    expect(statuses(results)).toEqual(['tests:pass', 'properties:skipped', 'invariants:pass']);
+    expect(JSON.stringify(results)).not.toContain('silentOn');
+  });
+
+  it('reports a malformed marker as a spec error, not a candidate failure', () => {
+    const bad = run(input({ js: MEDIAN, testsJs: `test('t', () => {}, { when: () => true });` })).results[0];
+    expect(bad).toMatchObject({ status: 'fail', note: 'spec error' });
+    expect(bad.headline).toMatch(/^Spec error: test\("t"\): when only applies to properties/);
+    const notString = props(MEDIAN, `property('p', [fc.nat()], () => true, { silentOn: 3 });`)[1];
+    expect(notString.headline).toMatch(/silentOn must be a non-empty string/);
+  });
+});

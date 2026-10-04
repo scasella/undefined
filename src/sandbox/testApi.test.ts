@@ -123,6 +123,30 @@ describe('registerCases', () => {
     expect(() => registerCases(`test(42, () => {})`, 'f', double)).toThrow(/name string/);
     expect(() => registerCases(`test('x', () => {`, 'f', double)).toThrow(SyntaxError);
     expect(() => registerCases(`property('p', [fc.nat()], () => true, { numRuns: 0 })`, 'f', double)).toThrow(/numRuns/);
+    expect(() => registerCases(`test('t', () => {}, { numRuns: 3 })`, 'f', double)).toThrow(/numRuns only applies to properties/);
+    expect(() => registerCases(`test('t', () => {}, { when: () => true })`, 'f', double)).toThrow(/when only applies to properties/);
+    expect(() => registerCases(`test('t', () => {}, { silentOn: '' })`, 'f', double)).toThrow(/silentOn must be a non-empty string/);
+    expect(() => registerCases(`property('p', [fc.nat()], () => true, { reasonable: 1 })`, 'f', double)).toThrow(/reasonable must be/);
+    expect(() => registerCases(`matchesReference('p', [fc.nat()], (n) => n, { when: 'empty' })`, 'f', double)).toThrow(/when must be a function/);
+    expect(() => registerCases(`test('t', () => {}, 'silent')`, 'f', double)).toThrow(/options must be an object/);
+  });
+
+  it('records silentOn / reasonable / when on the case, and nothing when absent', () => {
+    const cases = registerCases(
+      `test('a', () => {}, { silentOn: 'what X is', reasonable: 'Both are common.' });
+       test('b', () => {});
+       property('p', [fc.nat()], () => true, { numRuns: 5, silentOn: 'Y', when: (n) => n === 0 });
+       matchesReference('r', [fc.nat()], (n) => n, { silentOn: 'Z' });`,
+      'f',
+      double,
+    );
+    expect(cases[0]).toMatchObject({ kind: 'test', silentOn: 'what X is', reasonable: 'Both are common.' });
+    expect(Object.keys(cases[1]).sort()).toEqual(['body', 'kind', 'name']);
+    const p = cases[2] as PropertyCase;
+    expect(p).toMatchObject({ numRuns: 5, silentOn: 'Y' });
+    expect(p.when?.(0)).toBe(true);
+    expect(cases[3]).toMatchObject({ kind: 'property', name: 'r', silentOn: 'Z' });
+    expect(cases[3]).not.toHaveProperty('numRuns');
   });
 
   it('matchesReference compares candidate and reference on separate clones', () => {

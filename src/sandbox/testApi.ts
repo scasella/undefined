@@ -179,28 +179,52 @@ export function cloneOrSelf<T>(v: T): T {
   }
 }
 
-export interface TestCase {
+/**
+ * Optional marker on a check: "the spec was silent on this; the check holds a convention". Copied onto the failing
+ * Diagnostic so a rejection can say who held the contract ("The spec didn't say X. Your tests did."). Never changes
+ * a headline or a verdict.
+ */
+export interface SilenceMeta {
+  /** Completes "The spec didn't say ___", e.g. "what the median of nothing is". */
+  silentOn?: string;
+  /** One sentence on why a candidate's different choice there is defensible. */
+  reasonable?: string;
+}
+
+export type TestMeta = SilenceMeta;
+
+export interface PropertyOpts extends SilenceMeta {
+  numRuns?: number;
+  /**
+   * Evaluated on the SHRUNK counterexample arguments: the marker applies only when this returns true (a throw counts
+   * as false). Lets one property mark only the case the doc is silent on (e.g. the empty list), never a real mistake.
+   */
+  when?: (...args: unknown[]) => unknown;
+}
+
+export interface TestCase extends SilenceMeta {
   kind: 'test';
   name: string;
   body: () => void;
 }
 
-export interface PropertyCase {
+export interface PropertyCase extends SilenceMeta {
   kind: 'property';
   name: string;
   arbs: fc.Arbitrary<unknown>[];
   predicate: (...args: unknown[]) => unknown;
   numRuns?: number;
+  when?: (...args: unknown[]) => unknown;
 }
 
 export type Case = TestCase | PropertyCase;
 
 export interface TestApi {
-  test(name: string, body: () => void): void;
+  test(name: string, body: () => void, meta?: TestMeta): void;
   eq: typeof eq;
   throws: typeof throws;
-  property(name: string, arbs: unknown, predicate: (...args: unknown[]) => unknown, opts?: { numRuns?: number }): void;
-  matchesReference(name: string, arbs: unknown, reference: (...args: unknown[]) => unknown, opts?: { numRuns?: number }): void;
+  property(name: string, arbs: unknown, predicate: (...args: unknown[]) => unknown, opts?: PropertyOpts): void;
+  matchesReference(name: string, arbs: unknown, reference: (...args: unknown[]) => unknown, opts?: PropertyOpts): void;
   fc: typeof fc;
 }
 
@@ -216,12 +240,30 @@ function checkArbs(fn: string, name: string, arbs: unknown): asserts arbs is fc.
   if (!ok) throw new TypeError(`${fn}("${name}"): arbitraries must be a non-empty array like [fc.integer()]`);
 }
 
-function checkRuns(fn: string, name: string, opts: unknown): number | undefined {
-  if (opts === undefined) return undefined;
-  const n = (opts as { numRuns?: unknown } | null)?.numRuns;
-  if (n === undefined) return undefined;
-  if (typeof n !== 'number' || !Number.isInteger(n) || n < 1) throw new TypeError(`${fn}("${name}"): numRuns must be a positive integer`);
-  return n;
+/** Validates `meta`/`opts`; a malformed marker is the spec author's error (surfaces as a spec error). */
+function checkOpts(fn: string, name: string, opts: unknown, allowRuns: boolean): SilenceMeta & { numRuns?: number; when?: (...args: unknown[]) => unknown } {
+  if (opts === undefined) return {};
+  if (typeof opts !== 'object' || opts === null) throw new TypeError(`${fn}("${name}"): options must be an object`);
+  const o = opts as Record<string, unknown>;
+  const out: SilenceMeta & { numRuns?: number; when?: (...args: unknown[]) => unknown } = {};
+  if (o.numRuns !== undefined) {
+    const n = o.numRuns;
+    if (!allowRuns) throw new TypeError(`${fn}("${name}"): numRuns only applies to properties`);
+    if (typeof n !== 'number' || !Number.isInteger(n) || n < 1) throw new TypeError(`${fn}("${name}"): numRuns must be a positive integer`);
+    out.numRuns = n;
+  }
+  for (const k of ['silentOn', 'reasonable'] as const) {
+    const v = o[k];
+    if (v === undefined) continue;
+    if (typeof v !== 'string' || v.trim() === '') throw new TypeError(`${fn}("${name}"): ${k} must be a non-empty string`);
+    out[k] = v;
+  }
+  if (o.when !== undefined) {
+    if (!allowRuns) throw new TypeError(`${fn}("${name}"): when only applies to properties (a unit test has no counterexample)`);
+    if (typeof o.when !== 'function') throw new TypeError(`${fn}("${name}"): when must be a function of the property's arguments`);
+    out.when = o.when as (...args: unknown[]) => unknown;
+  }
+  return out;
 }
 
 /**
@@ -230,10 +272,10 @@ function checkRuns(fn: string, name: string, opts: unknown): number | undefined 
  */
 export function createTestApi(candidate: (...args: unknown[]) => unknown, cases: Case[]): TestApi {
   return {
-    test(name, body) {
+    test(name, body, meta) {
       checkName('test', name);
       if (typeof body !== 'function') throw new TypeError(`test("${name}") needs a function body`);
-      cases.push({ kind: 'test', name, body });
+      cases.push({ kind: 'test', name, body, ...checkOpts('test', name, meta, false) });
     },
     eq,
     throws,
@@ -241,7 +283,7 @@ export function createTestApi(candidate: (...args: unknown[]) => unknown, cases:
       checkName('property', name);
       checkArbs('property', name, arbs);
       if (typeof predicate !== 'function') throw new TypeError(`property("${name}") needs a predicate function`);
-      cases.push({ kind: 'property', name, arbs, predicate, numRuns: checkRuns('property', name, opts) });
+      cases.push({ kind: 'property', name, arbs, predicate, ...checkOpts('property', name, opts, true) });
     },
     matchesReference(name, arbs, reference, opts) {
       checkName('matchesReference', name);
@@ -284,7 +326,7 @@ export function createTestApi(candidate: (...args: unknown[]) => unknown, cases:
         }
         if (!deepEqual(actual, expected)) throw new AssertionFailure(actual, expected);
       };
-      cases.push({ kind: 'property', name, arbs, predicate, numRuns: checkRuns('matchesReference', name, opts) });
+      cases.push({ kind: 'property', name, arbs, predicate, ...checkOpts('matchesReference', name, opts, true) });
     },
     fc,
   };

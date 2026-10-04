@@ -54,6 +54,7 @@ import {
   loadBundledRecordings,
   probeService,
   realSleep,
+  recordedPrompt,
   RecordingSink,
   ReplayGenerator,
 } from './generator';
@@ -131,7 +132,7 @@ const TYPE_TICK_MS = 30;
 /** Uncharged retries per grow for TS7023/7024 (recursion without a declared return type). */
 const MAX_FREE_RECURSION_RETRIES = 1;
 
-export const TAKEAWAY_TEXT = "You didn't write this. The model wrote it. Your compiler and tests decided whether to keep it.";
+export const TAKEAWAY_TEXT = "You didn't write this. The model wrote it. Your tests hold the contract, and your toolchain enforced it.";
 export const RECURSION_HINT =
   'No return type is declared, so a directly recursive body cannot be typed (TS7023). Avoid direct recursion (use a loop), or give any recursive helper inside the body an explicit return type annotation.';
 
@@ -880,9 +881,12 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       model = result.model;
       codexVersion = result.codexVersion;
       if (state.value.mode === 'live' && result.source === 'live') {
-        sink.add(genReq, result, `${fn} — ${spec.doc.trim().slice(0, 40) || 'inferred from a call'}`);
+        sink.add(genReq, result, `${fn} — ${spec.doc.trim().slice(0, 40) || 'inferred from a call'}`, { spec, call: input });
         sinkFns.add(fn);
       }
+      // "What the model saw": the prompt really sent. A replayed candidate was generated from the prompt stored in
+      // the recording, which can differ from the one this build would send today.
+      const sentPrompt = result.source === 'replay' ? (recordedPrompt(recordings, genReq) ?? genReq.prompt) : genReq.prompt;
 
       // typewriter
       const body = result.body;
@@ -911,6 +915,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         generationMs,
         gates: gated.gates,
         verdict,
+        prompt: sentPrompt,
       };
       if (failing && verdict === 'rejected') candidate.rejectedBy = failing.gate;
       if (failing?.headline) candidate.headline = failing.headline;

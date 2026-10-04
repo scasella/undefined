@@ -4,6 +4,7 @@ import { attribution, failingGate, gateAttempt, isLatestAttempt } from '../selec
 import { selection } from '../uiState';
 import { CopyBlock, PanelHead, StatusIcon, statusWord } from './common';
 import { DiagnosticFacts, DiagnosticItem } from './Diagnostics';
+import { whoDecided } from '../explain';
 
 const GATE_LABEL = { compile: 'Compile', tests: 'Tests', properties: 'Properties', invariants: 'Invariants' } as const;
 const GATE_WHAT = {
@@ -56,6 +57,13 @@ function Headline({ gen, a }: { gen: GenerationView; a: AttemptView }) {
           {fail.note && <span class="spec-error"> · {fail.note}</span>}
         </p>
         <p class="headline-text">{fail.headline ?? a.candidate?.headline ?? `Rejected by ${fail.gate}`}</p>
+        <div class="who" aria-label="Who decided">
+          {whoDecided(fail, a.attempt).map((line, i) => (
+            <p key={i} class={i === 0 ? 'who-line' : 'who-line who-fair'}>
+              {line}
+            </p>
+          ))}
+        </div>
         {first && <DiagnosticFacts d={first} />}
         {first && <p class="attribution">{attribution(first, fail.gate)}</p>}
       </div>

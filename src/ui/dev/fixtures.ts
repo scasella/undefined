@@ -19,6 +19,7 @@ import type {
   Revision,
 } from '../../types';
 import { EXAMPLES as REAL_EXAMPLES } from '../../examples';
+import { buildPrompt, declarationLine } from '../../shared/prompt';
 
 export const T0 = Date.UTC(2026, 9, 4, 9, 0, 0);
 const h = (seed: string): string => seed.repeat(64).slice(0, 64);
@@ -253,7 +254,21 @@ function randomGates(): GateResult[] {
 
 // ───────── candidates / attempts ─────────
 
-export function candidate(attempt: number, body: string, gates: GateResult[], notes = ''): Candidate {
+/** Which spec the candidate was generated against, and the rejected candidates before it (they reach its prompt). */
+export interface CandidateCtx {
+  spec?: FunctionSpec;
+  prior?: Candidate[];
+}
+
+/** The real prompt builder, so "What the model saw" in a fixture is exactly what the engine would send. */
+export function fixturePrompt(ctx: CandidateCtx = {}): string {
+  return buildPrompt({
+    spec: ctx.spec ?? MEDIAN_SPEC,
+    history: (ctx.prior ?? []).map((c) => ({ attempt: c.attempt, body: c.body, gates: c.gates, ...(c.headline ? { headline: c.headline } : {}) })),
+  });
+}
+
+export function candidate(attempt: number, body: string, gates: GateResult[], notes = '', ctx: CandidateCtx = {}): Candidate {
   const failing = gates.find((g) => g.status === 'fail');
   return {
     id: `c${attempt}-${body.length}`,
@@ -266,12 +281,22 @@ export function candidate(attempt: number, body: string, gates: GateResult[], no
     verdict: failing ? 'rejected' : 'accepted',
     rejectedBy: failing?.gate,
     headline: failing?.headline,
+    prompt: fixturePrompt(ctx),
   };
 }
 
-export function doneAttempt(attempt: number, body: string, gates: GateResult[], notes = ''): AttemptView {
-  const c = candidate(attempt, body, gates, notes);
+export function doneAttempt(attempt: number, body: string, gates: GateResult[], notes = '', ctx: CandidateCtx = {}): AttemptView {
+  const c = candidate(attempt, body, gates, notes, ctx);
   return { attempt, status: c.verdict === 'accepted' ? 'accepted' : 'rejected', shown: body, gates, candidate: c };
+}
+
+/** Consecutive finished attempts of one grow: each one's prompt carries the rejected ones before it. */
+export function doneAttempts(spec: FunctionSpec, items: Array<[body: string, gates: GateResult[], notes?: string]>): AttemptView[] {
+  const out: AttemptView[] = [];
+  items.forEach(([body, gates, notes], i) => {
+    out.push(doneAttempt(i + 1, body, gates, notes ?? '', { spec, prior: out.map((a) => a.candidate!) }));
+  });
+  return out;
 }
 
 export function progressLines(): ProgressLine[] {
@@ -310,10 +335,12 @@ export function medianArtifact(revision = 2, candidates?: Candidate[]): Artifact
     model: 'gpt-6-luna',
     codexVersion: '0.157.2',
     committedAt: T0 + 60_000,
-    candidates: candidates ?? [
-      candidate(1, MEDIAN_BAD, medianRejectedGates()),
-      candidate(2, MEDIAN_GOOD, medianAcceptedGates()),
-    ],
+    candidates:
+      candidates ??
+      doneAttempts(MEDIAN_SPEC, [
+        [MEDIAN_BAD, medianRejectedGates()],
+        [MEDIAN_GOOD, medianAcceptedGates()],
+      ]).map((a) => a.candidate!),
     revision,
   };
 }
@@ -401,13 +428,16 @@ function committedState(): EngineState {
     { kind: 'output', id: eid('out'), value: '2.5', ms: 0.4, label: 'generated', detail: 'revision 2' },
   ];
   s.generation = medianGeneration(
-    [doneAttempt(1, MEDIAN_BAD, medianRejectedGates()), doneAttempt(2, MEDIAN_GOOD, medianAcceptedGates())],
+    doneAttempts(MEDIAN_SPEC, [
+      [MEDIAN_BAD, medianRejectedGates()],
+      [MEDIAN_GOOD, medianAcceptedGates()],
+    ]),
     { phase: 'committed', attempt: 2, revision: 2 },
   );
   return s;
 }
 
-const TAKEAWAY = "You didn't write this. The model wrote it. Your compiler and tests decided whether to keep it.";
+const TAKEAWAY = "You didn't write this. The model wrote it. Your tests hold the contract, and your toolchain enforced it.";
 
 // ───────── scenarios ─────────
 
@@ -464,6 +494,60 @@ export const SCENARIOS: Record<string, () => EngineState> = {
     return s;
   },
 
+  // the spec was silent: a defensible first candidate, rejected by a test that says so (slugify's "special letters")
+  'rejected-silent': () => {
+    const spec = REAL_EXAMPLES.find((e) => e.id === 'slugify')!.spec;
+    const s = baseState();
+    s.hints.opener = false;
+    s.busy = true;
+    s.replInput = '';
+    s.program.functions.slugify = rec(spec, null, '5c', '9d');
+    const call = 'slugify("Straße & Smørrebrød")';
+    s.repl = openingTranscript(call, 'slugify');
+    const gates: GateResult[] = [
+      gate('compile', 'pass', 'compiled, strict', { ms: 205 }),
+      gate('tests', 'fail', '9/10 tests passed', {
+        ms: 12,
+        counts: { passed: 9, total: 10 },
+        headline: 'Rejected: slugify("Straße") returned "stra-e", expected "strasse"',
+        diagnostics: [
+          {
+            kind: 'test',
+            name: 'special letters',
+            message: 'expected values to be deeply equal',
+            silentOn: 'how to spell letters outside a–z',
+            reasonable: 'Dropping or spelling them out are both used in the wild; the doc only said URL slug.',
+            call: 'slugify("Straße")',
+            expected: '"strasse"',
+            actual: '"stra-e"',
+          },
+        ],
+      }),
+      notReached('properties'),
+      notReached('invariants'),
+    ];
+    const body = `return title
+  .normalize("NFD")
+  .replace(/[\\u0300-\\u036f]/g, "")
+  .toLowerCase()
+  .replace(/[^a-z0-9]+/g, "-")
+  .replace(/^-+|-+$/g, "");`;
+    s.generation = {
+      ...medianGeneration(
+        [
+          doneAttempt(1, body, gates, 'strip accents via NFD, then collapse everything else into hyphens', { spec }),
+          { attempt: 2, status: 'generating', shown: '', gates: [] },
+        ],
+        { attempt: 2, progress: progressLines().slice(0, 2) },
+      ),
+      id: 'g-slug',
+      fn: 'slugify',
+      signature: declarationLine(spec),
+      call,
+    };
+    return s;
+  },
+
   'invariant-timeout': () => {
     const s = baseState();
     s.hints.opener = false;
@@ -473,7 +557,7 @@ export const SCENARIOS: Record<string, () => EngineState> = {
     s.generation = {
       ...medianGeneration(
         [
-          doneAttempt(1, FIB_NAIVE, fibTimeoutGates(), 'classic recursive definition'),
+          doneAttempt(1, FIB_NAIVE, fibTimeoutGates(), 'classic recursive definition', { spec: FIB_SPEC }),
           { attempt: 2, status: 'typing', shown: FIB_GOOD.slice(0, 40), gates: [] },
         ],
         { attempt: 2 },
@@ -525,11 +609,11 @@ export const SCENARIOS: Record<string, () => EngineState> = {
     ];
     s.replInput = '';
     s.generation = medianGeneration(
-      [
-        doneAttempt(1, MEDIAN_BAD, medianRejectedGates()),
-        doneAttempt(2, MEDIAN_MUTATES, mutationGates()),
-        doneAttempt(3, MEDIAN_GOOD.replace('const sorted', 'const _r = Math.random();\nconst sorted'), randomGates()),
-      ],
+      doneAttempts(MEDIAN_SPEC, [
+        [MEDIAN_BAD, medianRejectedGates()],
+        [MEDIAN_MUTATES, mutationGates()],
+        [MEDIAN_GOOD.replace('const sorted', 'const _r = Math.random();\nconst sorted'), randomGates()],
+      ]),
       { phase: 'failed', attempt: 3 },
     );
     return s;

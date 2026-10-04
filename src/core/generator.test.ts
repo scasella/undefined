@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import fc from 'fast-check';
-import type { GenerateRequest, GenerateResult, ProgressLine, Recording } from '../types';
+import type { DatasetRef, FunctionSpec, GenerateRequest, GenerateResult, ProgressLine, Recording } from '../types';
 import {
   GenerationFailure,
   LiveGenerator,
@@ -12,6 +12,7 @@ import {
   loadBundledRecordings,
   parseSSE,
   probeService,
+  recordedPrompt,
   validateRecording,
   type SSEEvent,
   type Sleep,
@@ -460,7 +461,8 @@ describe('validateRecording', () => {
 
   const cases: Array<[string, (r: Record<string, any>) => void, string]> = [
     ['format', (r) => (r.format = 'undefined-image'), 'format must be "undefined-recording"'],
-    ['version', (r) => (r.version = 2), 'version must be 1'],
+    ['version', (r) => (r.version = 3), 'version must be 1 or 2 (got number 3)'],
+    ['v2 field in a v1 file', (r) => (r.sessions[0].calls = ['median([1])']), 'sessions[0].calls is a version 2 field'],
     ['model', (r) => delete r.model, 'model must be a string (got undefined)'],
     ['recordedAt', (r) => (r.recordedAt = 'yesterday'), 'recordedAt must be an ISO date'],
     ['sessions', (r) => (r.sessions = {}), 'sessions must be an array (got object)'],
@@ -486,6 +488,128 @@ describe('validateRecording', () => {
 
   it('rejects non-objects', () => {
     for (const raw of [null, 'x', [], 42]) expect(validateRecording(raw).ok).toBe(false);
+  });
+});
+
+// ───────────────────────── recording v2 ─────────────────────────
+
+const H1 = 'a'.repeat(64);
+const H2 = 'b'.repeat(64);
+
+/** A spec with every optional field populated, so a silently dropped field shows up in the round trip. */
+const FULL_SPEC: FunctionSpec = {
+  name: 'median',
+  params: [{ name: 'numbers', type: 'number[]' }],
+  returns: 'number',
+  doc: 'The median.',
+  tests: 'test("odd", () => eq(median([3, 1, 2]), 2));',
+  properties: '',
+  budgetMs: 1500,
+  maxAttempts: 3,
+  origin: 'example',
+  exampleId: 'median',
+  typeDecls: 'type Row = { total: number }',
+  pins: [
+    {
+      id: 'p1',
+      label: 'median(rows)',
+      args: [
+        { kind: 'dataset', name: 'rows', hash: H1 },
+        { kind: 'value', encoded: { $t: 'bigint', v: '1' } },
+      ],
+      expected: 2,
+      pinnedAt: 1,
+    },
+  ],
+};
+
+const REF: DatasetRef = {
+  name: 'rows',
+  hash: H1,
+  typeName: 'Row',
+  typeDecl: 'type Row = { total: number }',
+  rowCount: 2,
+  columns: [{ name: 'total', type: 'number' }],
+  source: 'paste',
+  bytes: 40,
+};
+
+function v2Recording(): Recording {
+  const base = recording();
+  return {
+    ...base,
+    version: 2,
+    sessions: [
+      {
+        ...base.sessions[0]!,
+        spec: FULL_SPEC,
+        calls: ['median([3, 1, 4, 2])', 'median(rows)'],
+        datasets: { [H1]: [{ total: 1 }, { total: 3 }] },
+        datasetRefs: [REF],
+      },
+    ],
+  };
+}
+
+describe('recording v2', () => {
+  it('accepts v1 without the new fields, and v2 with every new field, losslessly', () => {
+    expect(validateRecording(JSON.parse(JSON.stringify(recording())))).toEqual({ ok: true, recording: recording() });
+    const v = validateRecording(JSON.parse(JSON.stringify(v2Recording())));
+    expect(v).toEqual({ ok: true, recording: v2Recording() });
+  });
+
+  it('accepts a v2 session that carries none of the new fields (each is optional)', () => {
+    const raw = { ...recording(), version: 2 };
+    expect(validateRecording(JSON.parse(JSON.stringify(raw))).ok).toBe(true);
+  });
+
+  const cases: Array<[string, (r: Record<string, any>) => void, string]> = [
+    ['spec not an object', (r) => (r.sessions[0].spec = 'median'), 'sessions[0].spec must be an object'],
+    ['spec name ≠ fn', (r) => (r.sessions[0].spec.name = 'mean'), 'sessions[0].spec.name must equal the session\'s fn "median"'],
+    ['spec name not an identifier', (r) => (r.sessions[0].spec.name = 'a b'), 'sessions[0].spec.name must be a JavaScript identifier'],
+    ['spec param', (r) => (r.sessions[0].spec.params[0].type = 1), 'sessions[0].spec.params[0].type must be a string'],
+    ['spec returns', (r) => (r.sessions[0].spec.returns = 5), 'sessions[0].spec.returns must be a string'],
+    ['spec budget', (r) => (r.sessions[0].spec.budgetMs = 0), 'sessions[0].spec.budgetMs must be at least 1'],
+    ['spec attempts', (r) => (r.sessions[0].spec.maxAttempts = 1.5), 'sessions[0].spec.maxAttempts must be an integer >= 1'],
+    ['spec origin', (r) => (r.sessions[0].spec.origin = 'model'), 'sessions[0].spec.origin must be one of'],
+    ['spec missing tests', (r) => delete r.sessions[0].spec.tests, 'sessions[0].spec.tests must be a string'],
+    ['spec typeDecls', (r) => (r.sessions[0].spec.typeDecls = 3), 'sessions[0].spec.typeDecls must be a string'],
+    ['pin arg kind', (r) => (r.sessions[0].spec.pins[0].args[0].kind = 'file'), 'sessions[0].spec.pins[0].args[0].kind must be one of'],
+    ['pin dataset hash', (r) => (r.sessions[0].spec.pins[0].args[0].hash = 'xyz'), 'sessions[0].spec.pins[0].args[0].hash must be a lowercase hex'],
+    ['pin value missing', (r) => delete r.sessions[0].spec.pins[0].args[1].encoded, 'sessions[0].spec.pins[0].args[1].encoded must be plain JSON'],
+    ['calls not an array', (r) => (r.sessions[0].calls = 'median(1)'), 'sessions[0].calls must be an array'],
+    ['call not a string', (r) => (r.sessions[0].calls[1] = 7), 'sessions[0].calls[1] must be a non-empty string'],
+    ['empty call', (r) => (r.sessions[0].calls[0] = '  '), 'sessions[0].calls[0] must be a non-empty string'],
+    ['repeated call', (r) => r.sessions[0].calls.push('median(rows)'), 'sessions[0].calls must not repeat a call'],
+    ['datasets not an object', (r) => (r.sessions[0].datasets = []), 'sessions[0].datasets must be an object'],
+    ['dataset key', (r) => (r.sessions[0].datasets = { nothash: [] }), 'sessions[0].datasets keys must be lowercase hex'],
+    ['dataset rows', (r) => (r.sessions[0].datasets[H1] = [{ total: Infinity }]), 'must be plain JSON'],
+    ['ref without its dataset', (r) => (r.sessions[0].datasetRefs[0].hash = H2), 'sessions[0].datasetRefs[0].hash must name a dataset stored in'],
+    ['refs without datasets', (r) => delete r.sessions[0].datasets, 'sessions[0].datasetRefs[0].hash must name a dataset stored in'],
+    ['ref name', (r) => (r.sessions[0].datasetRefs[0].name = '1rows'), 'sessions[0].datasetRefs[0].name must be a JavaScript identifier'],
+    ['ref rowCount', (r) => (r.sessions[0].datasetRefs[0].rowCount = -1), 'sessions[0].datasetRefs[0].rowCount must be an integer >= 0'],
+    ['ref source', (r) => (r.sessions[0].datasetRefs[0].source = 'web'), 'sessions[0].datasetRefs[0].source must be one of'],
+    ['ref column', (r) => (r.sessions[0].datasetRefs[0].columns[0] = { name: 'total' }), 'sessions[0].datasetRefs[0].columns[0].type must be a string'],
+  ];
+  it.each(cases)('rejects a bad %s with a precise error', (_name, mutate, expected) => {
+    const raw = JSON.parse(JSON.stringify(v2Recording()));
+    if (raw.sessions[0].datasets === undefined) raw.sessions[0].datasets = {};
+    mutate(raw);
+    const v = validateRecording(raw);
+    expect(v.ok).toBe(false);
+    if (!v.ok) expect(v.error).toContain(expected);
+  });
+
+  it('a v2 recording replays exactly like a v1 one', async () => {
+    const gen = new ReplayGenerator([v2Recording()], { maxMs: 0 });
+    expect((await gen.generate(req({ attempt: 1 }), () => {})).body).toBe(recording().sessions[0]!.attempts[1]!.body);
+  });
+
+  it('recordedPrompt finds the prompt really sent for a replayed attempt (first recording wins)', () => {
+    const other = { ...recording(), sessions: [{ ...recording().sessions[0]!, attempts: [{ ...recording().sessions[0]!.attempts[0]!, prompt: 'later' }] }] };
+    expect(recordedPrompt([recording(), other], req())).toBe('p0');
+    expect(recordedPrompt([recording()], req({ attempt: 9 }))).toBeUndefined();
+    expect(recordedPrompt([recording()], req({ specHash: 'zzz' }))).toBeUndefined();
   });
 });
 
@@ -566,6 +690,38 @@ describe('RecordingSink', () => {
     expect(second.body).toBe('return 1;');
     expect(second.notes).toBe('notes for return 1;');
     expect(second.progress.map((p) => p.text)).toEqual(['working']);
+  });
+
+  it('v2: keeps the spec, the triggering calls (deduped, in order, carried over a regeneration) and datasets', () => {
+    const sink = new RecordingSink({ now: () => new Date('2026-10-04T10:00:00Z') });
+    sink.add(req({ prompt: 'p0' }), live('a'), 'median', { spec: FULL_SPEC, call: 'median([1, 2])' });
+    sink.add(req({ attempt: 1, prompt: 'p1' }), live('b'), 'median', { spec: FULL_SPEC, call: 'median([1, 2])' });
+    // the same spec grown again later from another input: a fresh session that still lists the first input
+    sink.add(req({ prompt: 'q0' }), live('c'), 'median', { spec: FULL_SPEC, call: 'xs = [5]; median(xs)' });
+    sink.add(req({ fn: 'slug', prompt: 'ps' }), live('d'), 'slug', {
+      call: 'median(rows)',
+      datasets: { [H1]: [{ total: 1 }, { total: 3 }] },
+      datasetRefs: [REF],
+    });
+    const rec = sink.toRecording({ id: 'i', title: 't' })!;
+    expect(rec.version).toBe(2);
+    const [median, slug] = rec.sessions;
+    expect(median!.attempts.map((a) => a.prompt)).toEqual(['q0']);
+    expect(median!.spec).toEqual(FULL_SPEC);
+    expect(median!.calls).toEqual(['median([1, 2])', 'xs = [5]; median(xs)']);
+    expect(slug!.spec).toBeUndefined();
+    expect(slug!.datasetRefs).toEqual([REF]);
+
+    // the spec is a copy, and the export survives JSON + strict validation unchanged
+    const v = validateRecording(JSON.parse(JSON.stringify(rec)));
+    expect(v).toEqual({ ok: true, recording: rec });
+  });
+
+  it('stays version 1 when no v2 field was given', () => {
+    const sink = new RecordingSink();
+    sink.add(req(), live('a'), 'l');
+    sink.add(req({ attempt: 1 }), live('b'), 'l', {});
+    expect(sink.toRecording({ id: 'i', title: 't' })!.version).toBe(1);
   });
 
   it('defaults effort to low and returns an independent copy', () => {

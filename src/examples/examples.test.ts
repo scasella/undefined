@@ -87,6 +87,7 @@ const EXPECTED_HEADLINES: Record<string, string[]> = {
   slugify: [
     'Rejected: slugify("Straße") returned "stra-e", expected "strasse"',
     'Rejected: slugify("Smørrebrød") returned "sm-rrebr-d", expected "smorrebrod"',
+    'Rejected: slugify("Don\'t Stop") returned "don-t-stop", expected "dont-stop"',
     'Rejected: slugify("  ...Hello, World!!  ") returned "-hello-world-", expected "hello-world"',
     'Rejected: property "output is lowercase letters and digits joined by single hyphens" failed for slugify("_")', // property (seed-dependent)
   ],
@@ -129,7 +130,8 @@ describe('EXAMPLES registry', () => {
         expect(ex.spec.origin).toBe('example');
         expect(ex.spec.exampleId).toBe(ex.id);
         expect(ex.spec.maxAttempts).toBe(3);
-        // Docs are deliberately terse (the hidden tests and properties carry the contract); just never empty.
+        // Docs may be terse; where the hidden checks hold a convention the doc does not state, the check is marked
+        // silentOn (asserted per bad body below). Never empty.
         expect(ex.spec.doc.trim()).not.toBe('');
         expect(ex.call.startsWith(`${ex.fn}(`)).toBe(true);
         expect(ex.goodBodies.length).toBeGreaterThanOrEqual(1);
@@ -193,6 +195,15 @@ describe('EXAMPLES registry', () => {
           expect(v.gates.filter((g) => g.status === 'fail').map((g) => g.gate)).toEqual([bad.rejectedBy]);
           const at = GATE_ORDER.indexOf(bad.rejectedBy);
           for (const g of v.gates.slice(0, at)) expect(g.status === 'pass' || g.status === 'skipped').toBe(true);
+          // Who held the contract: the marker is on the rejecting diagnostic exactly when this body's mistake is a
+          // convention the doc is silent on, and never otherwise.
+          const diag = v.gates.find((g) => g.status === 'fail')!.diagnostics[0]!;
+          const silentOn = 'silentOn' in diag ? diag.silentOn : undefined;
+          expect(silentOn, `${ex.id}: silentOn on the rejection of\n${bad.body}`).toBe(bad.silentOn);
+          if (silentOn !== undefined) {
+            expect('reasonable' in diag && typeof diag.reasonable === 'string' && diag.reasonable !== '').toBe(true);
+            expect(v.headline).not.toContain(silentOn); // the headline is never rewritten
+          }
           headlines.push(v.headline!);
           printed.push(`  ${ex.id.padEnd(9)} ${bad.rejectedBy.padEnd(10)} ${v.headline}`);
         }
@@ -217,6 +228,70 @@ describe('EXAMPLES registry', () => {
     });
   }
 });
+
+describe('"the spec was silent" markers name only the case the doc did not cover', () => {
+  const badBody = (id: string, pattern: RegExp): string => {
+    const matches = exampleById(id)!.badBodies.filter((b) => pattern.test(b.body));
+    expect(matches).toHaveLength(1);
+    return matches[0]!.body;
+  };
+  const rejection = async (spec: FunctionSpec, body: string) => {
+    const v = await runGates(spec, body, callArgs(exampleById(spec.exampleId!)!));
+    const gate = v.gates.find((g) => g.status === 'fail')!;
+    return { headline: v.headline!, diag: gate.diagnostics[0]! as { silentOn?: string; reasonable?: string; call?: string; name: string } };
+  };
+
+  it('median: throwing on [] is labelled silent; the headline is unchanged', async () => {
+    const ex = exampleById('median')!;
+    const { headline, diag } = await rejection(ex.spec, badBody('median', /throw new Error\('empty list'\)/));
+    expect(headline).toBe('Rejected: median([]) threw Error: empty list, expected NaN');
+    expect(diag.silentOn).toBe('what the median of nothing is');
+    expect(diag.reasonable).toBe('Throwing on an empty list is a common, defensible choice; so is returning NaN.');
+  });
+
+  it('median: the even-length bug is NOT labelled silent, even when the same reference property is what catches it', async () => {
+    const ex = exampleById('median')!;
+    const body = badBody('median', /return sorted\[Math\.floor\(sorted\.length \/ 2\)\];/);
+    const viaTest = await rejection(ex.spec, body);
+    expect(viaTest.diag.name).toBe('even-length list');
+    expect(viaTest.diag.silentOn).toBeUndefined();
+    // Without the unit tests, the marked reference property catches it at a non-empty counterexample: `when` is false.
+    const viaProperty = await rejection({ ...ex.spec, tests: '' }, body);
+    expect(viaProperty.diag.name).toBe('agrees with a sort-based reference');
+    expect(viaProperty.diag.call).toMatch(/^median\(\[.+\]\)$/);
+    expect(viaProperty.diag.silentOn).toBeUndefined();
+    expect(viaProperty.diag.reasonable).toBeUndefined();
+    printed.push(`  median    properties (tests removed, even-length bug) ${viaProperty.headline}`);
+  });
+
+  it('median: sorting as strings, caught by the marked property at a non-empty list, is NOT labelled silent', async () => {
+    const ex = exampleById('median')!;
+    const { diag } = await rejection(ex.spec, badBody('median', /\.sort\(\);/));
+    expect(diag.name).toBe('agrees with a sort-based reference');
+    expect(diag.silentOn).toBeUndefined();
+  });
+
+  it('slugify: splitting on the apostrophe is labelled silent; never trimming is not', async () => {
+    const ex = exampleById('slugify')!;
+    const apostrophe = await rejection(ex.spec, badBody('slugify', /^(?![\s\S]*['’]\]\/g)[\s\S]*' and '\)/));
+    expect(apostrophe.diag.name).toBe('apostrophes');
+    expect(apostrophe.diag.silentOn).toBe('whether an apostrophe splits a word');
+    expect(apostrophe.diag.reasonable).toBe('Both don-t-stop and dont-stop are common slug conventions.');
+    const untrimmed = await rejection(ex.spec, badBody('slugify', /\.replace\(\/\[\^a-z0-9\]\+\/g, '-'\);$/));
+    expect(untrimmed.diag.name).toBe('leading and trailing punctuation');
+    expect(untrimmed.diag.silentOn).toBeUndefined();
+  });
+
+  it('fibonacci: no check is marked silent (the doc states what the tests check)', () => {
+    const ex = exampleById('fibonacci')!;
+    for (const src of [ex.spec.tests, ex.spec.properties, ex.breakPatch.tests ?? '', ex.breakPatch.properties ?? '']) {
+      expect(src).not.toContain('silentOn');
+    }
+    expect(ex.spec.doc).toContain('1,000,000');
+    expect(ex.breakPatch.doc).toContain('-1,000,000 to 1,000,000');
+    expect(ex.breakPatch.doc).toContain('negafibonacci');
+  });
+}, 60_000);
 
 const PRETYPED_RESULT: Record<string, string> = {
   median: '2.5',

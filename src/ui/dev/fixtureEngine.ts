@@ -100,7 +100,9 @@ export function createFixtureEngine(scenario: string): Engine {
       }
       setAttempt({ gates: [...gates] });
     }
-    const c = candidate(attempt, body, finalGates);
+    // the prompt carries the rejected candidates before this one, as the engine's would
+    const prior = state.value.generation!.attempts.slice(0, attempt - 1).flatMap((a) => (a.candidate ? [a.candidate] : []));
+    const c = candidate(attempt, body, finalGates, '', { prior });
     setAttempt({ status: c.verdict === 'accepted' ? 'accepted' : 'rejected', candidate: c, shown: body });
     return c.verdict === 'accepted';
   }

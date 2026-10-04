@@ -70,7 +70,8 @@ describe('buildPrompt', () => {
     ].map((s) => p.indexOf(s));
     expect(order.every((i) => i >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
-    expect(p).not.toMatch(/within \d+ ms/); // the time budget is deliberately NOT announced: the bounded gate enforces it
+    expect(p).toContain('within 1500 ms'); // the budget is in the spec the user sees, so the model sees it too
+    expect(p).not.toMatch(/prefer iterative|avoid exponential|copy before/i); // the number, never coaching
     expect(p).toContain('lib ES2022 only');
   });
 

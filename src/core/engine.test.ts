@@ -12,6 +12,7 @@ import type {
   GenerateResult,
   Generator,
   ProgressLine,
+  Recording,
   ReplEntry,
   ServiceStatus,
 } from '../types';
@@ -32,7 +33,8 @@ import {
   type EngineHandle,
   type RuntimeLike,
 } from './engine';
-import { GenerationFailure } from './generator';
+import { GenerationFailure, validateRecording } from './generator';
+import { hashesFor } from '../shared/hash';
 import { isLive, isStale } from './program';
 import { _useBackend, memoryBackend } from './store';
 
@@ -265,6 +267,9 @@ describe('engine: the opening story', () => {
     expect(gen.requests[0]!.prompt).not.toContain('PREVIOUS ATTEMPT');
     expect(gen.requests[1]!.prompt).toContain('PREVIOUS ATTEMPT (rejected)');
     expect(gen.requests[1]!.prompt).toContain('PROPERTIES FAILED');
+    // "what the model saw" is the exact prompt that was sent, kept on each candidate
+    expect(a1!.candidate!.prompt).toBe(gen.requests[0]!.prompt);
+    expect(a2!.candidate!.prompt).toBe(gen.requests[1]!.prompt);
 
     expect(s().headRevision).toBe(2);
     const r2 = s().revisions[1]!;
@@ -273,6 +278,7 @@ describe('engine: the opening story', () => {
     const art = s().program.functions.median!.artifact!;
     expect(art).toMatchObject({ body: MEDIAN_GOOD, returnType: 'number', model: 'test-model', codexVersion: '0.0.1', revision: 2 });
     expect(art.candidates.map((c) => c.verdict)).toEqual(['rejected', 'accepted']);
+    expect(art.candidates.map((c) => c.prompt)).toEqual(gen.requests.map((r) => r.prompt));
     expect(art.js).toContain('function median(numbers)');
 
     // second call: cached artifact + the takeaway, once
@@ -666,6 +672,48 @@ describe('engine: images and persistence', () => {
     expect(rec.sessions).toHaveLength(1);
     expect(rec.sessions[0]!.attempts.map((a) => a.body)).toEqual([MEDIAN_BAD, MEDIAN_GOOD]);
     expect(rec.sessions[0]!.label.startsWith('median — The median of a non-empty list')).toBe(true);
+    // v2: the spec it was generated against and the REPL input that triggered it
+    expect(rec.version).toBe(2);
+    expect(rec.sessions[0]!.spec).toEqual(MEDIAN_SPEC);
+    expect(rec.sessions[0]!.calls).toEqual(['median([1, 2])']);
+    const v = validateRecording(JSON.parse(JSON.stringify(rec)));
+    expect(v.ok).toBe(true);
+  }, 30_000);
+
+  it('a replayed candidate keeps the prompt stored in the recording, not the one this build would send', async () => {
+    const { specHash, testsHash } = await hashesFor(MEDIAN_SPEC);
+    const recording: Recording = {
+      format: 'undefined-recording',
+      version: 1,
+      id: 'r',
+      title: 'r',
+      recordedAt: '2026-10-01T00:00:00.000Z',
+      model: 'm',
+      codexVersion: '0',
+      effort: 'low',
+      sessions: [
+        {
+          fn: 'median',
+          specHash,
+          testsHash,
+          label: 'median',
+          attempts: [{ prompt: 'THE RECORDED PROMPT', body: MEDIAN_GOOD, notes: '', durationMs: 0, progress: [] }],
+        },
+      ],
+    };
+    const { engine, gen, s } = setup({
+      service: { state: 'down' },
+      script: { median: [MEDIAN_GOOD] },
+      deps: { loadRecordings: async () => [recording] },
+    });
+    await engine.init();
+    expect(s().mode).toBe('replay');
+    await engine.submit();
+    const c = s().generation!.attempts[0]!.candidate!;
+    expect(c.source).toBe('replay');
+    expect(gen.requests[0]!.prompt).not.toBe('THE RECORDED PROMPT');
+    expect(c.prompt).toBe('THE RECORDED PROMPT');
+    expect(engine.exportRecording()).toBeNull(); // replayed candidates are never re-recorded
   }, 30_000);
 });
 

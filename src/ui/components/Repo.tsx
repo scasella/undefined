@@ -5,14 +5,20 @@ import { draftOf, functionStatus, functionStatusText, signatureOf, specPatch } f
 import { focusFn } from '../uiState';
 import { CodeView } from './CodeView';
 import { GeneratedBadge, StatusIcon } from './common';
+import { ModelSaw } from './ModelSaw';
 
 const TEST_API = `// Globals in scope: the function under test by its own name, plus
-test(name: string, body: () => void): void
+test(name: string, body: () => void, meta?: { silentOn?: string; reasonable?: string }): void
 eq(actual: unknown, expected: unknown, message?: string): void   // deep, Object.is, bigint-safe
 throws(fn: () => unknown, match?: RegExp | string): void
-property(name, [arb1, arb2, …], (a1, a2, …) => boolean | void, opts?: { numRuns?: number }): void
-matchesReference(name, [arbs…], reference: (…args) => R, opts?: { numRuns?: number }): void
+property(name, [arb1, arb2, …], (a1, a2, …) => boolean | void,
+  opts?: { numRuns?: number; silentOn?: string; reasonable?: string; when?: (…args) => boolean }): void
+matchesReference(name, [arbs…], reference: (…args) => R, opts?: same as property): void
 fc   // fast-check, e.g. fc.integer(), fc.array(fc.string(), { minLength: 1 })
+
+// silentOn: "The spec didn't say ___." Mark a check that encodes a convention your doc leaves open, so a
+// rejection says who decided. For properties, when() is tested on the shrunk counterexample, so a real bug
+// elsewhere is never mislabelled.
 
 // example
 test("even count", () => eq(median([4, 1, 3, 2]), 2.5));
@@ -180,6 +186,7 @@ function ArtifactView({ a, spec, stale }: { a: Artifact; spec: FunctionSpec; sta
                 <summary>code</summary>
                 <CodeView signature={signatureOf(spec, a.returnType)} body={c.body} />
               </details>
+              {c.prompt && <ModelSaw prompt={c.prompt} spec={spec} attempt={c.attempt} />}
             </li>
           ))}
         </ol>
