@@ -1,10 +1,10 @@
 import { GATE_ORDER, type AttemptView, type Engine, type EngineState, type GateResult, type GenerationView } from '../../types';
-import { fmtMs } from '../format';
-import { attribution, failingGate, gateAttempt, isLatestAttempt } from '../select';
+import { fmtMs, sentenceCase } from '../format';
+import { attribution, failingGate, gateAttempt, lastCallValue } from '../select';
 import { selection } from '../uiState';
 import { CopyBlock, PanelHead, StatusIcon, statusWord } from './common';
 import { DiagnosticFacts, DiagnosticItem } from './Diagnostics';
-import { declineCopy, GATE_PRECISE, GATE_QUESTION, howFound, plainGateText, plainHeadline, splitCall, whoDecided } from '../explain';
+import { declineCopy, GATE_CAPTION, GATE_PLAIN, GATE_QUESTION, howFound, NOT_REACHED_TEXT, plainGateText, plainHeadline, rejectionClass, shortGateStatus, splitCall, whoDecided } from '../explain';
 import { committedArtifact } from '../evidence';
 import { Confidence, MoreChecks } from './Evidence';
 
@@ -13,28 +13,59 @@ export const RECHECK_LINE = 'You added this check after the function was committ
 
 const GATE_LABEL = { compile: 'Compile', tests: 'Tests', properties: 'Properties', invariants: 'Invariants' } as const;
 
-function GateRow({ g, notRun }: { g: GateResult; notRun?: boolean }) {
-  const counts = g.counts ? `${g.counts.passed}/${g.counts.total}` : null;
+/**
+ * One check: status tile, name, a short status cell and the time. Everything else (the gate's own summary, its note,
+ * what the check is) sits behind the row's disclosure, so nothing is ever truncated. The question-style caption shows
+ * only before anything has run.
+ */
+function GateRow({ g, notRun, idle }: { g: GateResult; notRun?: boolean; idle?: boolean }) {
   let summary = g.summary ? plainGateText(g.summary) : '';
   const note = g.note ? plainGateText(g.note) : '';
   // a note that only repeats the summary is not shown twice ("no tests yet" / "no tests yet — add one …")
   if (note && summary && note.startsWith(summary)) summary = note;
   const showNote = !notRun && !!note && !summary.startsWith(note);
-  // a declined candidate was never judged: its rows read "not run", the decline card says why
-  const word = notRun ? 'not run' : statusWord(g.status);
+  const short = shortGateStatus(g, notRun);
+  const notReached = !notRun && g.status === 'skipped' && short === '—';
+  const time = g.status === 'pass' || g.status === 'fail' ? fmtMs(g.ms) : '';
   return (
-    <li class={`gate-row g-${g.status}${notRun ? ' g-notrun' : ''}`} aria-label={`${GATE_LABEL[g.gate]}: ${word}.${notRun ? '' : ` ${summary}`}`}>
-      <StatusIcon status={g.status} />
-      <span class="gate-id" title={GATE_PRECISE[g.gate]}>
-        <span class="gate-name">{GATE_LABEL[g.gate]}</span>
-        <span class="gate-q">{GATE_QUESTION[g.gate]}</span>
-      </span>
-      <span class="gate-summary" title={notRun ? undefined : [g.summary, g.note].filter(Boolean).join(' — ')}>
-        <span class="gate-word">{word}</span>
-        {!notRun && summary && <span class="gate-detail"> · {summary}</span>}
-        {showNote && <span class="gate-note"> — {note}</span>}
-      </span>
-      <span class="gate-ms">{g.status === 'pass' || g.status === 'fail' ? fmtMs(g.ms) : counts ?? ''}</span>
+    <li class={`gate-row g-${g.status}${notRun ? ' g-notrun' : ''}`}>
+      <details class="gate-more">
+        <summary class="gate-line" title={idle ? undefined : GATE_QUESTION[g.gate]}>
+          <StatusIcon status={g.status} />
+          <span class="gate-id">
+            <span class="gate-name">{GATE_LABEL[g.gate]}</span>
+            {idle && <span class="gate-q">{GATE_CAPTION[g.gate]}</span>}
+          </span>
+          <span class="gate-word" title={notReached ? NOT_REACHED_TEXT : undefined}>
+            {notReached ? (
+              <>
+                <span aria-hidden="true">—</span>
+                <span class="sr-only">not run</span>
+              </>
+            ) : (
+              short
+            )}
+          </span>
+          <span class="gate-ms">{time}</span>
+        </summary>
+        <div class="gate-detail">
+          {notRun ? (
+            <p>Not run: the model declined, so nothing was judged.</p>
+          ) : notReached ? (
+            <p>{NOT_REACHED_TEXT}</p>
+          ) : (
+            summary && (
+              <p>
+                {sentenceCase(summary)}
+                {showNote && <span class="gate-note"> — {note}</span>}
+              </p>
+            )
+          )}
+          <p class="muted">
+            {GATE_QUESTION[g.gate]} {GATE_PLAIN[g.gate]}
+          </p>
+        </div>
+      </details>
     </li>
   );
 }
@@ -71,7 +102,7 @@ function DeclineCard({ a }: { a: AttemptView }) {
   return (
     <div class={`headline headline-declined decline-${d.reason}`} key={`declined:${a.attempt}`}>
       <p class="headline-gate">
-        <span aria-hidden="true">⊘</span> Not written · the model declined · candidate #{a.attempt}
+        <span aria-hidden="true">⊘</span> Not written · the model declined · #{a.attempt}
       </p>
       <p class="headline-text">{copy.title}</p>
       <blockquote class="decline-quote">
@@ -84,24 +115,25 @@ function DeclineCard({ a }: { a: AttemptView }) {
   );
 }
 
-function Headline({ gen, a }: { gen: GenerationView; a: AttemptView }) {
+function Headline({ gen, a, value }: { gen: GenerationView; a: AttemptView; value: string | null }) {
   if (a.candidate?.declined) return <DeclineCard a={a} />;
   const fail = failingGate(a.gates);
   if (fail) {
     const first = fail.diagnostics[0];
     const recheck = gen.kind === 'recheck';
     const how = first ? howFound(first) : null;
+    const headline = fail.headline ?? a.candidate?.headline ?? `Rejected by ${fail.gate}`;
     return (
       <article class={`headline headline-fail${recheck ? ' headline-recheck' : ''}`} key={`${gen.id}:${a.attempt}`} aria-label="Rejection">
         <p class="headline-gate">
           <span class="stamp">
             <span aria-hidden="true">✕ </span>Rejected
           </span>
+          <span>by {GATE_LABEL[fail.gate]}</span>
+          <span class="hg-class">— {rejectionClass(fail)}</span>
           <span class="hg-sep" aria-hidden="true">·</span>
-          <span>{GATE_LABEL[fail.gate]}</span>
-          <span class="hg-sep" aria-hidden="true">·</span>
-          <span>{recheck ? 're-check of the committed function' : `candidate #${a.attempt}`}</span>
-          {fail.note && (
+          <span>{recheck ? 're-check of the committed function' : `#${a.attempt}`}</span>
+          {fail.note && fail.note !== 'spec error' && (
             <>
               <span class="hg-sep" aria-hidden="true">·</span>
               <span class="spec-error">{plainGateText(fail.note)}</span>
@@ -109,7 +141,7 @@ function Headline({ gen, a }: { gen: GenerationView; a: AttemptView }) {
           )}
         </p>
         <p class="headline-text">
-          <VerdictText text={fail.headline ?? a.candidate?.headline ?? `Rejected by ${fail.gate}`} />
+          <VerdictText text={headline} />
         </p>
         {recheck && <p class="recheck-line">{RECHECK_LINE}</p>}
         <div class="who" aria-label="Who decided">
@@ -119,10 +151,10 @@ function Headline({ gen, a }: { gen: GenerationView; a: AttemptView }) {
             </p>
           ))}
         </div>
-        {first && <DiagnosticFacts d={first} />}
+        {first && <DiagnosticFacts d={first} headline={plainHeadline(headline)} />}
         {first && (
           <details class="how">
-            <summary>How the gate found it</summary>
+            <summary>How it was found</summary>
             {how && <p>{how}</p>}
             <p class="attribution">{attribution(first, fail.gate)}</p>
           </details>
@@ -131,17 +163,51 @@ function Headline({ gen, a }: { gen: GenerationView; a: AttemptView }) {
     );
   }
   if (a.status === 'accepted') {
+    const committed = gen.phase === 'committed' && gen.revision !== undefined;
     return (
       <div class="headline headline-pass">
         <p class="headline-gate">
-          <span aria-hidden="true">✓ </span>All four gates passed · candidate #{a.attempt}
+          <span aria-hidden="true">✓ </span>{gen.ungated ? 'Every check that ran passed' : 'All four gates passed'} · #{a.attempt}
         </p>
         <p class="headline-text">
-          Accepted{gen.phase === 'committed' && gen.revision !== undefined ? ` — committed as r${gen.revision}` : ''}
+          Accepted{committed ? ` · saved as r${gen.revision}` : ''}
+          {committed && value !== null && (
+            <span class="hp-value">
+              {' '}
+              · returned <code>{value}</code>
+            </span>
+          )}
         </p>
       </div>
     );
   }
+  return null;
+}
+
+/** The one sentence a screen reader hears when a verdict lands (and only then). */
+function verdictAnnouncement(gen: GenerationView | null, a: AttemptView | undefined, value: string | null): string {
+  if (!gen || !a) return '';
+  if (a.candidate?.declined) return `Candidate ${a.attempt} declined: ${declineCopy(a.candidate.declined).title}`;
+  const fail = failingGate(a.gates);
+  if (fail) {
+    const h = fail.headline ?? a.candidate?.headline;
+    return `Candidate ${a.attempt} rejected by ${GATE_LABEL[fail.gate]}${h ? `: ${plainHeadline(h)}` : '.'}`;
+  }
+  if (a.status === 'accepted' && gen.phase === 'committed' && gen.revision !== undefined) {
+    return `${gen.ungated ? 'Every check that ran passed' : 'All four gates passed'}. Accepted as r${gen.revision}${value !== null ? `, result ${value}` : ''}.`;
+  }
+  return '';
+}
+
+/** The one status word at the right of the Checks head. */
+function headStatus(gen: GenerationView | null, a: AttemptView | undefined): { word: string; tone: string } | null {
+  if (!gen || !a) return null;
+  if (a.candidate?.declined) return { word: 'Declined', tone: 'muted' };
+  if (failingGate(a.gates)) return { word: 'Rejected', tone: 'fail' };
+  if (a.status === 'accepted') return { word: 'Accepted', tone: 'ok' };
+  if (a.status === 'gating') return { word: 'Checking…', tone: 'live' };
+  if (a.status === 'generating' || a.status === 'typing') return { word: 'Writing…', tone: 'live' };
+  if (a.status === 'aborted') return { word: 'Stopped', tone: 'muted' };
   return null;
 }
 
@@ -157,31 +223,32 @@ export function GatePanel({ gen, state, engine }: { gen: GenerationView | null; 
   const declined = !!a?.candidate?.declined;
   const diagCount = diags.reduce((n, g) => n + g.diagnostics.length, 0);
 
+  const value = state && a?.status === 'accepted' && gen?.phase === 'committed' ? lastCallValue(state.repl) : null;
+  const hs = headStatus(gen, a);
+  const idle = !gen;
+
   return (
-    <section class="panel panel-gates" aria-label="Gates" data-verdict={failing ? 'fail' : a?.status === 'accepted' ? 'pass' : 'none'}>
-      <PanelHead ch="03" title="Gates" sub="the toolchain decides" />
+    <section class="panel panel-gates" aria-labelledby="h-checks" data-verdict={failing ? 'fail' : a?.status === 'accepted' ? 'pass' : 'none'}>
+      <PanelHead title="Checks" id="h-checks" status={hs?.word} tone={hs?.tone} />
+      <p class="sr-only" role="status">
+        {verdictAnnouncement(gen, a, value)}
+      </p>
       <div class="panel-body gates-body">
-        {gen && a && !isLatestAttempt(gen, a) && (
-          <p class="showing muted small">
-            showing the verdict on candidate #{a.attempt}
-            {selection.value ? '' : ` while #${gen.attempts[gen.attempts.length - 1].attempt} is on its way`}
-          </p>
-        )}
         {gen?.ungated && !gen.declined && (
           <p class="ungated" role="note">
             <span class="ungated-mark" aria-hidden="true">!</span>
             <span>
-              No tests yet, so nothing checks that it does what you meant. <span class="muted">Only Compile and Invariants run. Add a test to make the gate stricter.</span>
+              No tests yet, so nothing checks that it does what you meant. <span class="muted">Only Compile and Invariants run. Add a test to make the checks stricter.</span>
             </span>
           </p>
         )}
-        <ol class="gate-rows">
+        <ol class="gate-rows" aria-label="The four checks">
           {rows.map((g) => (
-            <GateRow key={g.gate} g={g} notRun={declined} />
+            <GateRow key={g.gate} g={g} notRun={declined} idle={idle} />
           ))}
         </ol>
 
-        <div aria-live="polite" aria-atomic="true">
+        <div class="verdict">
           {gen?.error ? (
             <div class="headline headline-error" role="alert">
               <p class="headline-gate">
@@ -207,21 +274,15 @@ export function GatePanel({ gen, state, engine }: { gen: GenerationView | null; 
               </p>
             )
           )}
-          {gen && a && <Headline gen={gen} a={a} />}
+          {gen && a && <Headline gen={gen} a={a} value={value} />}
         </div>
         {committed && gen && <Confidence a={committed} fn={gen.fn} mutation={state?.mutation} />}
         {checksFor && state && engine && <MoreChecks state={state} engine={engine} fn={checksFor} />}
 
-        {!gen && (
-          <p class="empty">
-            Call a function that doesn't exist and the model drafts it. These four gates decide whether the draft is kept.
-          </p>
-        )}
-
         {diags.length > 0 && (
           // a single diagnostic is already spelled out in the headline block, so its list starts collapsed
           <details class="diags" open={!!failing && diagCount > 1} key={`${gen?.id}:${a?.attempt}`}>
-            <summary>All the evidence ({diagCount})</summary>
+            <summary>Evidence ({diagCount})</summary>
             <ul>
               {diags.flatMap((g) => g.diagnostics.map((d, i) => <DiagnosticItem key={`${g.gate}${i}`} d={d} gate={g.gate} />))}
             </ul>

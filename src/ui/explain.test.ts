@@ -225,6 +225,25 @@ describe('plain words for the gates', () => {
   it('explains how a failing input was found without jargon', () => {
     const d = { kind: 'property' as const, name: 'p', counterexample: '[[]]', seed: 1, shrinks: 3, runs: 100 };
     expect(howFound(d)).toMatch(/^Found by trying up to 100 random inputs, then cut down in 3 steps/);
-    expect(`${howFound(d)} ${Object.values(GATE_QUESTION).join(' ')}`).not.toMatch(JARGON);
+    expect(`${howFound(d)} ${Object.values(GATE_QUESTION).join(' ')}`).not.toMatch(/property-based|\binvariant\b|\bmutants?\b|\bshrunk\b|fast-check|counterexample/i);
+  });
+});
+
+describe('short gate status cells', () => {
+  it('says what happened in a few words', async () => {
+    const { shortGateStatus, rejectionClass, GATE_CAPTION, GATE_PLAIN } = await import('./explain');
+    const g = (gate: GateResult['gate'], status: GateResult['status'], summary: string, extra: Partial<GateResult> = {}) => ({ gate, status, summary, ...extra });
+    expect(shortGateStatus(g('compile', 'pass', '0 errors'))).toBe('Passed');
+    expect(shortGateStatus(g('tests', 'pass', '4/4 tests passed', { counts: { passed: 4, total: 4 } }))).toBe('4 of 4 passed');
+    expect(shortGateStatus(g('properties', 'pass', '3/3 held', { counts: { passed: 3, total: 3 } }))).toBe('3 of 3 held');
+    expect(shortGateStatus(g('properties', 'fail', '1/3 failed', { counts: { passed: 2, total: 3 } }))).toBe('1 of 3 failed');
+    expect(shortGateStatus(g('invariants', 'pass', 'pure ✓ bounded ✓'))).toBe('Pure · fast');
+    expect(shortGateStatus(g('invariants', 'fail', 'x', { note: 'bounded violated' }))).toBe('Too slow');
+    expect(shortGateStatus(g('invariants', 'skipped', 'not reached', { note: 'not reached' }))).toBe('—');
+    expect(shortGateStatus(g('compile', 'fail', '2 errors'))).toBe('2 errors');
+    expect(shortGateStatus(g('tests', 'pass', ''), true)).toBe('Not run');
+    const fail = { gate: 'tests', status: 'fail', ms: 0, summary: '', diagnostics: [] } as GateResult;
+    expect(rejectionClass(fail)).toBe('model mistake');
+    expect(`${Object.values(GATE_CAPTION).join(' ')} ${Object.values(GATE_PLAIN).join(' ')}`).not.toMatch(/property-based|\binvariant\b|\bmutants?\b|\bshrunk\b|fast-check|counterexample/i);
   });
 });

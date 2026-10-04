@@ -29,7 +29,7 @@ Enter → Runtime.evaluate(expr)           (runtime worker; name lookup is a Pro
         gate 3 properties   ├ sandbox/gateRunner.ts    (Web Worker, hard timeout, fast-check)
         gate 4 invariants   ┘
         all pass → commit: new Revision, Runtime.define(name, js) (hot swap), re-evaluate the original call
-        fail → keep candidate visible in the retry strip; diagnostics → next prompt
+        fail → keep candidate visible in the Attempts strip; diagnostics → next prompt
   → budget exhausted → clean failure, program unchanged, restart options
 ```
 
@@ -276,7 +276,19 @@ content-addressed (`Image.datasets[hash]`); revisions and env snapshots only ref
 
 ## UI contract
 
-The UI is a pure function of `Engine.state` plus calls on `Engine`. It owns no business logic. Panels: REPL, code pane, gate panel (+ the big rejection headline), retry strip, revision log, repo view, mode banner. See the UI task brief.
+The UI is a pure function of `Engine.state` plus calls on `Engine`. It owns no business logic. Panels, in reading order:
+**Console** (the REPL), **Draft** (the code pane), **Checks** (the four gate rows, each with a disclosure for its full
+summary, then the verdict card: the rejection card or *Accepted · saved as rN*), **Attempts** (one slim card per draft,
+rejected ones kept; hidden until the first draft), then the **Revisions** / **Repo** tabs. The header holds the wordmark,
+one mode pill (opens the Run-live dialog) and one **Session** menu (Data, Share, Export/Import image, Load recording,
+Session log, Reset).
+
+Visual system: IBM Plex Sans for UI and prose, IBM Plex Mono only for literal code, calls and values, Fraunces only at
+display sizes (wordmark, verdict headline, the returned value, revision ids). Panel titles are sentence case; uppercase
+is kept for the verdict eyebrow and stamp. Red is the rejection pen only; the blue pencil is focus. The desktop page
+scrolls in two columns (console and draft left; checks, verdict and attempts right); below 1100 px it is one column
+(console, checks, draft, attempts), and on phones the draft folds to *Show draft (N lines)* except while it streams.
+Screen readers hear one `role=status` sentence per verdict.
 
 ## Hardening added after adversarial review
 

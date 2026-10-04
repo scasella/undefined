@@ -104,3 +104,8 @@ export function splitTicks(text: string): Array<{ code: boolean; text: string }>
   if (parts.length < 3 || parts.length % 2 === 0) return [{ code: false, text }];
   return parts.map((t, i) => ({ code: i % 2 === 1, text: t })).filter((p) => p.text !== '' || p.code);
 }
+
+/** Sentence case for a short UI label: the first letter up, the rest untouched (`certified r4` → `Certified r4`). */
+export function sentenceCase(s: string): string {
+  return s.length ? s[0].toUpperCase() + s.slice(1) : s;
+}

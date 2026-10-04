@@ -4,35 +4,50 @@ import type { AttemptStatus, EngineState } from '../../types';
 import { codeAttempt, compileMarks, latestCommitted, signatureOf } from '../select';
 import { selection } from '../uiState';
 import { CodeView } from './CodeView';
-import { GeneratedBadge, PanelHead } from './common';
+import { PanelHead } from './common';
 import { ModelSaw } from './ModelSaw';
 
 const STATUS_TEXT: Record<AttemptStatus, string> = {
-  generating: 'writing',
-  typing: 'arriving',
-  gating: 'being checked',
-  rejected: 'rejected',
-  accepted: 'accepted',
-  aborted: 'stopped',
+  generating: 'Writing',
+  typing: 'Arriving',
+  gating: 'Being checked',
+  rejected: 'Rejected',
+  accepted: 'Accepted',
+  aborted: 'Stopped',
 };
 
+/** Matches a phone-width viewport, re-rendering when it changes. */
+function usePhone(): boolean {
+  const q = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(max-width: 640px)') : null;
+  const [phone, setPhone] = useState(!!q?.matches);
+  useEffect(() => {
+    if (!q) return;
+    const on = () => setPhone(q.matches);
+    q.addEventListener?.('change', on);
+    return () => q.removeEventListener?.('change', on);
+  }, []);
+  return phone;
+}
+
 /**
- * The code panel. On a phone its body can be folded away (the toggle is hidden on wider screens); it opens again
- * whenever a new generation starts, so the draft is on screen while the model writes it.
+ * The draft panel. On a phone its body is folded to "Show draft (N lines)" except while a draft is streaming in; the
+ * reader's own choice holds until the next generation starts.
  */
-function CodePanel({ label, genId, head, children, bodyClass, foldable = true }: { label: string; genId: string | null; head: ComponentChildren; children: ComponentChildren; bodyClass?: string; foldable?: boolean }) {
-  const [open, setOpen] = useState(true);
-  useEffect(() => setOpen(true), [genId]);
+function CodePanel({ genId, head, children, bodyClass, streaming = false, lines = 0, foldable = true }: { genId: string | null; head: ComponentChildren; children: ComponentChildren; bodyClass?: string; streaming?: boolean; lines?: number; foldable?: boolean }) {
+  const phone = usePhone();
+  const [choice, setChoice] = useState<boolean | null>(null);
+  useEffect(() => setChoice(null), [genId]);
+  const open = !foldable || (choice ?? (streaming || !phone));
   return (
-    <section class={`panel panel-code${open ? '' : ' is-folded'}`} aria-label={label}>
-      <PanelHead ch="02" title="Candidate" sub="the model's draft">
+    <section class={`panel panel-code${open ? '' : ' is-folded'}`} aria-labelledby="h-draft">
+      <PanelHead title="Draft" id="h-draft">
         {head}
-        {foldable && (
-          <button type="button" class="btn btn-ghost btn-xs fold-btn" aria-expanded={open} aria-controls="code-body" onClick={() => setOpen(!open)}>
-            {open ? 'Hide code' : 'Show code'}
-          </button>
-        )}
       </PanelHead>
+      {foldable && phone && (
+        <button type="button" class="btn fold-btn" aria-expanded={open} aria-controls="code-body" onClick={() => setChoice(!open)}>
+          {open ? 'Hide draft' : `Show draft${lines ? ` (${lines} line${lines === 1 ? '' : 's'})` : ''}`}
+        </button>
+      )}
       <div id="code-body" class={`panel-body code-scroll${bodyClass ? ` ${bodyClass}` : ''}`}>
         {children}
       </div>
@@ -40,90 +55,83 @@ function CodePanel({ label, genId, head, children, bodyClass, foldable = true }:
   );
 }
 
+const lineCount = (body: string): number => (body ? body.replace(/\n$/, '').split('\n').length + 2 : 0);
+
 export function CodePane({ state }: { state: EngineState }) {
   const gen = state.generation;
   const shown = codeAttempt(gen, selection.value);
 
   if (gen && shown) {
     const { attempt, holdover } = shown;
-    const latest = gen.attempts[gen.attempts.length - 1];
     const committed = attempt.status === 'accepted' && gen.phase === 'committed';
+    const streaming = !holdover && (attempt.status === 'typing' || attempt.status === 'generating');
+    const word = attempt.candidate?.declined ? 'Declined' : gen.kind === 'recheck' ? 'Fails the added check' : STATUS_TEXT[attempt.status];
     return (
       <CodePanel
-        label="Candidate code"
         genId={gen.id}
+        streaming={streaming}
+        lines={lineCount(attempt.shown)}
         bodyClass={holdover ? 'is-holdover' : undefined}
         head={
           <>
-          <span class="code-what">
-            {gen.kind === 'recheck' ? `committed code · ${gen.fn}` : `No. ${attempt.attempt} of ${gen.maxAttempts} · ${gen.fn}`}
-          </span>
-          {holdover ? (
-            <>
-              <span class={`chip st-${attempt.status}`}>
-                {STATUS_TEXT[attempt.status]} · #{attempt.attempt}
-              </span>
-              <span class="chip st-generating" title="The next draft replaces this one as soon as its first characters arrive">
-                #{latest.attempt} on its way
-              </span>
-            </>
-          ) : (
-            <span class={`chip st-${attempt.status}${attempt.candidate?.declined ? ' st-declined' : ''}`}>
-              {attempt.candidate?.declined ? 'declined' : gen.kind === 'recheck' ? 'fails the added check' : STATUS_TEXT[attempt.status]}
+            <code class="code-what">{gen.fn}</code>
+            <span
+              class={`chip st-${attempt.status}${attempt.candidate?.declined ? ' st-declined' : ''}`}
+              title={committed ? 'Written by the model, accepted by the checks. Read-only.' : holdover ? 'The next draft replaces this one as soon as its first characters arrive' : undefined}
+            >
+              {gen.kind === 'recheck' ? word : `#${attempt.attempt} · ${word}`}
             </span>
-          )}
-          {committed && <GeneratedBadge />}
           </>
         }
       >
-          <CodeView
-            signature={gen.signature}
-            body={attempt.shown}
-            caret={!holdover && (attempt.status === 'typing' || attempt.status === 'generating')}
-            marks={attempt.status === 'rejected' ? compileMarks(attempt.gates) : undefined}
-            placeholder={attempt.status === 'generating' || attempt.status === 'typing' ? 'waiting for the model…' : attempt.status === 'aborted' ? 'no draft arrived (the model could not be asked)' : ''}
-          />
-          {attempt.candidate?.notes && (
-            <p class="model-notes">
-              <span class="label">model's note</span> <span class="model-notes-text">{attempt.candidate.notes}</span>
-            </p>
-          )}
-          {attempt.candidate?.prompt && (
-            <ModelSaw
-              key={`${gen.id}:${attempt.attempt}`}
-              prompt={attempt.candidate.prompt}
-              spec={state.program.functions[gen.fn]?.spec}
-              attempt={attempt.attempt}
-            />
-          )}
+        <CodeView
+          signature={gen.signature}
+          body={attempt.shown}
+          caret={streaming}
+          marks={attempt.status === 'rejected' ? compileMarks(attempt.gates) : undefined}
+          placeholder={attempt.status === 'generating' || attempt.status === 'typing' ? 'waiting for the model…' : attempt.status === 'aborted' ? 'no draft arrived (the model could not be asked)' : ''}
+        />
+        {attempt.candidate?.notes && (
+          <p class="model-notes">
+            <span class="label">Model's note</span> <span class="model-notes-text">{attempt.candidate.notes}</span>
+          </p>
+        )}
+        {attempt.candidate?.prompt && (
+          <ModelSaw key={`${gen.id}:${attempt.attempt}`} prompt={attempt.candidate.prompt} spec={state.program.functions[gen.fn]?.spec} attempt={attempt.attempt} />
+        )}
       </CodePanel>
     );
   }
 
   const rec = latestCommitted(state.program);
+  if (!rec?.artifact) {
+    // nothing drafted yet: a faint skeleton where the draft will arrive
+    return (
+      <section class="panel panel-code is-empty" aria-labelledby="h-draft">
+        <PanelHead title="Draft" id="h-draft" />
+        <div class="skeleton" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
+        <p class="sr-only">No draft yet. The model's draft appears here, line by line, before the checks judge it.</p>
+      </section>
+    );
+  }
   return (
     <CodePanel
-      label="Code"
       genId={null}
-      foldable={!!rec?.artifact}
+      lines={lineCount(rec.artifact.body)}
       head={
-        rec?.artifact && (
-          <>
-            <span class="code-what">{rec.spec.name}</span>
-            <span class="chip st-accepted">certified r{rec.artifact.revision}</span>
-            <GeneratedBadge />
-          </>
-        )
+        <>
+          <code class="code-what">{rec.spec.name}</code>
+          <span class="chip st-accepted" title="Written by the model, accepted by the checks. Read-only.">
+            Certified r{rec.artifact.revision}
+          </span>
+        </>
       }
     >
-        {rec?.artifact ? (
-          <CodeView signature={signatureOf(rec.spec, rec.artifact.returnType)} body={rec.artifact.body} />
-        ) : (
-          <p class="empty">
-            No code yet, and you won't write any here. Call a function that doesn't exist: the model's draft appears here line
-            by line, before the gates judge it.
-          </p>
-        )}
+      <CodeView signature={signatureOf(rec.spec, rec.artifact.returnType)} body={rec.artifact.body} />
     </CodePanel>
   );
 }

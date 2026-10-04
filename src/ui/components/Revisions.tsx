@@ -74,8 +74,15 @@ export function Revisions({ state, engine }: { state: EngineState; engine: Engin
               {head ? (
                 <span class="rev-current">current</span>
               ) : (
-                <button type="button" class="btn btn-ghost btn-xs" disabled={state.busy} onClick={() => void engine.rollback(r.id)}>
-                  Roll back to r{r.id}
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs rev-restore"
+                  disabled={state.busy}
+                  aria-label={`Restore r${r.id}`}
+                  title={`Roll back to r${r.id}: a new revision with the program as it was then`}
+                  onClick={() => void engine.rollback(r.id)}
+                >
+                  Restore
                 </button>
               )}
             </span>

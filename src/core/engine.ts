@@ -3080,7 +3080,8 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       head = rev.id;
       clearMutations();
       publishHistory();
-      set({ generation: null });
+      // the imported program may already define what the console is prefilled with: the first-screen sentence would lie
+      set({ generation: null, hints: { ...state.value.hints, opener: false } });
       await deps.store.clearAll();
       await persistDatasets(); // the rows before the revisions that refer to them
       for (const r of history) await deps.store.appendRevision(r, head);

@@ -4,6 +4,7 @@ import {
   datasetLine,
   expectedSummary,
   formatBytes,
+  formatCell,
   numericColumns,
   pinDatasets,
   pinnedText,
@@ -61,5 +62,18 @@ describe('pins', () => {
     expect(expectedSummary([{ customer: 'Ada', total: 17 }])).toBe('[{ customer: "Ada", total: 17 }]');
     expect(expectedSummary('x'.repeat(200), 10)).toBe('"xxxxxxxx…');
     expect(pinDatasets({ args: [{ kind: 'dataset', name: 'rows', hash: 'h' }, { kind: 'value', encoded: 1 }] })).toEqual(['rows']);
+  });
+});
+
+describe('formatCell', () => {
+  it('rounds a long decimal to at most 4 places and trims trailing zeros', () => {
+    expect(formatCell('2260.0574999999994')).toBe('2260.0575');
+    expect(formatCell('22.5')).toBe('22.5');
+    expect(formatCell('0.10000000000000003')).toBe('0.1');
+    expect(formatCell('-3.00001')).toBe('-3');
+    expect(formatCell('-0.00001')).toBe('0');
+  });
+  it('leaves integers, bigints, exponent forms and non-numbers alone', () => {
+    for (const c of ['7', '-12', '123n', '1e21', '1.5e-7', 'NaN', 'Infinity', '-Infinity', 'Ada', '']) expect(formatCell(c)).toBe(c);
   });
 });

@@ -1,7 +1,8 @@
 import { render } from 'preact';
 import type { Engine } from './types';
 import { App } from './ui/App';
-// self-hosted fonts (latin only, declared in styles.css): Fraunces (variable) + IBM Plex Mono 400/500/600/400 italic
+// self-hosted fonts (latin only, declared in styles.css): IBM Plex Sans (variable, UI), IBM Plex Mono 400/500/600/400 italic (code),
+// Fraunces (variable, display)
 import './styles.css';
 
 const root = document.getElementById('app')!;

@@ -7,7 +7,7 @@ const EXPECT = {
   slugify: { gate: 'TESTS', text: 'slugify(' },
   fibonacci: { gate: 'INVARIANTS', text: 'fibonacci(1000000)' },
   // spec-less over a dataset: no tests, so nothing to reject; it must commit, render a table and offer the pin
-  orders: { button: 'topCustomersByRevenue(', text: 'Pin as test', noRejection: true },
+  orders: { button: 'topCustomersByRevenue(', text: 'Pin result as test', noRejection: true },
 };
 const srv = await startServer({ mode: 'preview', port: 5194 });
 const b = await launch({ width: 1440, height: 900 });
@@ -23,16 +23,16 @@ try {
     await p.locator('#repl-input').press('Enter');
     let rejected = '';
     try {
-      await p.waitForFunction(() => /Accepted — committed as r\d+/.test(document.body.innerText), null, { timeout: 120000 });
+      await p.waitForFunction(() => /Accepted · saved as r\d+/.test(document.body.innerText), null, { timeout: 120000 });
       rejected = await p.evaluate(() => [...document.querySelectorAll('.candidates *, [class*="strip"] *')].map((e) => e.textContent).join(' '));
     } catch { rejected = 'TIMEOUT'; }
     const text = await p.evaluate(() => document.body.innerText);
-    const ok = /Accepted — committed as r\d+/.test(text) && text.includes(want.text) && (want.noRejection ? !/rejected by/i.test(text) && (await p.locator('table').count()) > 0 : /rejected by/i.test(text) && text.toLowerCase().includes(want.gate.toLowerCase()));
+    const ok = /Accepted · saved as r\d+/.test(text) && text.includes(want.text) && (want.noRejection ? !/rejected by/i.test(text) && (await p.locator('table').count()) > 0 : /rejected by/i.test(text) && text.toLowerCase().includes(want.gate.toLowerCase()));
     console.log(ok ? 'PASS' : 'FAIL', id, ok ? '' : text.slice(0, 400));
     if (!ok) failed++;
   }
-  // also the opener must show the replay banner
-  const banner = await b.page.evaluate(() => document.body.innerText.includes('Replaying a recorded gpt-6-luna session; gates are running live'));
+  // also the header must show the replay mode pill (its tooltip names the recorded model)
+  const banner = await b.page.evaluate(() => document.querySelector('.mode-badge')?.innerText.includes('Replay · gates run live') && document.querySelector('.mode-badge')?.title.includes('recorded gpt-6-luna session'));
   console.log(banner ? 'PASS' : 'FAIL', 'replay banner');
   if (!banner) failed++;
 } finally {

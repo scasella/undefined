@@ -4,30 +4,51 @@ import type { Engine, EngineState } from '../../types';
 import { repoUrlFromPages } from '../format';
 import { dataDrawerOpen, dismissedNotice, downloadText, loadRecordingOpen, localNotice, noticeKey, sessionLogOpen, shareOpen, showNotice } from '../uiState';
 import { CopyBlock, Ticks } from './common';
+import { calledName } from '../select';
 import { previewImport } from './Share';
 
-function ModeBadge({ state }: { state: EngineState }) {
+/** The one mode indicator: a pill that opens the "Run it live" dialog. The version lives in its tooltip. */
+function ModeBadge({ state, onClick }: { state: EngineState; onClick: () => void }) {
   const s = state.service;
   if (state.mode === 'live') {
+    const version = s.codexVersion ?? (s.state === 'degraded' ? 'unavailable' : '…');
     return (
-      <span class="mode-badge mode-live" title={s.effort ? `reasoning effort: ${s.effort}` : undefined}>
+      <button
+        type="button"
+        class="mode-badge mode-live"
+        aria-haspopup="dialog"
+        title={`${s.model ?? 'model'} via Codex CLI ${version}${s.effort ? ` · reasoning effort: ${s.effort}` : ''}`}
+        onClick={onClick}
+      >
         <span class="dot" aria-hidden="true" />
-        Live · {s.model ?? 'model'} via Codex CLI {s.codexVersion ?? (s.state === 'degraded' ? 'unavailable' : '…')}
-      </span>
+        <span>
+          Live<span class="mb-more">{' '}· {s.model ?? 'model'}</span>
+        </span>
+      </button>
     );
   }
   return (
-    <span class="mode-badge mode-replay">
+    <button
+      type="button"
+      class="mode-badge mode-replay"
+      aria-haspopup="dialog"
+      title="Replaying a recorded gpt-6-luna session; the gates run live in your browser. Click to run it live."
+      onClick={onClick}
+    >
       <span class="dot" aria-hidden="true" />
-      Replay · gates live
-    </span>
+      <span>
+        Replay<span class="mb-more">{' '}· gates run live</span>
+      </span>
+    </button>
   );
 }
 
+/** The one session menu: data, sharing, the image file, the session log, reset. */
 function Menu({ state, engine }: { state: EngineState; engine: Engine }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDetailsElement>(null);
   const close = () => menuRef.current?.removeAttribute('open');
+  const datasets = state.datasets.length;
 
   const exportImage = async () => {
     close();
@@ -41,60 +62,50 @@ function Menu({ state, engine }: { state: EngineState; engine: Engine }) {
     close();
     if (confirm('Reset discards every revision and the live state, and reseeds r1. Continue?')) void engine.resetImage();
   };
+  const item = (label: string, onClick: () => void, opts: { disabled?: boolean; title?: string; extra?: string; cls?: string } = {}) => (
+    <button
+      type="button"
+      role="menuitem"
+      class={opts.cls}
+      disabled={opts.disabled}
+      title={opts.title}
+      onClick={() => {
+        close();
+        onClick();
+      }}
+    >
+      {label}
+      {opts.extra && <span class="menu-extra">{opts.extra}</span>}
+    </button>
+  );
 
   return (
     <details class="menu" ref={menuRef}>
-      <summary class="btn btn-ghost">Image <span aria-hidden="true">▾</span></summary>
+      <summary class="btn btn-ghost menu-btn" aria-label={`Session menu${datasets ? ` (${datasets} dataset${datasets === 1 ? '' : 's'} bound)` : ''}`}>
+        <span class="menu-word">Session</span>
+        <span class="menu-dots" aria-hidden="true">
+          ⋯
+        </span>
+        <span class="menu-caret" aria-hidden="true">
+          ▾
+        </span>
+        {datasets > 0 && <span class="menu-dot" aria-hidden="true" />}
+      </summary>
       <div class="menu-pop" role="menu">
-        <button type="button" role="menuitem" onClick={exportImage}>
-          Export image <span class="muted small">undefined-image.json</span>
-        </button>
-        <button
-          type="button"
-          role="menuitem"
-          disabled={state.busy}
-          onClick={() => {
-            close();
-            fileRef.current?.click();
-          }}
-        >
-          Import image…
-        </button>
-        <button
-          type="button"
-          role="menuitem"
-          onClick={() => {
-            close();
-            shareOpen.value = true;
-          }}
-        >
-          Share this session… <span class="muted small">download, host, link</span>
-        </button>
-        <button
-          type="button"
-          role="menuitem"
-          disabled={state.busy}
-          onClick={() => {
-            close();
-            loadRecordingOpen.value = true;
-          }}
-        >
-          Load a recording…
-        </button>
-        <button
-          type="button"
-          role="menuitem"
-          onClick={() => {
-            close();
-            sessionLogOpen.value = true;
-          }}
-        >
-          Session log (this browser only){' '}
-          <span class="muted small">{state.sessionLog?.enabled ? `on · ${state.sessionLog.count}` : 'off'}</span>
-        </button>
-        <button type="button" role="menuitem" class="danger" disabled={state.busy} onClick={reset}>
-          Reset…
-        </button>
+        {item('Data…', () => (dataDrawerOpen.value = true), {
+          title: 'Paste or drop CSV/JSON and bind it to a console variable',
+          extra: datasets ? `${datasets} bound` : undefined,
+        })}
+        {item('Share…', () => (shareOpen.value = true))}
+        {item('Export image', () => void exportImage(), { title: 'Download undefined-image.json: every revision of this program' })}
+        {item('Import image…', () => fileRef.current?.click(), { disabled: state.busy })}
+        {item('Load recording…', () => (loadRecordingOpen.value = true), { disabled: state.busy })}
+        <hr class="menu-sep" role="separator" />
+        {item('Session log', () => (sessionLogOpen.value = true), {
+          title: 'A log kept in this browser only',
+          extra: state.sessionLog?.enabled ? `on · ${state.sessionLog.count}` : 'off',
+        })}
+        {item('Reset…', reset, { disabled: state.busy, cls: 'danger' })}
       </div>
       <input
         ref={fileRef}
@@ -130,27 +141,8 @@ export function Header({ state, engine, onRunLive }: { state: EngineState; engin
         </h1>
         <p class="tagline">The model proposes. Your toolchain decides.</p>
       </div>
-      <ModeBanner state={state} onRunLive={onRunLive} />
       <div class="topbar-right">
-        {state.mode === 'live' && <ModeBadge state={state} />}
-        <span class="rev-chip" title="The current revision of your program">
-          r{state.headRevision}
-        </span>
-        <button
-          type="button"
-          class="btn btn-ghost data-btn"
-          aria-haspopup="dialog"
-          aria-expanded={dataDrawerOpen.value}
-          onClick={() => (dataDrawerOpen.value = true)}
-          title="Paste or drop CSV/JSON and bind it to a REPL variable"
-        >
-          Data
-          {state.datasets.length > 0 && (
-            <span class="badge-count" aria-label={`${state.datasets.length} bound`}>
-              {state.datasets.length}
-            </span>
-          )}
-        </button>
+        <ModeBadge state={state} onClick={onRunLive} />
         <Menu state={state} engine={engine} />
       </div>
     </header>
@@ -220,44 +212,40 @@ export function RunLiveDialog({ state, engine, open, onClose }: { state: EngineS
   );
 }
 
-export function ModeBanner({ state, onRunLive }: { state: EngineState; onRunLive: () => void }) {
-  if (state.mode !== 'replay') return null;
-  return (
-    <div class="banner" role="status">
-      <span class="banner-icon" aria-hidden="true">
-        ⟲
-      </span>
-      {/* the bundled recordings are a gpt-6-luna session whatever model a local service would use */}
-      <p>Replaying a recorded gpt-6-luna session; gates are running live</p>
-      <button type="button" class="btn btn-xs" onClick={onRunLive}>
-        Run live
-      </button>
-    </div>
-  );
-}
+/** A short visible call for an example chip (the full call is its tooltip and what it types in). */
+const SHORT_CALL: Record<string, string> = {
+  median: 'median([3,1,4,2])',
+  slugify: 'slugify("Crème Brûlée")',
+  fibonacci: 'fibonacci(90)',
+};
 
 export function Examples({ state, engine }: { state: EngineState; engine: Engine }) {
   if (state.examples.length === 0) return null;
+  // the example whose function is being written (or is typed in): pressed; the others recede while busy
+  const current = state.generation && state.busy ? state.generation.fn : calledName(state.replInput);
   return (
-    <nav class="examples" aria-label="Examples">
-      <span class="label examples-label">try</span>
-      {state.examples.map((ex) => (
-        <button
-          type="button"
-          key={ex.id}
-          class="example"
-          disabled={state.busy}
-          title={ex.blurb}
-          onClick={() => {
-            // so Enter runs the pre-typed call straight away (focus now, and again once the call is typed in)
-            const focus = () => document.getElementById('repl-input')?.focus();
-            focus();
-            void engine.loadExample(ex.id).then(focus);
-          }}
-        >
-          <span class="example-call">{ex.call}</span>
-        </button>
-      ))}
+    <nav class={`examples${state.busy ? ' is-busy' : ''}`} aria-label="Examples">
+      {state.examples.map((ex) => {
+        const pressed = calledName(ex.call) === current;
+        return (
+          <button
+            type="button"
+            key={ex.id}
+            class={`example${pressed ? ' is-current' : ''}`}
+            aria-pressed={pressed}
+            disabled={state.busy}
+            title={`${ex.call}\n\n${ex.blurb}`}
+            onClick={() => {
+              // so Enter runs the pre-typed call straight away (focus now, and again once the call is typed in)
+              const focus = () => document.getElementById('repl-input')?.focus();
+              focus();
+              void engine.loadExample(ex.id).then(focus);
+            }}
+          >
+            <span class="example-call">{SHORT_CALL[ex.id] ?? ex.call}</span>
+          </button>
+        );
+      })}
     </nav>
   );
 }

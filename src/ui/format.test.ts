@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fmtElapsed, fmtMs, isValidFnName, paramsText, parseParams, relativeTime, repoUrlFromPages, shortHash, splitTicks, stripRejected } from './format';
+import { fmtElapsed, fmtMs, isValidFnName, paramsText, parseParams, relativeTime, repoUrlFromPages, sentenceCase, shortHash, splitTicks, stripRejected } from './format';
 
 describe('relativeTime', () => {
   const now = 1_000_000_000;
@@ -109,5 +109,13 @@ describe('parseParams accepts the parameter text a call-inferred spec carries', 
         { name: 'arg1', type: 'number' },
       ],
     });
+  });
+});
+
+describe('sentenceCase', () => {
+  it('raises only the first letter', () => {
+    expect(sentenceCase('certified r4')).toBe('Certified r4');
+    expect(sentenceCase('generated')).toBe('Generated');
+    expect(sentenceCase('')).toBe('');
   });
 });

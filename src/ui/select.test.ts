@@ -163,3 +163,20 @@ describe('declines in the selectors', () => {
     expect(newSpecPrefill(compose, 'compose')).toEqual({ params: 'arg0: (...args: any[]) => any, arg1: { f: (x: number) => number }' });
   });
 });
+
+describe('lastCallValue and calledName', () => {
+  it('reads the first output after the last input, never a table or an overlong value', async () => {
+    const { lastCallValue } = await import('./select');
+    expect(lastCallValue([{ kind: 'input' }, { kind: 'info' }, { kind: 'output', value: '2.5' }])).toBe('2.5');
+    expect(lastCallValue([{ kind: 'input' }, { kind: 'output', value: '1' }, { kind: 'input' }, { kind: 'error' }])).toBeNull();
+    expect(lastCallValue([{ kind: 'input' }, { kind: 'output', value: '[…]', table: {} }])).toBeNull();
+    expect(lastCallValue([{ kind: 'input' }, { kind: 'output', value: 'x'.repeat(40) }])).toBeNull();
+  });
+  it('names the called function, with or without an assignment', async () => {
+    const { calledName } = await import('./select');
+    expect(calledName('median([3, 1])')).toBe('median');
+    expect(calledName('  top = topCustomersByRevenue(rows)')).toBe('topCustomersByRevenue');
+    expect(calledName('1 + 2')).toBeNull();
+    expect(calledName('')).toBeNull();
+  });
+});

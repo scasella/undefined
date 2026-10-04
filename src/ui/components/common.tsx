@@ -22,10 +22,10 @@ export function CopyBlock({ text, label }: { text: string; label?: string }) {
 
 const STATUS_ICON: Record<GateStatus, string> = {
   pending: '○',
-  running: '◌',
+  running: '◐',
   pass: '✓',
   fail: '✕',
-  skipped: '⤼',
+  skipped: '–',
 };
 const STATUS_WORD: Record<GateStatus, string> = {
   pending: 'waiting',
@@ -52,15 +52,17 @@ export function GeneratedBadge() {
   );
 }
 
-export function PanelHead({ ch, title, sub, children }: { ch: string; title: string; sub?: string; children?: ComponentChildren }) {
+/** A sheet's head: a sentence-case title, then (right-aligned) one status word and any controls. */
+export function PanelHead({ title, id, status, tone, children }: { title: string; id?: string; status?: string; tone?: string; children?: ComponentChildren }) {
   return (
     <header class="panel-head">
-      <span class="ch" aria-hidden="true">
-        {ch}
-      </span>
-      <h2 class="panel-title">{title}</h2>
-      {sub && <span class="panel-sub">{sub}</span>}
-      <div class="panel-head-extra">{children}</div>
+      <h2 class="panel-title" id={id}>
+        {title}
+      </h2>
+      <div class="panel-head-extra">
+        {children}
+        {status && <span class={`head-status${tone ? ` hs-${tone}` : ''}`}>{status}</span>}
+      </div>
     </header>
   );
 }

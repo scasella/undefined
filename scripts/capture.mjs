@@ -35,7 +35,7 @@ const stateNow = () => p.evaluate(() => {
   const attempt = document.querySelector('[data-attempt][data-status]');
   const statuses = [...document.querySelectorAll('[data-status]')].map((e) => e.getAttribute('data-status'));
   const text = document.body.innerText;
-  return { verdict, statuses: statuses.join(','), busy: /BUSY/.test(text) && !/Accepted — committed/.test(text), typing: statuses.includes('typing'), generating: statuses.includes('generating'), committed: /Accepted — committed as r\d+/.test(text) };
+  return { verdict, statuses: statuses.join(','), busy: !!document.querySelector('.r-live'), typing: statuses.includes('typing'), generating: statuses.includes('generating'), committed: /Accepted · saved as r\d+/.test(text) };
 });
 let sampling = true;
 (async () => { while (sampling) { try { marks.push({ t: (performance.now() - t0) / 1000, ...(await stateNow()) }); } catch { /* navigating */ } await new Promise((r) => setTimeout(r, 120)); } })();
@@ -51,16 +51,16 @@ const loop = captureLoop();
 await p.waitForTimeout(1600); at.idleEnd = now(); // the opening line and the pre-typed call
 await p.locator('#repl-input').press('Enter'); at.enter = now();
 await p.waitForFunction(() => document.querySelector('.panel-gates')?.getAttribute('data-verdict') === 'fail', null, { timeout: 90000 }); at.rejected = now();
-await p.waitForFunction(() => /Accepted — committed as r\d+/.test(document.body.innerText), null, { timeout: 90000 }); at.committed = now();
+await p.waitForFunction(() => /Accepted · saved as r\d+/.test(document.body.innerText), null, { timeout: 90000 }); at.committed = now();
 await p.waitForTimeout(2600); at.openingEnd = now();
 // data flow
 await p.locator('button.example', { hasText: 'topCustomersByRevenue(' }).click(); await p.waitForTimeout(900);
-await p.getByRole('button', { name: /^Data/ }).click(); at.drawerOpen = now(); await p.waitForTimeout(3200);
+await p.locator('.menu summary').click(); await p.waitForTimeout(250); await p.getByRole('menuitem', { name: /^Data/ }).click(); at.drawerOpen = now(); await p.waitForTimeout(3200);
 await p.keyboard.press('Escape'); await p.waitForTimeout(500); at.drawerClosed = now();
 await p.locator('#repl-input').press('Enter'); at.enter2 = now();
-await p.waitForFunction(() => document.querySelectorAll('table').length > 0 && /Pin as test/.test(document.body.innerText), null, { timeout: 90000 }); at.table = now();
+await p.waitForFunction(() => document.querySelectorAll('table').length > 0 && /Pin result as test/.test(document.body.innerText), null, { timeout: 90000 }); at.table = now();
 await p.waitForTimeout(1300);
-await p.getByRole('button', { name: /Pin as test/ }).last().click(); at.pinned = now();
+await p.getByRole('button', { name: /Pin result as test/ }).last().click(); at.pinned = now();
 await p.waitForTimeout(2600); at.end = now();
 sampling = false;
 capturing = false;

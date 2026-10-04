@@ -13,11 +13,11 @@ try {
     await p.goto(srv.url); await p.waitForSelector('#repl-input');
     if (id !== 'median') await p.locator('button.example', { hasText: btn }).click();
     await p.locator('#repl-input').press('Enter');
-    await p.waitForFunction(() => /Accepted — committed as r\d+/.test(document.body.innerText), null, { timeout: 120000 });
+    await p.waitForFunction(() => /Accepted · saved as r\d+/.test(document.body.innerText), null, { timeout: 120000 });
     // the lazy check starts >= 10 s after Enter and 4 s idle; wait for a finished sentence
-    await p.waitForFunction(() => /broken cop(y|ies)/.test(document.querySelector('.panel-gates')?.innerText ?? '') && !/has not run yet|Checking/.test(document.querySelector('.panel-gates')?.innerText ?? ''), null, { timeout: 120000 });
+    await p.waitForFunction(() => document.querySelector('.panel-gates [data-mutation="done"]') && /broken cop(y|ies)/.test(document.querySelector('.panel-gates')?.innerText ?? ''), null, { timeout: 120000 });
     const text = await p.evaluate(() => document.querySelector('.panel-gates').innerText);
-    const i = text.indexOf('WHAT RAN AGAINST IT');
+    const i = text.indexOf('What was checked');
     out[id] = text.slice(i, i + 700).replace(/\n+/g, ' ');
     console.log(id.padEnd(10), out[id]);
   }

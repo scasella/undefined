@@ -36,18 +36,21 @@ function Survivors({ a, open }: { a: Artifact; open?: boolean }) {
   );
 }
 
-/** The confidence line and the mutation status under the "Accepted — committed as rN" banner. */
+/** The confidence line and the broken-copy check's status under the accepted headline. */
 export function Confidence({ a, fn, mutation }: { a: Artifact; fn: string; mutation: EngineState['mutation'] }) {
   if (!a.evidence) return null;
   const progress = plainMutationProgress(mutation, fn);
   const done = !!a.evidence.mutation;
+  // until the check has run, one muted line says when it will (instead of "has not run yet" plus a "Next:" line)
+  const text = done ? plainEvidence(a.evidence) : plainEvidence(a.evidence).replace(/\s*The broken-copy check has not run yet\.\s*$/, '');
+  const pending = mutation?.fn === fn && mutation.phase === 'running' ? progress : 'Broken-copy check runs when idle…';
   return (
-    <div class="evidence" aria-label="What ran against this function" data-mutation={done ? 'done' : 'pending'}>
-      <p class="evidence-label">What ran against it</p>
+    <div class="evidence" aria-label="What was checked" data-mutation={done ? 'done' : 'pending'}>
+      <p class="evidence-label">What was checked</p>
       <p class="confidence" title={describeEvidence(a.evidence)}>
-        {plainEvidence(a.evidence)}
+        {text}
       </p>
-      {progress && !done && <p class="mut-progress">{progress}</p>}
+      {!done && <p class="mut-progress">{pending}</p>}
       <Survivors a={a} />
     </div>
   );
@@ -163,7 +166,7 @@ export function ArtifactEvidence({
   const running = state.mutation?.fn === fn && state.mutation.phase === 'running';
   return (
     <section class="artifact-evidence" aria-label="Evidence">
-      <h4>What ran against it</h4>
+      <h4>What was checked</h4>
       {a.evidence ? (
         <p class="confidence" title={describeEvidence(a.evidence)}>
           {plainEvidence(a.evidence)}

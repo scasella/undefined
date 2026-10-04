@@ -60,7 +60,7 @@ const FIXTURES = {
   cached: { fixture: 'cached' },
   'recording-loaded': { fixture: 'recording-loaded' },
   'repo-stale': { fixture: 'repo-stale', element: '.lower', scrollTo: '.lower' },
-  'image-menu': { fixture: 'committed', prep: (page) => page.locator('.menu summary').click() },
+  'image-menu': { fixture: 'committed', prep: async (page) => { await page.locator('.menu summary').click(); await page.waitForTimeout(300); } },
 };
 
 async function pasteData(page) {
@@ -199,7 +199,7 @@ async function replaySequence(browser, url, size, scheme) {
       await shot(page, '04-second-gating', size, scheme, { full });
       await measure(page, origin, `04-second-gating ${size} ${scheme} (attempt 2: ${await attemptStatus(page, 2)})`, { clip });
     }
-    await page.waitForFunction(() => /Accepted — committed as r\d+/.test(document.body.innerText), null, { timeout: 90000 });
+    await page.waitForFunction(() => /Accepted · saved as r\d+/.test(document.body.innerText), null, { timeout: 90000 });
     await page.waitForTimeout(300);
     if (want('committed')) {
       await shot(page, '05-committed', size, scheme, { full });

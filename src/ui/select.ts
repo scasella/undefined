@@ -244,3 +244,27 @@ export function newSpecPrefill(gen: GenerationView | null, fn: string): { params
 export function inputHistory(entries: { kind: string; text?: string }[]): string[] {
   return entries.filter((e) => e.kind === 'input' && typeof e.text === 'string').map((e) => e.text as string);
 }
+
+/**
+ * The value the newest REPL call returned (the payoff of a generation), for the accepted headline: the first output
+ * after the last input. null when that call has not returned, returned a table, or returned something too long to
+ * read in a headline.
+ */
+export function lastCallValue(entries: ReadonlyArray<{ kind: string; value?: string; table?: unknown }>, maxLen = 32): string | null {
+  let from = 0;
+  for (let i = entries.length - 1; i >= 0; i--) {
+    if (entries[i]!.kind === 'input') {
+      from = i + 1;
+      break;
+    }
+  }
+  const out = entries.slice(from).find((e) => e.kind === 'output');
+  if (!out || out.table || typeof out.value !== 'string' || out.value.length > maxLen) return null;
+  return out.value;
+}
+
+/** The function name a REPL line calls (`median([1])` → median), or null. */
+export function calledName(input: string): string | null {
+  const m = /^\s*(?:[A-Za-z_$][\w$]*\s*=\s*)?([A-Za-z_$][\w$]*)\s*\(/.exec(input);
+  return m ? m[1]! : null;
+}

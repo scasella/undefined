@@ -1,5 +1,5 @@
 import type { TablePreview } from '../../types';
-import { numericColumns, tableNote } from '../data';
+import { formatCell, numericColumns, tableNote } from '../data';
 
 /**
  * An array of row objects as a table: sticky header, bounded height with its own scroll, numbers right-aligned,
@@ -25,8 +25,8 @@ export function DataTable({ table, label, compact }: { table: TablePreview; labe
             {table.rows.map((r, ri) => (
               <tr key={ri}>
                 {r.map((cell, ci) => (
-                  <td key={ci} class={numeric[ci] ? 'num' : undefined}>
-                    {cell}
+                  <td key={ci} class={numeric[ci] ? 'num' : undefined} title={numeric[ci] && formatCell(cell) !== cell ? cell : undefined}>
+                    {numeric[ci] ? formatCell(cell) : cell}
                   </td>
                 ))}
               </tr>

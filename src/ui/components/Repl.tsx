@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Engine, EngineState, GenerationView, ReplEntry, RestartId } from '../../types';
-import { fmtElapsed, fmtMs } from '../format';
-import { inputHistory } from '../select';
+import { fmtElapsed, fmtMs, sentenceCase } from '../format';
+import { calledName, inputHistory } from '../select';
 import { focusFn, lowerTab, useElapsed } from '../uiState';
 import { pinnedText } from '../data';
 import { DataTable } from './DataTable';
@@ -12,7 +12,7 @@ import { PanelHead, Ticks } from './common';
  * The action row under a pinnable result: one compact line. Before pinning, the most prominent button after a result;
  * after, what the pin became and a way to see it in the Repo tab.
  */
-function PinRow({ e, engine, state }: { e: Extract<ReplEntry, { kind: 'output' }>; engine: Engine; state: EngineState }) {
+function PinRow({ e, engine, state, primary }: { e: Extract<ReplEntry, { kind: 'output' }>; engine: Engine; state: EngineState; primary?: boolean }) {
   const p = e.pinnable!;
   if (e.pinned) {
     const n = state.program.functions[p.fn]?.spec.pins?.length ?? 1;
@@ -36,18 +36,18 @@ function PinRow({ e, engine, state }: { e: Extract<ReplEntry, { kind: 'output' }
     <div class="r-actions">
       <button
         type="button"
-        class="btn btn-primary btn-pin"
+        class={`btn btn-pin${primary ? ' btn-primary' : ''}`}
         disabled={state.busy}
         title={`Turn ${p.call} and this result into a unit test on ${p.fn}: the next regeneration has to reproduce it.`}
         onClick={() => void engine.pinResult(e.id)}
       >
-        Pin as test
+        Pin result as test
       </button>
     </div>
   );
 }
 
-function Entry({ e, engine, live, state }: { e: ReplEntry; engine: Engine; live: boolean; state: EngineState }) {
+function Entry({ e, engine, live, latest, state }: { e: ReplEntry; engine: Engine; live: boolean; latest?: boolean; state: EngineState }) {
   switch (e.kind) {
     case 'input':
       return (
@@ -60,10 +60,10 @@ function Entry({ e, engine, live, state }: { e: ReplEntry; engine: Engine; live:
       );
     case 'output':
       return (
-        <li class="r-output">
+        <li class={`r-output${latest && !e.table && e.value.length <= 24 ? ' is-result' : ''}`}>
           <code class="value">{e.value}</code>
           <span class="r-meta">
-            {e.label && <span class={`chip ${e.label === 'generated' ? 'chip-gen' : 'chip-cache'}`}>{e.label}</span>}
+            {e.label && <span class={`chip ${e.label === 'generated' ? 'chip-gen' : 'chip-cache'}`}>{sentenceCase(e.label)}</span>}
             {e.detail && <span class="muted">{e.detail}</span>}
             <span class="muted mono">{fmtMs(e.ms)}</span>
           </span>
@@ -81,10 +81,10 @@ function Entry({ e, engine, live, state }: { e: ReplEntry; engine: Engine; live:
                   Model's note: <span class="r-model-note-text">{e.note}</span>
                 </p>
               )}
-              {e.pinnable && <PinRow e={e} engine={engine} state={state} />}
+              {e.pinnable && <PinRow e={e} engine={engine} state={state} primary={latest} />}
             </div>
           )}
-          {e.note === undefined && e.pinnable && <PinRow e={e} engine={engine} state={state} />}
+          {e.note === undefined && e.pinnable && <PinRow e={e} engine={engine} state={state} primary={latest} />}
         </li>
       );
     case 'error': {
@@ -121,15 +121,9 @@ function Entry({ e, engine, live, state }: { e: ReplEntry; engine: Engine; live:
     }
     case 'info': {
       // an accent row ending in '…' ("Generating…") describes work in flight; once that work is over it must
-      // not keep looking busy, so it settles into a static, muted line
+      // not keep looking busy, so it disappears
       const inFlight = e.tone === 'accent' && e.text.endsWith('…');
-      if (inFlight && !live) {
-        return (
-          <li class="r-info tone-muted is-past">
-            {e.text.slice(0, -1)} <span class="small">· finished</span>
-          </li>
-        );
-      }
+      if (inFlight && !live) return null; // finished work leaves no stale "Generating" line behind
       return (
         <li class={`r-info tone-${e.tone ?? 'muted'}${inFlight ? ' is-live' : ''}`}>
           <Ticks text={e.text} />
@@ -141,38 +135,86 @@ function Entry({ e, engine, live, state }: { e: ReplEntry; engine: Engine; live:
   }
 }
 
+/** The trace of a generation in flight: one line, the raw log behind "Details". */
 function LiveGeneration({ gen }: { gen: GenerationView }) {
   const current = gen.attempts[gen.attempts.length - 1];
   const waiting = gen.phase === 'generating' && (!current || current.status === 'generating');
   const elapsed = useElapsed(`${gen.id}:${gen.attempt}`, waiting);
-  const lines = gen.progress.slice(-4);
+  const lines = gen.progress.slice(-6);
+  const verb = waiting ? 'Writing' : current?.status === 'typing' ? 'Receiving' : current?.status === 'gating' ? 'Checking' : 'Preparing another draft of';
   return (
     <li class="r-live" aria-live="off">
       <p class="live-head">
         <span class="spinner" aria-hidden="true" />
-        {waiting
-          ? 'the model is writing'
-          : current?.status === 'typing'
-            ? 'the draft is arriving'
-            : current?.status === 'gating'
-              ? 'the gates are checking it'
-              : 'getting the next attempt ready'}{' '}
-        ·{' '}
-        <span class="mono">
-          {gen.fn} · attempt {gen.attempt} of {gen.maxAttempts}
+        <span>
+          {verb} <code class="tick">{gen.fn}</code>…
         </span>
-        {waiting && <span class="elapsed mono"> {fmtElapsed(elapsed)}</span>}
+        {waiting && <span class="elapsed mono">{fmtElapsed(elapsed)}</span>}
       </p>
       {waiting && lines.length > 0 && (
-        <ul class="progress">
-          {lines.map((p, i) => (
-            <li key={`${p.t}-${i}`} class={`pg-${p.channel}`}>
-              <span class="mono muted">+{fmtElapsed(p.t)}</span> {p.text}
-            </li>
-          ))}
-        </ul>
+        <details class="trace">
+          <summary>Details</summary>
+          <ul class="progress">
+            {lines.map((p, i) => (
+              <li key={`${p.t}-${i}`} class={`pg-${p.channel}`}>
+                <span class="mono muted">+{fmtElapsed(p.t)}</span> {p.text}
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
     </li>
+  );
+}
+
+/** The first screen's one sentence, naming the function the console is about to call. */
+function Opener({ input }: { input: string }) {
+  const fn = calledName(input);
+  return (
+    <p class="opener">
+      {fn ? (
+        <>
+          <code class="opener-fn">{fn}</code> doesn't exist yet.
+        </>
+      ) : (
+        <>Call a function that doesn't exist yet.</>
+      )}{' '}
+      <em>Press Enter</em> and a model will write it — your checks decide if it stays.
+    </p>
+  );
+}
+
+function Shortcuts() {
+  return (
+    <details class="keys">
+      <summary class="btn btn-ghost btn-xs" aria-label="Keyboard shortcuts" title="Keyboard shortcuts">
+        ?
+      </summary>
+      <div class="keys-pop" role="note">
+        <dl>
+          <dt>
+            <kbd>↵</kbd>
+          </dt>
+          <dd>run</dd>
+          <dt>
+            <kbd>↑</kbd> <kbd>↓</kbd>
+          </dt>
+          <dd>history</dd>
+          <dt>
+            <kbd>1</kbd>–<kbd>4</kbd>
+          </dt>
+          <dd>examples</dd>
+          <dt>
+            <kbd>/</kbd>
+          </dt>
+          <dd>focus the console</dd>
+          <dt>
+            <kbd>Esc</kbd>
+          </dt>
+          <dd>close</dd>
+        </dl>
+      </div>
+    </details>
   );
 }
 
@@ -249,6 +291,12 @@ export function Repl({ state, engine }: { state: EngineState; engine: Engine }) 
   };
 
   const envNames = Object.keys(state.env);
+  let latestOutputId: string | undefined;
+  for (let i = state.repl.length - 1; i >= 0; i--) {
+    const e = state.repl[i];
+    if (e.kind === 'input') break;
+    if (e.kind === 'output') latestOutputId = e.id;
+  }
   // only the newest in-flight info row can still be in flight, and only while a generation runs
   let liveInfoId: string | undefined;
   if (live) {
@@ -262,20 +310,17 @@ export function Repl({ state, engine }: { state: EngineState; engine: Engine }) 
   }
 
   return (
-    <section class="panel panel-repl" aria-label="REPL">
-      <PanelHead ch="01" title="REPL" sub="call any function, even one that doesn't exist">
-        {state.busy && <span class="chip st-gating">busy</span>}
-      </PanelHead>
+    <section class="panel panel-repl" aria-labelledby="h-console">
+      <PanelHead title="Console" id="h-console" />
       <div class="panel-body repl-scroll" ref={scrollRef}>
-        {state.hints.opener && (
-          <p class="opener">
-            This function doesn't exist. <em>Press Enter.</em>
-          </p>
-        )}
+        {state.hints.opener && <Opener input={state.replInput} />}
         <ol class="transcript" ref={listRef} aria-live="polite" aria-relevant="additions">
-          {state.repl.map((e) => (
-            <Entry key={e.id} e={e} engine={engine} live={e.id === liveInfoId} state={state} />
-          ))}
+          {/* while the trace row runs, the in-flight "Generating…" line would only repeat it */}
+          {state.repl.map((e) =>
+            live && e.id === liveInfoId ? null : (
+              <Entry key={e.id} e={e} engine={engine} live={e.id === liveInfoId} latest={e.id === latestOutputId} state={state} />
+            ),
+          )}
           {live && <LiveGeneration gen={gen} />}
         </ol>
       </div>
@@ -297,27 +342,29 @@ export function Repl({ state, engine }: { state: EngineState; engine: Engine }) 
           autocomplete="off"
           autocapitalize="off"
           aria-describedby="repl-hint"
-          placeholder={state.busy ? 'waiting for the gates…' : 'call anything, e.g. median([5, 1, 3])'}
+          placeholder={state.busy ? 'waiting for the checks…' : 'call anything, e.g. median([5, 1, 3])'}
           enterKeyHint="go"
         />
-        <span id="repl-hint" class="kbd-hint">
-          {state.busy ? 'busy' : '⏎ run · ↑↓ history'}
+        <span id="repl-hint" class="sr-only">
+          Enter runs the call; the up and down arrows walk the history.
         </span>
+        <Shortcuts />
         <button
           type="button"
-          class="btn run-btn"
+          class={`btn run-btn${state.hints.opener ? ' btn-primary' : ''}`}
           disabled={state.busy}
+          aria-label="Run"
           onClick={() => {
             setHistIdx(null);
             void engine.submit();
           }}
         >
-          Run
+          Run <span aria-hidden="true">↵</span>
         </button>
       </div>
       {envNames.length > 0 && (
         <div class="env" aria-label="Live state">
-          <span class="label" title="REPL variables: the live state that revisions keep">variables</span>
+          <span class="label" title="Console variables: the live state that revisions keep">variables</span>
           {envNames.map((k) => (
             <span key={k} class="env-var mono">
               {k} = <span class="muted">{state.env[k]}</span>

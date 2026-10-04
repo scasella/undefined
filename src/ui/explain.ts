@@ -133,7 +133,7 @@ export function declineCopy(d: Declined): { title: string; next: string } {
       }
     : {
         title: 'The model needs a spec for this.',
-        next: 'Write a one-line spec that answers the question (“Write a spec” in the REPL opens it with the parameters filled in), then call it again.',
+        next: 'Write a one-line spec that answers the question (“Write a spec” in the console opens it with the parameters filled in), then call it again.',
       };
 }
 
@@ -146,6 +146,70 @@ export const GATE_QUESTION = {
   properties: 'Does it hold for lots of random inputs?',
   invariants: 'Is it pure and fast enough?',
 } as const;
+
+/** A two- or three-word caption under each gate's name while nothing has run yet. */
+export const GATE_CAPTION = {
+  compile: 'Type-checks',
+  tests: 'Your examples',
+  properties: '100 random inputs',
+  invariants: 'Pure and fast',
+} as const;
+
+/** What each gate does, in plain words, for the row's disclosure (the precise terms stay in GATE_PRECISE). */
+export const GATE_PLAIN = {
+  compile: 'The strict TypeScript compiler, with the standard library only.',
+  tests: 'Your unit tests, plus any results you pinned.',
+  properties: 'Rules that must hold for any input, tried on generated inputs. The same spec always tries the same inputs.',
+  invariants: 'No side effects (no globals, no changed arguments, the same answer every time) and within the time limit on every call.',
+} as const;
+
+export const NOT_REACHED_TEXT = 'Not run: an earlier check failed.';
+
+/**
+ * The short status cell of a gate row: "Passed", "3 of 3 held", "Pure · fast", "—". The full summary lives in the
+ * row's disclosure, so this never needs truncating.
+ */
+export function shortGateStatus(g: Pick<GateResult, 'gate' | 'status' | 'summary' | 'note' | 'counts'>, notRun = false): string {
+  if (notRun) return 'Not run';
+  const c = g.counts;
+  switch (g.status) {
+    case 'pending':
+      return 'Waiting';
+    case 'running':
+      return 'Running…';
+    case 'skipped':
+      if (!g.summary || g.summary === 'not reached' || g.note === 'not reached') return '—';
+      return sentence(plainGateText(g.summary));
+    case 'pass':
+      if (g.gate === 'invariants') return 'Pure · fast';
+      if (c && c.total === 0) return g.gate === 'tests' ? 'No tests yet' : 'Nothing to check';
+      if (c && g.gate === 'tests') return `${c.passed} of ${c.total} passed`;
+      if (c && g.gate === 'properties') return `${c.passed} of ${c.total} held`;
+      return 'Passed';
+    case 'fail':
+      if (g.note === 'spec error') return 'Spec error';
+      if (g.gate === 'invariants') {
+        if (g.note === 'pure violated' || /pure violated/.test(g.summary)) return 'Side effect';
+        if (g.note === 'bounded violated' || /bounded violated/.test(g.summary)) return 'Too slow';
+        return 'Failed';
+      }
+      if (c && c.total > 0 && (g.gate === 'tests' || g.gate === 'properties')) return `${c.total - c.passed} of ${c.total} failed`;
+      if (g.gate === 'compile' && /^\d+ errors?$/.test(g.summary)) return sentence(g.summary);
+      return 'Failed';
+  }
+}
+
+const sentence = (s: string): string => (s ? s[0]!.toUpperCase() + s.slice(1) : s);
+
+/** The second half of the rejection eyebrow: whose fault the verdict says it is, in two or three words. */
+export function rejectionClass(fail: GateResult): string {
+  const d: Diagnostic | undefined = fail.diagnostics[0];
+  if (fail.note === 'spec error') return 'your spec did not load';
+  if (d && (d.kind === 'test' || d.kind === 'property') && d.name === '(gate runner)') return 'gate runner fault';
+  if (d && d.kind === 'test' && d.name.startsWith(PINNED_TEST_PREFIX)) return 'disagrees with your pin';
+  if (d && (d.kind === 'test' || d.kind === 'property') && d.silentOn) return 'spec was silent';
+  return 'model mistake';
+}
 
 /** The precise description of each gate, for its title attribute. */
 export const GATE_PRECISE = {

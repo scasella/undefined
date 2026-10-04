@@ -13,30 +13,77 @@ import { Revisions } from './components/Revisions';
 import { focusFn, lowerTab } from './uiState';
 
 /**
- * On a phone the panels are stacked, so the key moments (the rejection card, the commit) would happen off-screen while
- * the REPL stays in view. Follow the action: candidate typing -> gates and verdict -> the result in the REPL.
- * Desktop shows everything at once and is never scrolled by this.
+ * On a phone the panels are stacked, so the key moments (the draft arriving, the rejection card, the commit) would
+ * happen off-screen while the console stays in view. Follow the action: draft -> checks -> the verdict card. Never
+ * when the reader has scrolled or swiped in the last 4 s, or is typing somewhere other than the console; never back
+ * up again afterwards (the accepted headline carries the returned value). Desktop shows everything and is never
+ * scrolled by this.
  */
 function useFollowTheAction(state: EngineState): void {
   const gen = state.generation;
   const a = gen?.attempts[gen.attempts.length - 1];
   const key = gen && a ? `${gen.id}:${a.attempt}:${a.status}` : null;
   const last = useRef<string | null>(null);
+  const userMoved = useRef(0);
+  useEffect(() => {
+    const mark = () => (userMoved.current = Date.now());
+    const onKey = (e: KeyboardEvent) => {
+      if (['PageUp', 'PageDown', 'Home', 'End', ' ', 'ArrowUp', 'ArrowDown'].includes(e.key) && !isTyping(e.target)) mark();
+    };
+    window.addEventListener('wheel', mark, { passive: true });
+    window.addEventListener('touchmove', mark, { passive: true });
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('wheel', mark);
+      window.removeEventListener('touchmove', mark);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, []);
   useEffect(() => {
     if (!key || key === last.current || typeof window === 'undefined') return;
     last.current = key;
     if (!window.matchMedia?.('(max-width: 700px)').matches) return;
+    if (Date.now() - userMoved.current < 4000) return;
+    const active = document.activeElement;
+    if (active && active.id !== 'repl-input' && isTyping(active)) return;
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const go = (sel: string) => document.querySelector(sel)?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
     const status = a?.status;
     if (status === 'typing') go('.panel-code');
-    else if (status === 'gating' || status === 'rejected' || status === 'accepted') go('.panel-gates');
-    if (status === 'accepted') {
-      const t = window.setTimeout(() => go('.panel-repl'), 2600); // the payoff line, once the verdict has been read
-      return () => window.clearTimeout(t);
-    }
-    return undefined;
+    else if (status === 'gating') go('.panel-gates');
+    // the verdict card itself (it renders in the same commit as the status change)
+    // a rejection is often followed at once by the next attempt's 'generating': the card is still what to read
+    else if (status === 'rejected' || status === 'accepted' || (status === 'generating' && (a?.attempt ?? 1) > 1)) requestAnimationFrame(() => go(document.querySelector('.panel-gates .headline') ? '.panel-gates .headline' : '.panel-gates'));
   }, [key]);
+}
+
+const isTyping = (el: EventTarget | Element | null): boolean =>
+  el instanceof HTMLElement && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
+
+/** Keyboard shortcuts outside text fields: 1–4 load an example, / focuses the console, Esc closes an open menu. */
+function useShortcuts(): void {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === 'Escape') {
+        document.querySelectorAll<HTMLDetailsElement>('details.menu[open], details.keys[open]').forEach((d) => d.removeAttribute('open'));
+        return;
+      }
+      if (isTyping(e.target) || document.querySelector('dialog[open]')) return;
+      if (e.key === '/') {
+        e.preventDefault();
+        document.getElementById('repl-input')?.focus();
+      } else if (/^[1-4]$/.test(e.key)) {
+        const chip = document.querySelectorAll<HTMLButtonElement>('button.example')[Number(e.key) - 1];
+        if (chip && !chip.disabled) {
+          e.preventDefault();
+          chip.click();
+        }
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
 }
 
 export function App({ engine, initError }: { engine: Engine; initError?: string | null }) {
@@ -45,6 +92,7 @@ export function App({ engine, initError }: { engine: Engine; initError?: string 
   const focusSpec = state.focusSpec;
   const handledNonce = useRef<number | null>(null);
   useFollowTheAction(state);
+  useShortcuts();
 
   // "Edit the spec" restart: open the Repo tab; the matching card expands, scrolls into view and focuses its doc
   useEffect(() => {
@@ -88,48 +136,57 @@ export function App({ engine, initError }: { engine: Engine; initError?: string 
           <OtherTabBanner state={state} engine={engine} />
           <RecordingBanner state={state} engine={engine} />
         </PanelBoundary>
-        <main class="bench" id="main">
+      </div>
+      <main id="main" tabIndex={-1}>
+        <div class={`bench${state.generation ? ' has-gen' : ''}`}>
           <div class="col col-left">
-            <PanelBoundary name="REPL">
+            <PanelBoundary name="Console">
               <Repl state={state} engine={engine} />
             </PanelBoundary>
-            <PanelBoundary name="Code pane">
+            <PanelBoundary name="Draft">
               <CodePane state={state} />
             </PanelBoundary>
           </div>
           <div class="col col-right">
-            <PanelBoundary name="Gate panel">
+            <PanelBoundary name="Checks">
               <GatePanel gen={state.generation} state={state} engine={engine} />
             </PanelBoundary>
-            <PanelBoundary name="Candidates">
+            <PanelBoundary name="Attempts">
               <RetryStrip gen={state.generation} />
             </PanelBoundary>
           </div>
-        </main>
-      </div>
-      <section class="lower" aria-label="Revisions and repository">
-        <div class="tabs" role="tablist">
-          {(['revisions', 'repo'] as const).map((t) => (
-            <button
-              type="button"
-              key={t}
-              role="tab"
-              id={`tab-${t}`}
-              aria-selected={tab === t}
-              aria-controls={`tabpanel-${t}`}
-              class={`tab${tab === t ? ' is-active' : ''}`}
-              onClick={() => (lowerTab.value = t)}
-            >
-              {t === 'revisions' ? `Revisions (${state.revisions.length})` : `Repo (${Object.keys(state.program.functions).length})`}
-            </button>
-          ))}
         </div>
-        <div class="tabpanel" role="tabpanel" id={`tabpanel-${tab}`} aria-labelledby={`tab-${tab}`}>
-          <PanelBoundary name={tab === 'revisions' ? 'Revisions' : 'Repo'}>
-            {tab === 'revisions' ? <Revisions state={state} engine={engine} /> : <Repo state={state} engine={engine} />}
-          </PanelBoundary>
-        </div>
-      </section>
+        <section class="lower" aria-label="Revisions and repository">
+          <div class="tabs" role="tablist">
+            {(['revisions', 'repo'] as const).map((t) => (
+              <button
+                type="button"
+                key={t}
+                role="tab"
+                id={`tab-${t}`}
+                aria-selected={tab === t}
+                aria-controls={`tabpanel-${t}`}
+                class={`tab${tab === t ? ' is-active' : ''}`}
+                title={t === 'revisions' ? `${state.revisions.length} revisions; the program is at r${state.headRevision}` : undefined}
+                onClick={() => (lowerTab.value = t)}
+              >
+                {t === 'revisions' ? (
+                  <>
+                    Revisions <span class="tab-rev">· r{state.headRevision}</span>
+                  </>
+                ) : (
+                  `Repo (${Object.keys(state.program.functions).length})`
+                )}
+              </button>
+            ))}
+          </div>
+          <div class="tabpanel" role="tabpanel" id={`tabpanel-${tab}`} aria-labelledby={`tab-${tab}`}>
+            <PanelBoundary name={tab === 'revisions' ? 'Revisions' : 'Repo'}>
+              {tab === 'revisions' ? <Revisions state={state} engine={engine} /> : <Repo state={state} engine={engine} />}
+            </PanelBoundary>
+          </div>
+        </section>
+      </main>
       <RunLiveDialog state={state} engine={engine} open={runLive} onClose={() => setRunLive(false)} />
       <PanelBoundary name="Data drawer">
         <DataDrawer state={state} engine={engine} />

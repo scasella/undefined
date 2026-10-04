@@ -16,8 +16,28 @@ function Fact({ k, v, tone, title }: { k: string; v?: string | number; tone?: 'b
   );
 }
 
-/** The structured facts behind a verdict: the call, what was expected and what came back, the smallest failing input. */
-export function DiagnosticFacts({ d }: { d: Diagnostic }) {
+/** The arguments of a call (`median([1, 2])` → `[1, 2]`), whitespace-free, for comparing with a failing input. */
+function argsOf(call: string): string {
+  const i = call.indexOf('(');
+  return i < 0 || !call.endsWith(')') ? call : call.slice(i + 1, -1).replace(/\s+/g, '');
+}
+
+/**
+ * Whether a counterexample (the arguments as a list, `[[1, 2]]`) only repeats the call: then "Smallest failing input"
+ * says nothing the call does not.
+ */
+export function sameInput(call: string | undefined, counterexample: string | undefined): boolean {
+  if (!call || !counterexample) return false;
+  const ce = counterexample.replace(/\s+/g, '');
+  return ce.startsWith('[') && ce.endsWith(']') && ce.slice(1, -1) === argsOf(call);
+}
+
+/**
+ * The structured facts behind a verdict: the call, what was expected and what came back, the smallest failing input.
+ * Under a headline that already shows the call, the call is not repeated (nor a failing input that equals it).
+ */
+export function DiagnosticFacts({ d, headline }: { d: Diagnostic; headline?: string }) {
+  const callShown = (call: string | undefined) => !!headline && !!call && headline.startsWith(call);
   switch (d.kind) {
     case 'compile':
       return (
@@ -29,7 +49,7 @@ export function DiagnosticFacts({ d }: { d: Diagnostic }) {
     case 'test':
       return (
         <dl class="facts">
-          <Fact k="call" v={d.call} />
+          {!callShown(d.call) && <Fact k="call" v={d.call} />}
           <Fact k="expected" v={d.expected} tone="good" />
           <Fact k="got" v={d.actual} tone="bad" />
           <Fact k="threw" v={d.error} tone="bad" />
@@ -38,18 +58,18 @@ export function DiagnosticFacts({ d }: { d: Diagnostic }) {
     case 'property':
       return (
         <dl class="facts">
-          <Fact k="call" v={d.call} />
+          {!callShown(d.call) && <Fact k="call" v={d.call} />}
           <Fact k="expected" v={d.expected} tone="good" />
           <Fact k="got" v={d.actual} tone="bad" />
           <Fact k="threw" v={d.error} tone="bad" />
-          <Fact k="smallest failing input" v={d.counterexample} title="the shrunk counterexample (the arguments, as a list)" />
+          {!sameInput(d.call, d.counterexample) && <Fact k="smallest failing input" v={d.counterexample} title="the arguments of the smallest failing call, as a list" />}
         </dl>
       );
     case 'invariant':
       return (
         <dl class="facts">
           <Fact k="rule" v={ruleName(d.invariant)} title={`invariant: ${d.invariant}`} />
-          <Fact k="call" v={d.call} />
+          {!callShown(d.call) && <Fact k="call" v={d.call} />}
           <Fact k="time limit" v={d.budgetMs !== undefined ? fmtMs(d.budgetMs) : undefined} tone="good" />
           <Fact k="stopped after" v={d.elapsedMs !== undefined ? fmtMs(d.elapsedMs) : undefined} tone="bad" />
         </dl>
@@ -102,7 +122,7 @@ export function DiagnosticItem({ d, gate }: { d: Diagnostic; gate: GateId }) {
       {d.kind !== 'compile' && <DiagnosticFacts d={d} />}
       {d.kind === 'invariant' && d.detail && <p class="muted small">{d.detail}</p>}
       <details class="how">
-        <summary>How the gate found it</summary>
+        <summary>How it was found</summary>
         {howFound(d) && <p>{howFound(d)}</p>}
         <p class="attribution">{attribution(d, gate)}</p>
       </details>

@@ -97,8 +97,9 @@ function ShareBody({ engine }: { engine: Engine }) {
                   showNotice('info', `Saved ${SHARE_FILENAME}.`);
                 }}
               >
-                Download {SHARE_FILENAME}
+                Download recording
               </button>
+              <span class="muted small share-file"> {SHARE_FILENAME}</span>
             </>
           ) : (
             <p class="share-nothing">{NOTHING_TO_SHARE}</p>

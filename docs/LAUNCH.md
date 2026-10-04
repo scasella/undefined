@@ -166,7 +166,7 @@ Fix exactly what the diagnostics show. Keep what worked. Do not repeat an approa
    decision names its gate and its evidence.
 4. **What the toolchain can and cannot see.** The hostile-calls section: the faked stubs (20 → 2), the decline protocol,
    then the residual: run-to-run variance and overfit-to-the-example that no gate catches without a test.
-5. **Tests that accrete from use.** Pin as test; the data scratchpad; why a pin is outside the hash and what re-certify does.
+5. **Tests that accrete from use.** Pin result as test; the data scratchpad; why a pin is outside the hash and what re-certify does.
 6. **How much to trust a committed function.** The confidence line without a score; mutation kill rates as a way to ask
    "did the gate check anything?" (the weak-spec 8-of-12 versus the shipped 12-of-12).
 7. **Honest limits and what was measured.** One model, one day; built rejections; the sandbox; the numbers in section 1.

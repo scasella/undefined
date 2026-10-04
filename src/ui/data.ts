@@ -51,6 +51,20 @@ export function numericColumns(t: TablePreview): boolean[] {
   });
 }
 
+const PLAIN_DECIMAL = /^-?\d+\.\d+$/;
+
+/**
+ * A numeric table cell as people read it: a plain decimal is rounded to at most 4 places with trailing zeros trimmed
+ * (`2260.0574999999994` → `2260.0575`). Integers, bigints, exponent forms, NaN, Infinity and non-numbers are untouched.
+ */
+export function formatCell(cell: string): string {
+  if (!PLAIN_DECIMAL.test(cell)) return cell;
+  const n = Number(cell);
+  if (!Number.isFinite(n)) return cell;
+  const out = n.toFixed(4).replace(/\.?0+$/, '');
+  return out === '-0' ? '0' : out;
+}
+
 /** One line per bound dataset: `rows · Row[] · 332 rows`. */
 export function datasetLine(d: Pick<DatasetRef, 'name' | 'typeName' | 'rowCount'>): string {
   return `${d.name} · ${d.typeName}[] · ${plural(d.rowCount, 'row')}`;

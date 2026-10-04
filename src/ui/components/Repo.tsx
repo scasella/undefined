@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Artifact, DatasetRef, Engine, EngineState, ExampleInfo, FunctionRecord, FunctionSpec, GenerationView } from '../../types';
 import { datasetLine, expectedSummary, formatBytes, pinDatasets } from '../data';
-import { isValidFnName, paramsText, parseParams, shortHash } from '../format';
+import { isValidFnName, paramsText, parseParams, sentenceCase, shortHash } from '../format';
 import { draftOf, functionStatus, functionStatusText, newSpecPrefill, signatureOf, specPatch } from '../select';
 import { focusFn } from '../uiState';
 import { CodeView } from './CodeView';
@@ -316,7 +316,7 @@ function FunctionCard({
           {spec.name}
         </h3>
         <code class="fn-sig">{signatureOf(spec, rec.artifact?.returnType)}</code>
-        <span class={`chip fs-${status.kind}`}>{functionStatusText(status)}</span>
+        <span class={`chip fs-${status.kind}`}>{sentenceCase(functionStatusText(status))}</span>
         {example && (
           <span class="breakit">
             <button
@@ -451,7 +451,7 @@ export function Repo({ state, engine }: { state: EngineState; engine: Engine }) 
   return (
     <div class="repo">
       <Datasets datasets={state.datasets} engine={engine} busy={state.busy} />
-      {recs.length === 0 && <p class="empty">No functions yet. Call one in the REPL, or add a spec below.</p>}
+      {recs.length === 0 && <p class="empty">No functions yet. Call one in the console, or add a spec below.</p>}
       {recs.map((rec) => (
         <FunctionCard
           key={rec.spec.name}

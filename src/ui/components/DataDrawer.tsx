@@ -134,7 +134,7 @@ export function DataDrawer({ state, engine }: { state: EngineState; engine: Engi
     const after = engine.state.value;
     const last = after.revisions[after.revisions.length - 1];
     if (after.headRevision > before && last?.kind === 'dataset') {
-      setLoaded(`${variableName(name)} is bound (r${after.headRevision}). Call a function on it in the REPL.`);
+      setLoaded(`${variableName(name)} is bound (r${after.headRevision}). Call a function on it in the console.`);
       setText('');
       setFilename(undefined);
       setPreview(null);
@@ -154,7 +154,7 @@ export function DataDrawer({ state, engine }: { state: EngineState; engine: Engi
         </button>
       </header>
       <p class="muted small drawer-intro">
-        Paste CSV, TSV, JSON or JSON Lines, or drop a file. It is parsed here in your browser and bound to a REPL variable;
+        Paste CSV, TSV, JSON or JSON Lines, or drop a file. It is parsed here in your browser and bound to a console variable;
         then call a function on it, e.g. <code class="tick">topCustomersByRevenue({variableName(name)})</code>.
       </p>
 
