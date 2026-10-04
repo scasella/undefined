@@ -36,10 +36,13 @@
  *   once, outside the env); restoreEnv/reset resolve refs from a `hash → rows` map and drop (report as lost) the ones
  *   they cannot resolve. Reassigning the dataset's own variable to another value (`rows = rows.slice(0, 5)`)
  *   unregisters the dataset; an alias made earlier (`all = rows`) then encodes as an ordinary value.
- * - Rows stay mutable in the REPL (a REPL line can change them); committed functions are gated on frozen clones.
+ * - Rows are READ-ONLY: bindDataset and restoreEnv deep-freeze them, so the rows a variable holds are always the rows
+ *   stored under its hash (pins, env snapshots and rebuilt workers agree). A REPL line that tries to change them gets
+ *   "rows is a dataset and is read-only; make a copy first …" instead of a bare TypeError; a committed function that
+ *   tries to faults with the purity message "candidate mutated its argument".
  */
 import type { CallRecord, EvalOutcome, Hash, Json, PinArg, TablePreview } from '../types';
-import { evalMasked, isInvariantViolation, MASKED_NAMES, takeViolations, violationMessage } from './mask';
+import { deepFreeze, evalMasked, isInvariantViolation, isReadOnlyWriteError, MASKED_NAMES, takeViolations, violationMessage } from './mask';
 import { callString, isMap, isPlainObject, isSet, show } from '../shared/show';
 import { decodeEnv, encodeEnv, encodeReport, encodeValue } from '../shared/serialize';
 import { inferArgType } from '../shared/inferType';
@@ -143,10 +146,12 @@ export class ReplCore {
 
   /**
    * Bind REPL variable `name` to `rows` and register it as a dataset (see the header). Rows are bound as given (the
-   * same array object, not a copy). Throws when `name` is a committed function.
+   * same array object, not a copy) and deep-frozen: a dataset is read-only. Throws when `name` is a committed function.
    */
   bindDataset(name: string, hash: Hash, rows: unknown[], typeName: string): void {
     if (!Array.isArray(rows)) throw new TypeError(`dataset ${name}: rows must be an array`);
+    if (this.functions.has(name)) throw new ReplError('TypeError', `${name} is a committed function; pick another variable name`);
+    deepFreeze(rows);
     this.assign(name, rows);
     this.bindings.set(name, { name, hash, typeName, value: rows });
   }
@@ -213,6 +218,7 @@ export class ReplCore {
           lost.push(k);
           continue;
         }
+        deepFreeze(rows);
         next.set(k, rows);
         if (!bindings.has(j.name) || k === j.name) bindings.set(j.name, { name: j.name, hash: j.hash, typeName: j.typeName, value: rows });
       } else if (bad.has(k)) {
@@ -440,6 +446,11 @@ export class ReplCore {
         }
       } catch (e) {
         if (e instanceof CommittedFault) throw e; // tag only once: the innermost wrapper wins
+        // A write to a frozen argument (a dataset's rows, or a value the caller froze) is a purity fault, not a bug
+        // report about Array.prototype.push.
+        if (isReadOnlyWriteError(e) && args.some(isFrozenObject)) {
+          throw new CommittedFault(name, call, new ReplError('InvariantViolation', `candidate mutated its argument (${(e as Error).message})`));
+        }
         throw new CommittedFault(name, call, e);
       } finally {
         core.depth--;
@@ -497,8 +508,34 @@ export class ReplCore {
       if (isInvariantViolation(err)) out.errorName = 'InvariantViolation';
       return out;
     }
+    if (isReadOnlyWriteError(e)) {
+      const ds = this.datasetNamed(src);
+      if (ds) {
+        return {
+          kind: 'error',
+          errorName: 'TypeError',
+          message: `${ds} is a dataset and is read-only; make a copy first, e.g. ${ds}.slice().sort(...) or ${ds} = ${ds}.filter(...)`,
+        };
+      }
+    }
     return { kind: 'error', errorName: nameOf(e), message: messageOf(e) };
   }
+
+  /**
+   * The variable the line most likely tried to change, when it holds (or is part of) a registered dataset: the first
+   * variable named in `src` whose value is a dataset's rows, else the first registered dataset. null when there are
+   * no datasets.
+   */
+  private datasetNamed(src: string): string | null {
+    if (this.bindings.size === 0) return null;
+    const idents = new Set(src.match(/[A-Za-z_$][\w$]*/g) ?? []);
+    for (const [k, v] of this.env) if (idents.has(k) && this.datasetOf(v)) return k;
+    return [...this.bindings.keys()][0] ?? null;
+  }
+}
+
+function isFrozenObject(v: unknown): boolean {
+  return typeof v === 'object' && v !== null && Object.isFrozen(v);
 }
 
 /**

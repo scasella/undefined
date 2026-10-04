@@ -1,17 +1,39 @@
 /**
- * Runtime worker: a thin shell around replCore. Captures postMessage, scrubs network/storage APIs from the worker
- * scope (mask.ts), then answers RuntimeRequests from runtime.ts.
+ * Runtime worker: a thin shell around replCore. Captures postMessage, locks the worker's messaging and scrubs
+ * network/storage APIs from the worker scope (mask.ts), then answers RuntimeRequests from runtime.ts.
+ *
+ * Message integrity: the first message must be `{type:'init', nonce}` (runtime.ts sends it right after spawning).
+ * The nonce stays in this module's closure and is stamped on every message posted back; runtime.ts drops anything
+ * without it. Committed functions and REPL lines run in this worker, but `self.postMessage` is replaced before any of
+ * them run and message events are taken (and stopped) by a capture listener registered first, so they cannot answer
+ * a request, forge a reply, or read the nonce.
  */
-import { scrubWorkerGlobals } from './mask';
+import { lockWorkerMessaging, scrubWorkerGlobals } from './mask';
 import { createDispatcher, type RuntimeMessage, type RuntimeRequest } from './replCore';
 
 const ctx = self as unknown as {
   postMessage(message: unknown): void;
-  addEventListener(type: 'message', listener: (ev: { data: unknown }) => void): void;
+  addEventListener(type: 'message', listener: (ev: MessageEvent) => void, opts: { capture: boolean }): void;
 };
 
-const post = ctx.postMessage.bind(ctx);
-scrubWorkerGlobals(ctx);
+const rawPost = ctx.postMessage.bind(ctx);
+let nonce: string | null = null;
+const dispatch = createDispatcher((m: RuntimeMessage) => {
+  if (nonce !== null) rawPost({ ...m, nonce });
+});
 
-const dispatch = createDispatcher((m: RuntimeMessage) => post(m));
-ctx.addEventListener('message', (ev) => dispatch(ev.data as RuntimeRequest));
+ctx.addEventListener(
+  'message',
+  (ev) => {
+    ev.stopImmediatePropagation();
+    const data = ev.data as { type?: unknown; nonce?: unknown } | null;
+    if (nonce === null) {
+      if (data?.type === 'init' && typeof data.nonce === 'string' && data.nonce !== '') nonce = data.nonce;
+      return;
+    }
+    dispatch(ev.data as RuntimeRequest);
+  },
+  { capture: true },
+);
+lockWorkerMessaging(ctx);
+scrubWorkerGlobals(ctx);

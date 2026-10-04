@@ -1,6 +1,6 @@
 /** Pure view selectors for evidence, the mutation check and added checks (no business logic). */
 import type { Artifact, EngineState, Evidence, FunctionRecord, GenerationView, MutantInfo, MutationReport } from '../types';
-import { addedCheckReason, MUTATION_FAILED_PREFIX } from '../shared/evidence';
+import { addedCheckReason, MUTATION_BASELINE_FAILED, MUTATION_FAILED_PREFIX } from '../shared/evidence';
 import { NO_TESTS_REASON } from '../mutation/classify';
 import { hasMarker } from '../suggest/suggest';
 
@@ -60,6 +60,7 @@ export function plainMutation(r: MutationReport | undefined): string {
   if (!r) return 'The broken-copy check has not run yet.';
   if (r.skipped === NO_TESTS_REASON) return 'With nothing to check against, no broken copies were tried.';
   if (r.skipped?.startsWith(MUTATION_FAILED_PREFIX)) return 'The broken-copy check could not run, so nothing was counted.';
+  if (r.skipped === MUTATION_BASELINE_FAILED) return 'No broken copies were counted: the function fails its own checks as it stands, so a broken copy failing them would mean nothing.';
   if (r.total === 0) return 'No broken copies could be run.';
   const caught = r.killed + r.killedByBound;
   const parts: string[] = [];

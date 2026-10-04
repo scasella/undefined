@@ -22,6 +22,7 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - run: npm run check:csp
   replay:
     # The static build must work with no backend: serve it and replay every shipped example through the real UI
     # (gates run live in headless Chrome, which the runner image provides).

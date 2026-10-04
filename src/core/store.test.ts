@@ -7,9 +7,11 @@ import {
   appendRevision,
   clearAll,
   loadPersisted,
+  loadStored,
   memoryBackend,
   resilientBackend,
   reverify,
+  saveDatasets,
   saveFlags,
   saveLiveEnv,
   toImage,
@@ -360,3 +362,89 @@ describe('toImage', () => {
     expect(Number.isNaN(Date.parse(img.exportedAt))).toBe(false);
   });
 });
+
+describe('two tabs on one database', () => {
+  const H_A = 'a'.repeat(64);
+  const H_B = 'b'.repeat(64);
+  const refOf = (name: string, hash: string) => ({
+    name,
+    hash,
+    typeName: 'Row',
+    typeDecl: 'type Row = { a: number }',
+    rowCount: 1,
+    columns: [{ name: 'a', type: 'number' }],
+    source: 'paste' as const,
+    bytes: 7,
+  });
+  let mem: Backend;
+  beforeEach(() => {
+    mem = memoryBackend();
+    _useBackend(mem);
+  });
+  afterEach(() => _useBackend(null));
+
+  it('saveDatasets merges into the stored rows: a second tab saving its own rows never drops the first tab\'s', async () => {
+    await saveDatasets({ [H_A]: [{ a: 1 }] }); // tab A
+    await saveDatasets({ [H_B]: [{ a: 2 }] }); // tab B, which never saw A's rows
+    const { kv } = await mem.readAll();
+    expect(kv.datasets).toEqual({ [H_A]: [{ a: 1 }], [H_B]: [{ a: 2 }] });
+    // saving nothing changes nothing
+    await saveDatasets({});
+    expect((await mem.readAll()).kv.datasets).toEqual({ [H_A]: [{ a: 1 }], [H_B]: [{ a: 2 }] });
+  });
+
+  it('the merge also holds through resilientBackend (mirror and primary)', async () => {
+    const primary = memoryBackend();
+    _useBackend(resilientBackend(primary));
+    await saveDatasets({ [H_A]: [{ a: 1 }] });
+    await saveDatasets({ [H_B]: [{ a: 2 }] });
+    expect(Object.keys((await primary.readAll()).kv.datasets as object).sort()).toEqual([H_A, H_B]);
+  });
+
+  it('A then B interleaved: B\'s revision refers to its rows, A\'s revision to A\'s; the stored image loads whole', async () => {
+    const rA = initialRevision({ ...emptyProgram(), datasets: { rows: refOf('rows', H_A) } });
+    await saveDatasets({ [H_A]: [{ a: 1 }] });
+    await appendRevision(rA, 1);
+    const rB = { ...newRevision([rA], { kind: 'dataset', title: 'B', program: { ...emptyProgram(), datasets: { other: refOf('other', H_B) } }, env: {} }) };
+    await saveDatasets({ [H_B]: [{ a: 2 }] });
+    await appendRevision(rB, 2);
+    const out = await loadStored();
+    expect(out.kind).toBe('ok');
+    if (out.kind !== 'ok') return;
+    expect(out.persisted.repaired).toBeUndefined();
+    expect(Object.keys(out.persisted.datasets).sort()).toEqual([H_A, H_B]);
+  });
+
+  it('a stored image whose only problem is bound datasets with no rows is REPAIRED, not cleared: just those bindings are dropped', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const r1 = initialRevision({ ...emptyProgram(), datasets: { rows: refOf('rows', H_A), kept: refOf('kept', H_B) } });
+    const r2 = newRevision([r1], { kind: 'spec-edit', title: 'spec', program: await withSpec(r1.program, spec), env: { x: 1 } });
+    await mem.write({ revisions: [r1, r2], kv: { head: 2, datasets: { [H_B]: [{ a: 2 }] } } }); // H_A's rows are missing
+    const out = await loadStored();
+    expect(out.kind).toBe('ok');
+    if (out.kind !== 'ok') return;
+    expect(out.persisted.repaired).toEqual(['rows']);
+    for (const r of out.persisted.image.revisions) expect(Object.keys(r.program.datasets ?? {})).toEqual(['kept']);
+    expect(out.persisted.image.revisions[1]!.program.functions.median).toBeDefined();
+    expect(out.persisted.image.head).toBe(2);
+    expect(warn).toHaveBeenCalled();
+    // the repair was written back: the next load has nothing to repair
+    const again = await loadStored();
+    expect(again.kind === 'ok' && again.persisted.repaired).toBeFalsy();
+    warn.mockRestore();
+  });
+
+  it('any other validation failure still clears the store, warns with the reason and reports it as discarded', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const r1 = initialRevision(emptyProgram());
+    await mem.write({ revisions: [{ ...r1, kind: 'bogus' as unknown as Revision['kind'] }] });
+    const out = await loadStored();
+    expect(out.kind).toBe('discarded');
+    expect(out.kind === 'discarded' && out.reason).toMatch(/kind must be one of/);
+    expect(warn.mock.calls.some((c) => String(c[0]).includes('discarding stored image'))).toBe(true);
+    expect((await mem.readAll()).revisions).toEqual([]);
+    expect(await loadPersisted()).toBeNull();
+    warn.mockRestore();
+  });
+});
+

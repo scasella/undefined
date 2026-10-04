@@ -4,6 +4,7 @@ import type { Engine, EngineState } from '../../types';
 import { repoUrlFromPages } from '../format';
 import { dataDrawerOpen, dismissedNotice, downloadText, loadRecordingOpen, localNotice, noticeKey, sessionLogOpen, shareOpen, showNotice } from '../uiState';
 import { CopyBlock, Ticks } from './common';
+import { previewImport } from './Share';
 
 function ModeBadge({ state }: { state: EngineState }) {
   const s = state.service;
@@ -105,11 +106,15 @@ function Menu({ state, engine }: { state: EngineState; engine: Engine }) {
           const file = input.files?.[0];
           input.value = '';
           if (!file) return;
+          let text: string;
           try {
-            await engine.importImage(await file.text());
+            text = await file.text();
           } catch (err) {
             showNotice('error', `Import failed: ${(err as Error).message}`);
+            return;
           }
+          // checked first; the confirmation (Share.tsx ImportConfirm) replaces the program only on "Replace"
+          await previewImport(engine, text, file.name);
         }}
       />
     </details>

@@ -117,6 +117,24 @@ describe('registerCases', () => {
     if (cases[0].kind === 'test') expect(() => (cases[0] as { body: () => void }).body()).not.toThrow();
   });
 
+  it('shadows ambient I/O and global-object names for test code (refused, never performed; Math/Date stay real)', () => {
+    for (const name of ['fetch', 'XMLHttpRequest', 'WebSocket', 'importScripts', 'self', 'globalThis', 'postMessage', 'Worker', 'indexedDB', 'caches', 'navigator', 'location', 'Function', 'setTimeout']) {
+      expect(() => registerCases(`${name}.x;`, 'f', double), name).toThrow(new RegExp(`^test code used ${name}: tests and properties run without`));
+    }
+    expect(() => registerCases(`globalThis.fetch('https://evil.example/')`, 'f', double)).toThrow(/test code used globalThis/);
+    // inside a body: the test fails (the gate reports it), nothing is sent
+    const [t] = registerCases(`test('beacon', () => { postMessage({ type: 'done', results: [] }); });`, 'f', double);
+    expect(() => (t as { body: () => void }).body()).toThrow(/test code used postMessage/);
+    // strict mode: top-level `this` is not the global object
+    expect(() => registerCases(`this.fetch('https://evil.example/')`, 'f', double)).toThrow(TypeError);
+    // tests keep real Math and Date
+    const [m] = registerCases(`test('m', () => eq(Math.max(1, 2) + new Date(0).getTime() + (typeof Date.now()), '2number'));`, 'f', double);
+    expect(() => (m as { body: () => void }).body()).not.toThrow();
+    // a candidate named like a shadowed global is still the candidate
+    const [c] = registerCases(`test('c', () => eq(fetch(2), 4));`, 'fetch', double);
+    expect(() => (c as { body: () => void }).body()).not.toThrow();
+  });
+
   it('rejects malformed registrations at load time', () => {
     expect(() => registerCases(`property('p', fc.integer(), () => true)`, 'f', double)).toThrow(/non-empty array/);
     expect(() => registerCases(`property('p', [], () => true)`, 'f', double)).toThrow(/non-empty array/);

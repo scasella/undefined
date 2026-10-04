@@ -498,9 +498,14 @@ describe('ReplCore datasets', () => {
     core.evaluate('n = rows.length');
     expect(core.snapshotEnv()).toEqual({ rows: REF, n: 3 });
     expect(core.datasets()).toEqual([{ name: 'rows', hash: 'h1', typeName: 'Row' }]);
-    // rows stay mutable in the REPL; the binding is still the same object
-    core.evaluate('rows.push({ customer: "Zed", total: 1 })');
-    expect(rows).toHaveLength(4);
+    // rows are read-only: an in-place change is refused with a clear message, the binding is unchanged
+    expect(core.evaluate('rows.push({ customer: "Zed", total: 1 })')).toEqual({
+      kind: 'error',
+      errorName: 'TypeError',
+      message: 'rows is a dataset and is read-only; make a copy first, e.g. rows.slice().sort(...) or rows = rows.filter(...)',
+    });
+    expect(rows).toHaveLength(3);
+    expect(Object.isFrozen(rows) && Object.isFrozen(rows[0])).toBe(true);
     expect(core.snapshotEnv().rows).toEqual(REF);
   });
 
@@ -534,8 +539,10 @@ describe('ReplCore datasets', () => {
     expect(lost).toEqual([]);
     expect(core.datasets()).toEqual([{ name: 'rows', hash: 'h1', typeName: 'Row' }]);
     expect(core.evaluate('rows === all')).toMatchObject({ shown: 'true' });
-    core.evaluate('rows[0].total = 99');
-    expect(rows[0]!.total).toBe(99); // the variable IS the given array
+    // restored rows are read-only too (a rebuilt worker goes through restoreEnv)
+    expect(core.evaluate('rows[0].total = 99')).toMatchObject({ kind: 'error', errorName: 'TypeError', message: expect.stringMatching(/^rows is a dataset and is read-only/) });
+    expect(rows[0]!.total).toBe(12);
+    expect(core.evaluate('rows[0] === all[0]')).toMatchObject({ shown: 'true' }); // the variable IS the given array
     expect(core.snapshotEnv()).toEqual({ rows: REF, all: REF, n: 3 });
   });
 
@@ -580,6 +587,68 @@ describe('ReplCore datasets', () => {
     const core = coreWith({ total: TOTAL });
     expect(() => core.bindDataset('total', 'h1', ROWS(), 'Row')).toThrow(/committed function/);
     expect(() => core.bindDataset('x', 'h1', {} as unknown as unknown[], 'Row')).toThrow(/array/);
+  });
+});
+
+describe('ReplCore datasets are read-only', () => {
+  const MUTATE = 'function addOne(rows) { rows.push({ customer: "Zed", total: 1 }); return rows.length; }';
+  const SORTS = 'function sortIt(rows) { return rows.sort((a, b) => a.total - b.total); }';
+
+  it('in-place sort / delete / assignment from a REPL line get the read-only message; copies work', () => {
+    const core = new ReplCore();
+    core.bindDataset('rows', 'h1', ROWS(), 'Row');
+    for (const line of ['rows.sort((a, b) => a.total - b.total)', 'delete rows[0]', 'rows.length = 0', 'rows[0].customer = "x"', 'rows.reverse()']) {
+      expect(core.evaluate(line), line).toMatchObject({ kind: 'error', errorName: 'TypeError', message: expect.stringMatching(/^rows is a dataset and is read-only; make a copy first/) });
+    }
+    expect(core.evaluate('rows.slice().sort((a, b) => a.total - b.total)[0].total')).toMatchObject({ kind: 'value', shown: '3' });
+    expect(core.evaluate('rows.map((r) => r.total)')).toMatchObject({ kind: 'value', shown: '[12, 3, 5]' });
+    // reassigning is allowed (it unregisters the dataset, as before)
+    expect(core.evaluate('rows = rows.filter((r) => r.total > 4)')).toMatchObject({ kind: 'value' });
+    expect(core.datasets()).toEqual([]);
+  });
+
+  it('names the alias the line used', () => {
+    const core = new ReplCore();
+    core.bindDataset('rows', 'h1', ROWS(), 'Row');
+    core.evaluate('all = rows');
+    expect(core.evaluate('all.pop()')).toMatchObject({ message: expect.stringMatching(/^all is a dataset and is read-only/) });
+  });
+
+  it('an unrelated TypeError keeps its own message', () => {
+    const core = new ReplCore();
+    core.bindDataset('rows', 'h1', ROWS(), 'Row');
+    expect(core.evaluate('null.x')).toMatchObject({ kind: 'error', errorName: 'TypeError', message: expect.not.stringMatching(/dataset/) });
+    const other = new ReplCore();
+    expect(other.evaluate('Object.freeze([1]).push(2)')).toMatchObject({ kind: 'error', errorName: 'TypeError', message: expect.not.stringMatching(/dataset/) });
+  });
+
+  it('a committed function that writes to the rows faults with the purity message', () => {
+    const core = coreWith({ addOne: MUTATE, sortIt: SORTS });
+    core.bindDataset('rows', 'h1', ROWS(), 'Row');
+    for (const call of ['addOne(rows)', 'sortIt(rows)']) {
+      const out = core.evaluate(call);
+      expect(out, call).toMatchObject({ kind: 'fault', fn: call.slice(0, call.indexOf('(')), errorName: 'InvariantViolation', message: expect.stringMatching(/^candidate mutated its argument \(/) });
+    }
+    // a copy is the caller's to change
+    expect(core.evaluate('addOne(rows.slice())')).toMatchObject({ kind: 'value', shown: '4' });
+  });
+
+  it('pins and env snapshots stay consistent with the stored rows after attempted mutations', () => {
+    const msgs: RuntimeMessage[] = [];
+    const dispatch = createDispatcher((m) => msgs.push(m));
+    const stored = ROWS();
+    dispatch({ id: 1, type: 'define', name: 'total', js: TOTAL });
+    dispatch({ id: 2, type: 'bindDataset', name: 'rows', hash: 'h1', rows: stored, typeName: 'Row' });
+    dispatch({ id: 3, type: 'evaluate', input: 'rows.push({ customer: "Zed", total: 1000 })' });
+    dispatch({ id: 4, type: 'evaluate', input: 'rows.sort((a, b) => b.total - a.total)' });
+    dispatch({ id: 5, type: 'evaluate', input: 'total(rows)' });
+    const reply = msgs.find((m): m is Extract<RuntimeMessage, { type: 'reply'; ok: true }> => m.type === 'reply' && m.id === 5 && m.ok)!;
+    const out = reply.result as { kind: string; shown: string; callRecords: Array<{ args: unknown[]; result: unknown }> };
+    expect(out).toMatchObject({ kind: 'value', shown: '20' });
+    // the pin refers to the dataset by hash, and the stored rows under that hash are exactly what total() saw
+    expect(out.callRecords[0]).toMatchObject({ args: [{ kind: 'dataset', name: 'rows', hash: 'h1' }], result: 20 });
+    expect(stored).toEqual(ROWS());
+    expect(reply.env).toEqual({ rows: REF });
   });
 });
 

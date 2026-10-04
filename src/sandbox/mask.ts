@@ -148,6 +148,82 @@ function build(): Masked {
 
 export const MASKED_NAMES: readonly string[] = [...TRAPPED, 'Date', 'Math'];
 
+// ───────────────────────── test-code shadowing ─────────────────────────
+
+/**
+ * Names shadowed for the user's tests/properties code (testApi.registerCases): every trapped name except Date and
+ * Math (tests legitimately build dates and use real Math). Touching one throws a TestSandboxError. It is NOT recorded
+ * as a candidate violation: the test author reached for it, not the candidate. A throw at load time is a spec error;
+ * inside a test body it fails that test. Either way it is refused, never performed.
+ */
+export const TEST_SHADOWED_NAMES: readonly string[] = [...TRAPPED];
+
+export class TestSandboxError extends Error {
+  constructor(what: string) {
+    super(`test code used ${what}: tests and properties run without network, storage, timers or the global object`);
+    this.name = 'TestSandboxError';
+  }
+}
+
+function testTrap(what: string): unknown {
+  const fail = (): never => {
+    throw new TestSandboxError(what);
+  };
+  return new Proxy(function () {}, {
+    get: fail,
+    set: fail,
+    has: fail,
+    apply: fail,
+    construct: fail,
+    deleteProperty: fail,
+    defineProperty: fail,
+    getOwnPropertyDescriptor: fail,
+    ownKeys: fail,
+  });
+}
+
+let testShadows: { names: string[]; values: unknown[] } | null = null;
+
+/** Parameter names and trap values that shadow ambient globals for test/property code. */
+export function testCodeShadows(): { names: readonly string[]; values: readonly unknown[] } {
+  if (!testShadows) {
+    const names = [...TEST_SHADOWED_NAMES];
+    testShadows = { names, values: names.map((n) => testTrap(n)) };
+  }
+  return testShadows;
+}
+
+// ───────────────────────── frozen values ─────────────────────────
+
+const objectFreeze = Object.freeze;
+const objectValues = Object.values;
+
+/** Freeze `v` and everything reachable through own enumerable values, Map entries and Set members. */
+export function deepFreeze<T>(v: T, seen = new Set<object>()): T {
+  if (typeof v !== 'object' || v === null || seen.has(v)) return v;
+  seen.add(v);
+  try {
+    objectFreeze(v);
+  } catch {
+    /* non-empty typed arrays cannot be frozen */
+  }
+  for (const x of objectValues(v)) deepFreeze(x, seen);
+  if (v instanceof Map) for (const [k, x] of v) (deepFreeze(k, seen), deepFreeze(x, seen));
+  if (v instanceof Set) for (const x of v) deepFreeze(x, seen);
+  return v;
+}
+
+/** V8 / SpiderMonkey / JSC wording for a write to a frozen or non-extensible object. */
+const READ_ONLY_WRITE = /read[- ]only|not extensible|Cannot add property|Cannot assign to|Cannot delete property|Cannot (?:re)?define property|object is frozen|is non-writable|non-configurable/i;
+
+/** True for a TypeError raised by writing to a frozen / non-extensible object. */
+export function isReadOnlyWriteError(e: unknown): boolean {
+  if (typeof e !== 'object' || e === null) return false;
+  const name = (e as { name?: unknown }).name;
+  const message = (e as { message?: unknown }).message;
+  return name === 'TypeError' && typeof message === 'string' && READ_ONLY_WRITE.test(message);
+}
+
 // ───────────────────────── intrinsic integrity ─────────────────────────
 
 interface Watched {
@@ -259,6 +335,33 @@ export function evalMasked<T = (...args: never[]) => unknown>(js: string, export
   // eslint-disable-next-line no-new-func
   const factory = new Function(...names, `"use strict";\n${js}\n;return ${exportName};`);
   return factory(...values) as T;
+}
+
+/**
+ * Call once at worker start, AFTER capturing `postMessage` and AFTER registering the worker's own message listener.
+ * Replaces `postMessage` (it throws), locks `onmessage`/`onmessageerror` at null and replaces `close`, all
+ * non-configurably, so candidate or test code that reaches the real global object (the `.constructor` escape) cannot
+ * post to the main thread, install a message handler, or close the worker. Returns the names it locked.
+ */
+export function lockWorkerMessaging(scope: object): string[] {
+  const locked: string[] = [];
+  const refuse = (what: string) =>
+    function refused(): never {
+      throw new Error(`${what} is not available inside the sandbox`);
+    };
+  const set = (name: string, value: unknown): void => {
+    try {
+      Object.defineProperty(scope, name, { value, writable: false, enumerable: false, configurable: false });
+      locked.push(name);
+    } catch {
+      /* already non-configurable in this engine */
+    }
+  };
+  set('postMessage', refuse('postMessage'));
+  set('close', refuse('close'));
+  set('onmessage', null);
+  set('onmessageerror', null);
+  return locked;
 }
 
 /**

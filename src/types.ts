@@ -635,6 +635,11 @@ export interface EngineState {
   recordingOffer?: { url: string; source: string; preview: RecordingPreview };
   /** The opt-in local session log (off by default; never transmitted). */
   sessionLog?: { enabled: boolean; count: number; status: 'memory' | 'indexeddb' | 'failed' };
+  /**
+   * Another tab of this app (same origin, same stored program) answered on the tabs channel: edits in two tabs
+   * overwrite each other. `dismissed` hides the banner for this page load.
+   */
+  otherTab?: { dismissed: boolean };
 }
 
 /** What loading a recording would do, shown before anything is loaded (Engine.previewRecording). */
@@ -667,10 +672,28 @@ export type RecordingPreview =
       skipped: string[];
       /** Set when nothing in it can be used here; Load is not offered. */
       blocked?: string;
-      /** "This recording includes test code written by someone else. …" */
+      /** "This recording contains code written by someone else: …" (engine RECORDING_WARNING). */
       warning: string;
     }
   | { ok: false; error: string; hint?: string };
+
+/**
+ * What importing a program image would do, worked out without changing anything (Engine.previewImage). Importing
+ * REPLACES the current program: `current` is what would be replaced.
+ */
+export type ImagePreview =
+  | {
+      ok: true;
+      /** Revisions in the file, and functions / bound datasets at its head. */
+      revisions: number;
+      functions: number;
+      datasets: number;
+      /** The file's own `exportedAt` (as written; not checked to be a date). */
+      exportedAt: string;
+      /** The program it would replace. */
+      current: { revisions: number; functions: number };
+    }
+  | { ok: false; error: string };
 
 /** Result of parsing pasted/dropped data before it is loaded (drives the data drawer preview). */
 export type DatasetPreview =
@@ -721,6 +744,9 @@ export interface Engine {
   /** Re-probe the generation service (the "run live" button). */
   recheckService(): Promise<void>;
   exportImage(): Promise<string>;
+  /** Check an image file and say what importing it would replace. Changes nothing. Never throws. */
+  previewImage(json: string): Promise<ImagePreview>;
+  /** Replace the whole program with the image (the UI asks first: previewImage). */
   importImage(json: string): Promise<void>;
   /**
    * Every generation this session as a Recording: candidates generated live, and candidates replayed from a
@@ -757,6 +783,8 @@ export interface Engine {
   dismissRecordingBanner(): void;
   /** Decline the `?recording=` offer (nothing is loaded). */
   dismissRecordingOffer(): void;
+  /** Hide the "open in another tab" banner for this page load. */
+  dismissOtherTabBanner(): void;
   /** Turn the local session log on or off (off keeps the entries until clearSessionLog). */
   setSessionLogEnabled(on: boolean): Promise<void>;
   /** The log as JSON (format 'undefined-session-log'), for the user to download. */

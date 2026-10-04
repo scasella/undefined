@@ -37,6 +37,8 @@ describe('data drawer helpers', () => {
     expect(on.toggle).toBe('Send 3 sample rows to Codex along with the type (off = the type only)');
     expect(on.line).toContain('exactly the 3 rows below');
     expect(sendCopy('live', false, 3).line).toContain('the type only');
+    expect(sendCopy('live', true, 3).line).toContain('retry feedback may quote up to 200 characters of your data while sample rows are on');
+    expect(sendCopy('live', false, 3).line).toContain('retry feedback withholds anything derived from your data');
   });
 });
 

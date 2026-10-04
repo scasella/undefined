@@ -12,6 +12,10 @@ import { describeReport, NO_TESTS_REASON } from '../mutation/classify';
 
 /** Prefix of `MutationReport.skipped` when the check itself failed (never counted as a kill). */
 export const MUTATION_FAILED_PREFIX = 'mutation check could not run: ';
+/** `MutationReport.skipped` when the unmutated function already fails its own checks: no kill is counted. */
+/** Reason prefix when the unmutated function itself hit the mutation check's per-call time limit: slow, not wrong. */
+export const MUTATION_BASELINE_SLOW_PREFIX = 'the committed function is too slow for the mutation check';
+export const MUTATION_BASELINE_FAILED = 'the committed function fails its own checks, so mutation results would mean nothing';
 export const MUTATION_NOT_RUN = 'Mutation check: not run yet.';
 export const NO_TESTS_ADVICE = 'No tests yet: nothing could kill a mutant. Add one to make the gate stricter.';
 

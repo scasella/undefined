@@ -20,6 +20,7 @@ import type {
   DatasetPreview,
   DatasetRef,
   Declined,
+  Diagnostic,
   Engine,
   EngineState,
   EvalOutcome,
@@ -34,6 +35,7 @@ import type {
   GenerationView,
   Generator,
   Hash,
+  ImagePreview,
   Json,
   MutationReport,
   Pacing,
@@ -58,7 +60,7 @@ import { generateMutants } from '../mutation/mutate';
 import { NO_TESTS_REASON, skippedReport } from '../mutation/classify';
 import { suggestProperties } from '../suggest/suggest';
 import { appendProperty } from '../suggest/apply';
-import { addedCheckReason, MUTATION_FAILED_PREFIX } from '../shared/evidence';
+import { addedCheckReason, MUTATION_BASELINE_FAILED, MUTATION_BASELINE_SLOW_PREFIX, MUTATION_FAILED_PREFIX } from '../shared/evidence';
 import { MASKED_NAMES } from '../sandbox/mask';
 import { Runtime } from '../sandbox/runtime';
 import { gateSeed, hashesFor, sha256Hex } from '../shared/hash';
@@ -126,6 +128,11 @@ export type RuntimeLike = Pick<Runtime, 'define' | 'undefine' | 'evaluate' | 'sn
 
 export interface EngineStore {
   loadPersisted(): Promise<store.Persisted | null>;
+  /**
+   * Richer load: also says when a stored image was discarded and why (the engine shows that). Optional for older
+   * stores; when present it is used instead of loadPersisted.
+   */
+  loadStored?(): Promise<store.LoadOutcome>;
   appendRevision(rev: Revision, head: number): Promise<void>;
   saveFlags(flags: store.Persisted['flags']): Promise<void>;
   saveLiveEnv(env: Record<string, Json>): Promise<void>;
@@ -174,6 +181,39 @@ export interface EngineDeps {
   fetchRecording?: typeof fetch;
   /** The page address, read once at boot for `?recording=<url>`. Optional; null outside a browser. */
   location?(): { search: string; hash: string } | null;
+  /**
+   * The channel tabs of this app use to notice each other (default: BroadcastChannel TAB_CHANNEL_NAME when the
+   * browser has it; null = no multi-tab warning). Optional.
+   */
+  createTabChannel?(): TabChannel | null;
+}
+
+/** Name of the BroadcastChannel tabs of this app say hello on. */
+export const TAB_CHANNEL_NAME = 'undefined-tabs';
+
+/** A broadcast channel between tabs of this origin: 'hello' on boot, 'present' in answer. */
+export interface TabChannel {
+  post(message: 'hello' | 'present'): void;
+  onMessage(cb: (message: unknown) => void): void;
+  close(): void;
+}
+
+/** BroadcastChannel when the page runs in a browser that has it; otherwise null (no warning, nothing to close). */
+export function browserTabChannel(): TabChannel | null {
+  const g = globalThis as { BroadcastChannel?: typeof BroadcastChannel; document?: unknown };
+  if (typeof g.BroadcastChannel !== 'function' || g.document === undefined) return null;
+  try {
+    const ch = new g.BroadcastChannel(TAB_CHANNEL_NAME);
+    return {
+      post: (m) => ch.postMessage(m),
+      onMessage: (cb) => {
+        ch.onmessage = (e: MessageEvent) => cb(e.data);
+      },
+      close: () => ch.close(),
+    };
+  } catch {
+    return null;
+  }
 }
 
 export const DEFAULT_PACING: Pacing = { typeCharMs: 6, gateDwellMs: 450, replayMaxMs: 5000 };
@@ -320,6 +360,7 @@ function defaultDeps(): EngineDeps {
     execGates: runExecutionGates,
     store: {
       loadPersisted: store.loadPersisted,
+      loadStored: store.loadStored,
       appendRevision: store.appendRevision,
       saveFlags: store.saveFlags,
       saveLiveEnv: store.saveLiveEnv,
@@ -626,10 +667,109 @@ interface Grown {
 
 type GrowResult = { kind: 'committed'; revision: number; grown: Grown } | { kind: 'failed' } | { kind: 'aborted' };
 
+// ───────────────────────── data-derived text (prompts, session log) ─────────────────────────
+
+/** What replaces a value derived from the user's data in retry feedback sent to the model (sample rows off). */
+export const WITHHELD = '(withheld: derived from your data)';
+/** With sample rows on, retry feedback may quote data, at most this many characters per field. */
+export const DATA_QUOTE_MAX = 200;
+/** Session-log summaries of functions with no data in play are cut to this length. */
+export const LOG_TEXT_MAX = 200;
+/** = sandbox/gateExecutor PINNED_PREFIX (not imported: that module pulls fast-check into the main bundle). */
+export const PINNED_TEST_PREFIX = 'pinned: ';
+
+/** At most `max` characters, the last one `…` when cut. */
+export function clipText(s: string, max: number): string {
+  return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
+}
+
+/** `TypeError: (withheld…)` from `TypeError: <message>`: the error's class, never its message. */
+function withheldError(error: string): string {
+  const m = /^\s*([A-Za-z_$][\w$]*(?:Error|Exception))\b/.exec(error);
+  return m ? `${m[1]}: ${WITHHELD}` : WITHHELD;
+}
+
+type PromptHistory = PromptInput['history'];
+
+/**
+ * Retry feedback for a function with data in play (see the engine's dataInPlay). The pinned-test and invariant
+ * diagnostics are built from the real arguments and results (the triggering call's rows, a pin's expected value), so:
+ * with sample rows OFF their call / expected / actual / detail / error / message text, and the headline of a gate that
+ * held one, are replaced by WITHHELD; with sample rows ON each is cut to DATA_QUOTE_MAX characters. Property
+ * counterexamples (generated by fast-check, not user data), unit tests and compile errors are kept as they are.
+ */
+export function redactHistoryForModel(history: PromptHistory, opts: { samples: boolean }): PromptHistory {
+  return history.map((h) => {
+    const gates = h.gates.map((g) => {
+      let touched = false;
+      const diagnostics = g.diagnostics.map((d): Diagnostic => {
+        if (d.kind === 'test' && d.name.startsWith(PINNED_TEST_PREFIX)) {
+          touched = true;
+          if (opts.samples) {
+            return {
+              ...d,
+              message: clipText(d.message, DATA_QUOTE_MAX),
+              ...(d.call !== undefined ? { call: clipText(d.call, DATA_QUOTE_MAX) } : {}),
+              ...(d.expected !== undefined ? { expected: clipText(d.expected, DATA_QUOTE_MAX) } : {}),
+              ...(d.actual !== undefined ? { actual: clipText(d.actual, DATA_QUOTE_MAX) } : {}),
+              ...(d.error !== undefined ? { error: clipText(d.error, DATA_QUOTE_MAX) } : {}),
+            };
+          }
+          return {
+            ...d,
+            message: WITHHELD,
+            ...(d.call !== undefined ? { call: WITHHELD } : {}),
+            ...(d.expected !== undefined ? { expected: WITHHELD } : {}),
+            ...(d.actual !== undefined ? { actual: WITHHELD } : {}),
+            ...(d.error !== undefined ? { error: withheldError(d.error) } : {}),
+          };
+        }
+        if (d.kind === 'invariant') {
+          touched = true;
+          const cut = (v: string): string => (opts.samples ? clipText(v, DATA_QUOTE_MAX) : WITHHELD);
+          return { ...d, ...(d.call !== undefined ? { call: cut(d.call) } : {}), ...(d.detail !== undefined ? { detail: cut(d.detail) } : {}) };
+        }
+        return d;
+      });
+      if (!touched) return g;
+      let headline = g.headline;
+      if (headline !== undefined) {
+        if (opts.samples) headline = clipText(headline, DATA_QUOTE_MAX);
+        else {
+          const inv = g.diagnostics.find((d) => d.kind === 'invariant');
+          headline =
+            inv && inv.kind === 'invariant'
+              ? `Rejected by ${g.gate}: ${inv.invariant}: ${inv.message} (the call and values are ${WITHHELD.slice(1, -1)})`
+              : `Rejected by ${g.gate}: a pinned test failed (its values are ${WITHHELD.slice(1, -1)})`;
+        }
+      }
+      return { ...g, diagnostics, ...(headline !== undefined ? { headline } : {}) };
+    });
+    const firstFailing = h.gates.find((g) => g.status === 'fail');
+    const redactedFirst = firstFailing ? gates[h.gates.indexOf(firstFailing)] : undefined;
+    const replaced = redactedFirst !== undefined && redactedFirst !== firstFailing;
+    // the entry's headline is the first failing gate's (shown for earlier attempts): it follows that gate's redaction
+    const headline = h.headline === undefined ? undefined : replaced ? (redactedFirst!.headline ?? WITHHELD) : h.headline;
+    return { ...h, gates, ...(headline !== undefined ? { headline } : {}) };
+  });
+}
+
+/** A runtime fault fed back to the model, with its call and message withheld (samples off) or cut (samples on). */
+export function redactFaultForModel(f: NonNullable<PromptInput['runtimeFault']>, fn: string, opts: { samples: boolean }): NonNullable<PromptInput['runtimeFault']> {
+  if (opts.samples) return { ...f, call: clipText(f.call, DATA_QUOTE_MAX), message: clipText(f.message, DATA_QUOTE_MAX) };
+  return { ...f, call: `${fn}(${WITHHELD})`, message: WITHHELD };
+}
+
 // ───────────────────────── shared recordings ─────────────────────────
 
+/** Init notice when the stored image failed validation: "Your stored program could not be read (<reason>) and was discarded…" */
+export const STORED_DISCARDED_PREFIX = 'Your stored program could not be read (';
+/** Init notice when bound datasets had no stored rows and were unbound (store.loadStored repaired the image). */
+export const DATASETS_UNBOUND_PREFIX = 'These datasets could not be restored and were unbound: ';
+
 /** Said before anything from someone else's recording is loaded. */
-export const RECORDING_WARNING = 'This recording includes test code written by someone else. It runs in the sandbox like any spec you write.';
+export const RECORDING_WARNING =
+  "This recording contains code written by someone else: model-written functions and the test code of the specs. It runs in your browser's sandbox, which limits what it can do but is not a security boundary. Only load recordings from people you trust.";
 /** Recorded calls kept from one recording (each is pre-typed, one at a time; never run without Enter). */
 const MAX_RECORDED_CALLS = 200;
 
@@ -718,6 +858,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
   let epoch = 0;
   let focusNonce = 0;
   let disposed = false;
+  let tabs: TabChannel | null = null;
   /** Tail of the operation queue: every operation that changes the program or the history runs alone, in order. */
   let opTail: Promise<void> = Promise.resolve();
   let opsPending = 0;
@@ -750,9 +891,13 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     set({ repl: [...state.value.repl, ...entries] });
   };
   const id = (p: string): string => deps.newId(p);
+  /**
+   * An error notice goes to the session log as its leading phrase only ("Could not load the data", "Import failed"):
+   * the rest can quote what was being read (a parse error shows the offending text), which may be the user's data.
+   */
   const notice = (tone: 'info' | 'error', text: string): void => {
     set({ notice: { tone, text } });
-    if (tone === 'error') log({ kind: 'error', summary: text });
+    if (tone === 'error') log({ kind: 'error', summary: clipText(text.split(/[:(]/)[0]!.trim() || 'error', LOG_TEXT_MAX) });
   };
   const headRev = (): Revision => history.find((r) => r.id === head) ?? history[history.length - 1]!;
   const rowsOf = (revs: Revision[]): EngineState['revisions'] =>
@@ -799,7 +944,15 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
   }
 
   const errorEntry = (name: string, message: string, restarts?: RestartOption[], ctx?: RestartContext, quiet = false): string => {
-    if (!quiet) log({ kind: 'error', summary: `${name}: ${message}`, ...(ctx ? { fn: ctx.fn } : {}) });
+    if (!quiet) {
+      // A fault's message quotes the call and what it threw: with data in play only the error's class is logged.
+      const summary = dataInPlay(ctx?.spec ?? (ctx ? headRev().program.functions[ctx.fn]?.spec : undefined), ctx?.dataArgs)
+        ? ctx && (ctx.kind === 'fault' || ctx.kind === 'timeout')
+          ? `${ctx.fn} threw ${name}`
+          : `error: ${name}`
+        : clipText(`${name}: ${message}`, LOG_TEXT_MAX);
+      log({ kind: 'error', summary, ...(ctx ? { fn: ctx.fn } : {}) });
+    }
     const entryId = id('er');
     const e: ReplEntry = { kind: 'error', id: entryId, name, message };
     if (restarts && restarts.length > 0) e.restarts = restarts;
@@ -810,6 +963,18 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
   const info = (text: string, tone: 'muted' | 'accent' | 'warn' = 'muted'): void => {
     pushRepl({ kind: 'info', id: id('if'), text, tone });
   };
+
+  /**
+   * Whether text built from real arguments and results (gate headlines, fault messages, invariant replays, pinned
+   * results) may hold the user's data: the function is typed over a dataset (`typeDecls`), the call passed one, or
+   * any dataset is bound at all (a value read out of one can be passed on without naming it). Such text never goes to
+   * the session log, and goes to the model only while sample rows are on (cut to DATA_QUOTE_MAX characters).
+   */
+  function dataInPlay(spec?: FunctionSpec, dataArgs?: readonly DataArg[]): boolean {
+    if (spec?.typeDecls && spec.typeDecls.trim() !== '') return true;
+    if (dataArgs && dataArgs.length > 0) return true;
+    return Object.keys(headRev()?.program.datasets ?? {}).length > 0;
+  }
 
   // ── the local session log (opt-in; never prompts, never dataset rows) ──
 
@@ -1025,10 +1190,20 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     // Compiler warm-up in the background: never blocks ready.
     void deps.warmUp().catch((e: unknown) => console.warn('[engine] compiler warm-up failed', e));
 
-    const [persisted, status] = await Promise.all([
-      deps.store.loadPersisted().catch(() => null),
+    const loadOne = async (): Promise<store.LoadOutcome> => {
+      if (deps.store.loadStored) return deps.store.loadStored();
+      const p = await deps.store.loadPersisted();
+      return p ? { kind: 'ok', persisted: p } : { kind: 'empty' };
+    };
+    const [outcome, status] = await Promise.all([
+      loadOne().catch((): store.LoadOutcome => ({ kind: 'empty' })),
       deps.probeService().catch((): ServiceStatus => ({ state: 'down' })),
     ]);
+    const persisted = outcome.kind === 'ok' ? outcome.persisted : null;
+    /** Problems with what was stored, said once the program is up (one notice, so they are joined). */
+    const restoreProblems: string[] = [];
+    if (outcome.kind === 'discarded') restoreProblems.push(`${STORED_DISCARDED_PREFIX}${outcome.reason}) and was discarded; starting fresh.`);
+    if (persisted?.repaired && persisted.repaired.length > 0) restoreProblems.push(`${DATASETS_UNBOUND_PREFIX}${persisted.repaired.join(', ')}.`);
     if (status.state !== 'up' && status.state !== 'degraded') {
       recordings = await deps.loadRecordings().catch(() => []);
     }
@@ -1046,7 +1221,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       liveEnv = persisted.liveEnv;
       replaceContent(persisted.datasets ?? image.datasets);
       if (typeof flags.sendSamples === 'boolean') set({ send: { ...state.value.send, samples: flags.sendSamples } });
-      if (fresh.dropped.length > 0) notice('error', `Restored image: ${recompileSummary(fresh)}.`);
+      if (fresh.dropped.length > 0) restoreProblems.push(`Restored image: ${recompileSummary(fresh)}.`);
     } else {
       const r1 = await seedProgram();
       history = [r1];
@@ -1066,6 +1241,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     }
     await refreshEnv();
     if (persisted) await persistDatasets();
+    if (restoreProblems.length > 0) notice('error', restoreProblems.join(' '));
 
     const ex = initialExample();
     const remembered = persisted ? deps.inputMemory.load() : null;
@@ -1074,6 +1250,8 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       hints: { opener: !flags.openerDismissed, takeaway: flags.takeawayShown },
       ready: true,
     });
+
+    openTabChannel();
 
     // The session log's count: only touch its storage when it is on or was used before (no database otherwise).
     if (slog.isEnabled() || sessionLogWasUsed()) void refreshLogState();
@@ -1086,6 +1264,41 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     }
     const offerUrl = loc ? recordingParamFromLocation(loc.search, loc.hash) : null;
     if (offerUrl) void offerRecording(offerUrl, myEpoch);
+  }
+
+  /**
+   * Say hello to other tabs of this app; one that answers 'present' (or says hello later) holds the same stored
+   * program, and edits in both overwrite each other: both show the banner. Best effort; never throws.
+   */
+  function openTabChannel(): void {
+    if (tabs || disposed) return;
+    try {
+      tabs = deps.createTabChannel ? deps.createTabChannel() : browserTabChannel();
+      if (!tabs) return;
+      const ch = tabs;
+      ch.onMessage((m) => {
+        if (disposed) return;
+        if (m === 'hello') {
+          ch.post('present');
+          markOtherTab();
+        } else if (m === 'present') {
+          markOtherTab();
+        }
+      });
+      ch.post('hello');
+    } catch (e) {
+      console.warn('[engine] tab channel unavailable', e);
+      tabs = null;
+    }
+  }
+
+  function markOtherTab(): void {
+    if (!state.value.otherTab) set({ otherTab: { dismissed: false } });
+  }
+
+  function dismissOtherTabBanner(): void {
+    const o = state.value.otherTab;
+    if (o && !o.dismissed) set({ otherTab: { dismissed: true } });
   }
 
   function sessionLogWasUsed(): boolean {
@@ -1449,9 +1662,13 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         attempts: [...g.attempts, { attempt: attemptNo, status: 'generating', shown: '', gates: [] }],
       }));
 
-      const promptInput: PromptInput = { spec, history: [...rejected] };
+      // Retry feedback built from the real arguments/results is withheld (or cut) when data is in play; the gate panel
+      // keeps the full text, and "What the model saw" shows exactly this prompt.
+      const withData = dataInPlay(spec, req.dataArgs);
+      const samples = { samples: state.value.send.samples };
+      const promptInput: PromptInput = { spec, history: withData ? redactHistoryForModel(rejected, samples) : [...rejected] };
       if (req.callArgTypes) promptInput.callArgTypes = req.callArgTypes;
-      if (req.runtimeFault) promptInput.runtimeFault = req.runtimeFault;
+      if (req.runtimeFault) promptInput.runtimeFault = withData ? redactFaultForModel(req.runtimeFault, fn, samples) : req.runtimeFault;
       if (req.dataArgs && req.dataArgs.length > 0) promptInput.dataSamples = dataSamplesFor(req.dataArgs, mode);
       const genReq: GenerateRequest = { fn, specHash, testsHash, attempt: index, prompt: buildPrompt(promptInput) };
 
@@ -1536,7 +1753,12 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         candidates.push(candidate);
         setAttempt(index, { status: 'aborted', shown: body, gates, candidate });
         setGen({ phase: 'failed', declined });
-        log({ kind: 'decline', fn, summary: declined.message, detail: { reason: declined.reason, attempt: attemptNo, source: result.source } });
+        log({
+          kind: 'decline',
+          fn,
+          summary: dataInPlay(spec, req.dataArgs) ? `declined (${declined.reason})` : clipText(declined.message, LOG_TEXT_MAX),
+          detail: { reason: declined.reason, attempt: attemptNo, source: result.source },
+        });
         errorEntry(
           'Declined',
           declineMessage(fn, declined),
@@ -1589,7 +1811,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         log({
           kind: 'gate',
           fn,
-          summary: failing.headline ?? `rejected by ${failing.gate}`,
+          summary: gateLogSummary(failing, dataInPlay(spec, req.dataArgs)),
           detail: { gate: failing.gate, attempt: attemptNo, source: result.source, ...(gated.specError ? { specError: true } : {}) },
         });
       }
@@ -1637,6 +1859,18 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       growCtx,
     );
     return { kind: 'failed' };
+  }
+
+  /**
+   * The session-log line for a rejecting gate: with data in play only which gate and which invariant ("rejected by
+   * invariants (pure)"); otherwise its headline, cut to LOG_TEXT_MAX characters.
+   */
+  function gateLogSummary(g: GateResult, withData: boolean): string {
+    if (withData || !g.headline) {
+      const inv = g.diagnostics.find((d) => d.kind === 'invariant');
+      return `rejected by ${g.gate}${inv && inv.kind === 'invariant' ? ` (${inv.invariant})` : ''}`;
+    }
+    return clipText(g.headline, LOG_TEXT_MAX);
   }
 
   /** No tests, no properties and no pins: nothing checks the candidate against an intent. */
@@ -2322,7 +2556,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         await persistDatasets();
         markPinned((e) => e.id === entryId || (e.pinnable !== undefined && e.pinnable.fn === fn && samePin({ label: e.pinnable.call, args: e.pinnable.args, expected: e.pinnable.expected }, candidate)), true);
         info(PINNED_INFO, 'accent');
-        log({ kind: 'pin', fn, summary: `pinned ${call}`, detail: { revision: rev.id } });
+        log({ kind: 'pin', fn, summary: clipText(`pinned ${call}`, LOG_TEXT_MAX), detail: { revision: rev.id } });
       } catch (e) {
         notice('error', `Pinning failed: ${errorText(e)}`);
       }
@@ -2354,7 +2588,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         await persistDatasets();
         markPinned((e) => e.pinnable !== undefined && e.pinnable.fn === fn && samePin({ label: e.pinnable.call, args: e.pinnable.args, expected: e.pinnable.expected }, pin), false);
         info(`Removed the pinned test ${pin.label} from ${fn}.`);
-        log({ kind: 'pin', fn, summary: `unpinned ${pin.label}`, detail: { revision: rev.id } });
+        log({ kind: 'pin', fn, summary: clipText(`unpinned ${pin.label}`, LOG_TEXT_MAX), detail: { revision: rev.id } });
       } catch (e) {
         notice('error', `Removing the pin failed: ${errorText(e)}`);
       }
@@ -2504,6 +2738,15 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       seed,
       ...(pinned.length > 0 ? { pinned } : {}),
     };
+    const budgetMs = Math.min(spec.budgetMs, MUTANT_CALL_BUDGET_MS);
+    // The unmutated function first, through exactly the runner the mutants get: if it already fails its own checks
+    // (e.g. a pin added later that it contradicts), every mutant would "fail" too and the kills would mean nothing.
+    const unmutated = await deps.execGates({ ...common, js: artifact.js, budgetMs, phases: ['tests', 'properties'], overallCapMs: Math.max(2 * budgetMs, mutCfg.timeBoxMs) });
+    if (sig.aborted) throw new Aborted();
+    const baselineFate = classifyMutant(unmutated);
+    // Hitting the per-call limit means slow, not wrong: say that, instead of claiming the function fails its own checks.
+    if (baselineFate === 'killed-by-bound') return { report: skippedReport(`${MUTATION_BASELINE_SLOW_PREFIX} (${budgetMs} ms per call), so it was not run`, deps.now()) };
+    if (baselineFate !== 'survived') return { report: skippedReport(MUTATION_BASELINE_FAILED, deps.now()) };
     let baseline: Evidence | undefined;
     if (!artifact.evidence) {
       const all = await deps.execGates({ ...common, js: artifact.js, budgetMs: spec.budgetMs });
@@ -2518,7 +2761,6 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     if (sig.aborted) throw new Aborted();
     const total = mutants.length;
     progress(0, total);
-    const budgetMs = Math.min(spec.budgetMs, MUTANT_CALL_BUDGET_MS);
     const boxStart = performance.now();
     let done = 0;
     const runner: MutantRunner = async (js) => {
@@ -2696,7 +2938,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
           },
         });
         info(RECHECK_FAILED_INFO, 'warn');
-        log({ kind: 'gate', fn, summary: failing.headline ?? `re-check rejected by ${failing.gate}`, detail: { gate: failing.gate, recheck: true } });
+        log({ kind: 'gate', fn, summary: `re-check ${gateLogSummary(failing, dataInPlay(next))}`, detail: { gate: failing.gate, recheck: true } });
       } catch (e) {
         notice('error', `Adding the check failed: ${errorText(e)}`);
       }
@@ -2765,6 +3007,32 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
 
   async function exportImage(): Promise<string> {
     return JSON.stringify(store.toImage(history, head, referencedContent()), null, 2);
+  }
+
+  /** What importing `json` would replace; changes nothing (no state, no store, no runtime). Never throws. */
+  async function previewImage(json: string): Promise<ImagePreview> {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(json);
+    } catch (e) {
+      return { ok: false, error: `the file is not JSON (${errorText(e)})` };
+    }
+    try {
+      const checked = store.validateImage(raw);
+      if (!checked.ok) return { ok: false, error: checked.error };
+      const img = checked.image;
+      const at = img.revisions.find((r) => r.id === img.head) ?? img.revisions[img.revisions.length - 1]!;
+      return {
+        ok: true,
+        revisions: img.revisions.length,
+        functions: Object.keys(at.program.functions).length,
+        datasets: Object.keys(at.program.datasets ?? {}).length,
+        exportedAt: img.exportedAt,
+        current: { revisions: history.length, functions: Object.keys(headRev()?.program.functions ?? {}).length },
+      };
+    } catch (e) {
+      return { ok: false, error: errorText(e) };
+    }
   }
 
   function importImage(json: string): Promise<void> {
@@ -3176,6 +3444,12 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
 
   function dispose(): void {
     disposed = true;
+    try {
+      tabs?.close();
+    } catch {
+      /* already closed */
+    }
+    tabs = null;
     epoch++;
     growCtrl?.abort();
     growCtrl = null;
@@ -3205,6 +3479,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     invokeRestart,
     recheckService,
     exportImage,
+    previewImage,
     importImage,
     exportRecording,
     resetImage,
@@ -3220,6 +3495,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     loadRecording,
     dismissRecordingBanner,
     dismissRecordingOffer,
+    dismissOtherTabBanner,
     setSessionLogEnabled,
     exportSessionLog: () => slog.exportJson(),
     clearSessionLog,

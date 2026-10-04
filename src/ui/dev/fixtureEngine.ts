@@ -241,6 +241,15 @@ export function createFixtureEngine(scenario: string): Engine {
     async exportImage() {
       return JSON.stringify({ format: 'undefined-image', version: 1, exportedAt: new Date().toISOString(), head: state.value.headRevision, revisions: [] }, null, 2);
     },
+    async previewImage(json: string) {
+      try {
+        JSON.parse(json);
+      } catch (e) {
+        return { ok: false as const, error: `the file is not JSON (${(e as Error).message})` };
+      }
+      const st = state.value;
+      return { ok: true as const, revisions: 3, functions: 1, datasets: 0, exportedAt: '2026-10-04T09:00:00.000Z', current: { revisions: st.revisions.length, functions: Object.keys(st.program.functions).length } };
+    },
     async importImage(json: string) {
       try {
         JSON.parse(json);
@@ -296,6 +305,9 @@ export function createFixtureEngine(scenario: string): Engine {
     },
     dismissRecordingOffer() {
       update((s) => void delete s.recordingOffer);
+    },
+    dismissOtherTabBanner() {
+      update((s) => void (s.otherTab &&= { dismissed: true }));
     },
     async setSessionLogEnabled(on) {
       update((s) => void (s.sessionLog = { enabled: on, count: logEntries, status: 'indexeddb' }));

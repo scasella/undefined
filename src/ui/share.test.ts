@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import type { Recording } from '../types';
 import {
   classifyDroppedText,
+  importFileLine,
+  importReplaceText,
+  OTHER_TAB_TEXT,
+  SESSION_LOG_HOLDS,
   droppedFileProblem,
   functionLine,
   pageBase,
@@ -77,3 +81,24 @@ describe('ui/share', () => {
     expect(sessionLogCountText({ enabled: false, count: 3, status: 'failed' })).toMatch(/^3 entries in this tab only/);
   });
 });
+
+describe('import confirmation, session log and tab texts', () => {
+  it('says plainly what an import replaces', () => {
+    expect(importReplaceText({ revisions: 7, functions: 2 })).toBe('This replaces your current program (7 revisions, 2 functions). Export it first if you want to keep it.');
+    expect(importReplaceText({ revisions: 1, functions: 1 })).toBe('This replaces your current program (1 revision, 1 function). Export it first if you want to keep it.');
+    expect(
+      importFileLine({ ok: true, revisions: 4, functions: 1, datasets: 2, exportedAt: '2026-10-04T09:00:00.000Z', current: { revisions: 1, functions: 0 } }),
+    ).toBe('4 revisions, 1 function, 2 datasets · exported 2026-10-04T09:00:00.000Z');
+  });
+
+  it('the session log dialog says exactly what the log may hold', () => {
+    expect(SESSION_LOG_HOLDS.startsWith('It may contain values you typed in your own calls, never dataset rows or prompts.')).toBe(true);
+    expect(SESSION_LOG_HOLDS).toContain('rejected by invariants (pure)');
+    expect(SESSION_LOG_HOLDS).toContain('threw TypeError');
+  });
+
+  it('the other-tab banner', () => {
+    expect(OTHER_TAB_TEXT).toBe('This program is open in another tab. Edits in two tabs overwrite each other; close one.');
+  });
+});
+

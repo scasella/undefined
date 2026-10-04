@@ -604,6 +604,17 @@ select {
 .banner-recording p {
   flex: 1;
 }
+.banner-tabs {
+  padding: var(--s2) var(--s3);
+  margin-bottom: var(--s2);
+  border: 1px solid var(--rule-2);
+  border-left: 3px solid var(--red);
+  background: var(--sheet);
+  font-style: normal;
+}
+.banner-tabs p {
+  flex: 1;
+}
 
 /* ─────────── the bench: model on the left, editor on the right ─────────── */
 

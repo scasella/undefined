@@ -11,11 +11,16 @@ import {
   DROP_TEXT,
   droppedFileProblem,
   functionLine,
+  IMAGE_FILENAME,
+  importFileLine,
+  importReplaceText,
   NOTHING_TO_SHARE,
+  OTHER_TAB_TEXT,
   provenanceLine,
   recordingBannerText,
   recordingSummary,
   SESSION_LOG_FILENAME,
+  SESSION_LOG_HOLDS,
   SESSION_LOG_OFF_NOTE,
   SESSION_LOG_SENTENCE,
   SHARE_FILENAME,
@@ -24,7 +29,7 @@ import {
   sessionLogCountText,
   shareLinkFor,
 } from '../share';
-import { copyText, downloadText, loadRecordingOpen, pendingRecording, sessionLogOpen, shareOpen, showNotice } from '../uiState';
+import { copyText, downloadText, loadRecordingOpen, pendingImport, pendingRecording, sessionLogOpen, shareOpen, showNotice } from '../uiState';
 
 /** A modal <dialog> driven by `open`; Escape / the close button call onClose. */
 function Sheet({ open, onClose, labelId, title, children }: { open: boolean; onClose: () => void; labelId: string; title: string; children: ComponentChildren }) {
@@ -424,7 +429,7 @@ export function DropOverlay({ engine }: { engine: Engine }) {
     <div class="drop-overlay" aria-hidden="true">
       <div class="drop-overlay-box">
         <p class="mono">{DROP_TEXT}</p>
-        <p class="small muted">a .json recording (asks before loading) or an exported program image (imports it)</p>
+        <p class="small muted">a .json recording or an exported program image (both ask before anything changes)</p>
       </div>
     </div>
   );
@@ -441,12 +446,8 @@ async function handleDroppedFile(engine: Engine, file: File): Promise<void> {
   }
   const what = classifyDroppedText(text, file.name);
   if (what.kind === 'image') {
-    // the program image path, exactly as Image → Import
-    try {
-      await engine.importImage(text);
-    } catch (e) {
-      showNotice('error', `Import failed: ${(e as Error).message}`);
-    }
+    // the program image path, exactly as Image → Import: checked, then confirmed before anything is replaced
+    await previewImport(engine, text, file.name);
     return;
   }
   if (what.kind === 'other') return showNotice('error', what.error);
@@ -454,7 +455,89 @@ async function handleDroppedFile(engine: Engine, file: File): Promise<void> {
   if (err) showNotice('error', `${file.name}: ${err}`);
 }
 
+// ───────────────────────── import a program image ─────────────────────────
+
+/** Check an image file and ask before it replaces the program (Image → Import and a dropped image both come here). */
+export async function previewImport(engine: Engine, text: string, source: string): Promise<void> {
+  try {
+    const preview = await engine.previewImage(text);
+    if (!preview.ok) return showNotice('error', `Import failed: ${preview.error}`);
+    pendingImport.value = { text, source, preview };
+  } catch (e) {
+    showNotice('error', `Import failed: ${(e as Error).message}`);
+  }
+}
+
+/** "Replace your program?": Export current first / Replace / Cancel. Cancel changes nothing. */
+export function ImportConfirm({ state, engine }: { state: EngineState; engine: Engine }) {
+  const pending = pendingImport.value;
+  const [working, setWorking] = useState(false);
+  const close = () => (pendingImport.value = null);
+  const exportFirst = async () => {
+    try {
+      downloadText(IMAGE_FILENAME, await engine.exportImage());
+      showNotice('info', `Saved ${IMAGE_FILENAME}.`);
+    } catch (e) {
+      showNotice('error', `Export failed: ${(e as Error).message}`);
+    }
+  };
+  const replace = async () => {
+    if (!pending) return;
+    setWorking(true);
+    try {
+      await engine.importImage(pending.text);
+    } catch (e) {
+      showNotice('error', `Import failed: ${(e as Error).message}`);
+    } finally {
+      setWorking(false);
+      pendingImport.value = null;
+    }
+  };
+  const p = pending?.preview;
+  return (
+    <Sheet open={pending !== null} onClose={close} labelId="import-title" title="Replace your program?">
+      {pending && p && (
+        <>
+          <p class="small muted">From {pending.source}</p>
+          <p class="small mono">{importFileLine(p)}</p>
+          <p class="confirm-warning" role="note">
+            {importReplaceText(p.current)}
+          </p>
+          <div class="form-actions">
+            <button type="button" class="btn" disabled={working} onClick={() => void exportFirst()}>
+              Export current first
+            </button>
+            <button type="button" class="btn btn-warn" disabled={working || state.busy} onClick={() => void replace()}>
+              Replace
+            </button>
+            <button type="button" class="btn" onClick={close}>
+              Cancel
+            </button>
+          </div>
+        </>
+      )}
+    </Sheet>
+  );
+}
+
 // ───────────────────────── banner ─────────────────────────
+
+/** Another tab of this app holds the same stored program (persistent until dismissed). */
+export function OtherTabBanner({ state, engine }: { state: EngineState; engine: Engine }) {
+  const o = state.otherTab;
+  if (!o || o.dismissed) return null;
+  return (
+    <div class="banner banner-tabs" role="alert">
+      <span class="banner-icon" aria-hidden="true">
+        ⧉
+      </span>
+      <p>{OTHER_TAB_TEXT}</p>
+      <button type="button" class="btn btn-ghost btn-xs banner-close" onClick={() => engine.dismissOtherTabBanner()} aria-label="Dismiss the other-tab warning">
+        ✕
+      </button>
+    </div>
+  );
+}
 
 export function RecordingBanner({ state, engine }: { state: EngineState; engine: Engine }) {
   const lr = state.loadedRecording;
@@ -513,7 +596,7 @@ export function SessionLogDialog({ state, engine }: { state: EngineState; engine
         <span>Keep a session log</span>
       </label>
       <p class="small">{SESSION_LOG_SENTENCE}</p>
-      <p class="small muted">It never holds the prompts sent to the model or the rows of your data: inputs, outcome kinds, which gate decided and its headline, declines, commits, pins, rollbacks, spec edits, dataset names and sizes, errors.</p>
+      <p class="small muted">{SESSION_LOG_HOLDS}</p>
       <p class="mono small slog-count" aria-live="polite">
         {sessionLogCountText(log)}
         {log.enabled ? '' : ' · off'}

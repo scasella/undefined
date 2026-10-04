@@ -2,7 +2,7 @@
 import { signal } from '@preact/signals';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { AttemptSelection } from './select';
-import type { RecordingPreview } from '../types';
+import type { ImagePreview, RecordingPreview } from '../types';
 
 export const selection = signal<AttemptSelection | null>(null);
 export const lowerTab = signal<'revisions' | 'repo'>('revisions');
@@ -87,3 +87,9 @@ export const sessionLogOpen = signal(false);
  * lives in the engine's state.recordingOffer; the same confirmation dialog shows it.)
  */
 export const pendingRecording = signal<{ input: { text?: string; url?: string; source: string }; preview: RecordingPreview } | null>(null);
+/**
+ * A program image the user picked (Image → Import) or dropped, checked and waiting for Replace / Cancel: importing
+ * replaces the whole program, so it is never done without this confirmation.
+ */
+export const pendingImport = signal<{ text: string; source: string; preview: Extract<ImagePreview, { ok: true }> } | null>(null);
+

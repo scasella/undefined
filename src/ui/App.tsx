@@ -8,7 +8,7 @@ import { GatePanel } from './components/GatePanel';
 import { Repl } from './components/Repl';
 import { Repo } from './components/Repo';
 import { RetryStrip } from './components/RetryStrip';
-import { DropOverlay, LoadRecordingDialog, RecordingBanner, RecordingConfirm, SessionLogDialog, ShareDialog } from './components/Share';
+import { DropOverlay, ImportConfirm, LoadRecordingDialog, OtherTabBanner, RecordingBanner, RecordingConfirm, SessionLogDialog, ShareDialog } from './components/Share';
 import { Revisions } from './components/Revisions';
 import { focusFn, lowerTab } from './uiState';
 
@@ -85,6 +85,7 @@ export function App({ engine, initError }: { engine: Engine; initError?: string 
           <div class="subhead">
             <Examples state={state} engine={engine} />
           </div>
+          <OtherTabBanner state={state} engine={engine} />
           <RecordingBanner state={state} engine={engine} />
         </PanelBoundary>
         <main class="bench" id="main">
@@ -137,6 +138,7 @@ export function App({ engine, initError }: { engine: Engine; initError?: string 
         <ShareDialog engine={engine} />
         <LoadRecordingDialog engine={engine} />
         <RecordingConfirm state={state} engine={engine} />
+        <ImportConfirm state={state} engine={engine} />
         <SessionLogDialog state={state} engine={engine} />
         <DropOverlay engine={engine} />
       </PanelBoundary>

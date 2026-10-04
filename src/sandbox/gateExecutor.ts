@@ -20,7 +20,7 @@ import * as fc from 'fast-check';
 import type { Diagnostic, GateId, GateResult } from '../types';
 import { firstDifference, formatDifference } from '../shared/diff';
 import { callString, show } from '../shared/show';
-import { evalMasked, InvariantViolation, takeViolations } from './mask';
+import { deepFreeze, evalMasked, InvariantViolation, takeViolations } from './mask';
 import {
   applyAttribution,
   invariantFailure,
@@ -119,22 +119,6 @@ const realPerformance = performance;
 const now = (): number => realPerformance.now();
 const realStructuredClone = structuredClone;
 const ownNames = Object.getOwnPropertyNames;
-const objectFreeze = Object.freeze;
-const objectValues = Object.values;
-
-function deepFreeze<T>(v: T, seen = new Set<object>()): T {
-  if (typeof v !== 'object' || v === null || seen.has(v)) return v;
-  seen.add(v);
-  try {
-    objectFreeze(v);
-  } catch {
-    /* non-empty typed arrays cannot be frozen */
-  }
-  for (const x of objectValues(v)) deepFreeze(x, seen);
-  if (v instanceof Map) for (const [k, x] of v) (deepFreeze(k, seen), deepFreeze(x, seen));
-  if (v instanceof Set) for (const x of v) deepFreeze(x, seen);
-  return v;
-}
 
 function isTypeError(e: unknown): boolean {
   return e instanceof TypeError || (typeof e === 'object' && e !== null && (e as Error).name === 'TypeError');

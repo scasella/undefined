@@ -7,18 +7,59 @@
 import type { Diagnostic, GateResult } from '../types';
 import { applyAttribution, EXEC_PHASES, invariantFailure, notReached, type ExecPhase } from './attribution';
 import type { ExecGateInput } from './gateExecutor';
+import { hasNonce, newNonce, spawnModuleWorker } from './spawn';
+import { gateWorkerUrl } from './workerUrls';
 
 export type { ExecGateInput, PinnedCase } from './gateExecutor';
 
 // Declared here, not in gateWorker.ts: importing the worker module on the main thread would scrub its globals.
-export type ToWorker = { type: 'run'; input: ExecGateInput };
-export type FromWorker =
+/**
+ * The run message carries a fresh random nonce. The worker keeps it in a module-private closure and stamps it on
+ * every message it posts; this side ignores any message without it. Candidate and test code run in the same worker
+ * but cannot read the nonce, and the worker replaces `self.postMessage` before running them, so they can neither
+ * post nor forge a verdict ('done'), a gate result, or the phase/enter/leave events the watchdog relies on.
+ */
+export type ToWorker = { type: 'run'; input: ExecGateInput; nonce: string };
+export type FromWorkerBody =
   | { type: 'phase'; phase: ExecPhase }
   | { type: 'enter'; label: string }
   | { type: 'leave' }
   | { type: 'gate'; result: GateResult }
   | { type: 'done'; results: GateResult[] }
   | { type: 'error'; message: string };
+export type FromWorker = FromWorkerBody & { nonce: string };
+
+/** The part of a Worker the gate runner uses; injectable so the protocol is testable in Node with fakes. */
+export interface GateWorkerPort {
+  postMessage(message: ToWorker): void;
+  terminate(): void;
+  onMessage(cb: (data: unknown) => void): void;
+  onError(cb: (message: string) => void): void;
+}
+
+export interface GateRunOptions {
+  createWorker?: () => GateWorkerPort;
+  /** Defaults to crypto-random 128 bits per run. */
+  nonce?: () => string;
+}
+
+function defaultGateWorker(): GateWorkerPort {
+  const w = spawnModuleWorker(gateWorkerUrl);
+  return {
+    postMessage: (m) => w.postMessage(m),
+    terminate: () => w.terminate(),
+    onMessage: (cb) => {
+      w.onmessage = (ev: MessageEvent) => cb(ev.data);
+    },
+    onError: (cb) => {
+      w.onerror = (ev: ErrorEvent) => {
+        ev.preventDefault();
+        cb(ev.message || 'the gate worker failed to start');
+      };
+      w.onmessageerror = () => cb('a gate worker message could not be decoded');
+    },
+  };
+}
 
 export const DEFAULT_OVERALL_CAP_MS = 15_000;
 const WATCHDOG_INTERVAL_MS = 25;
@@ -209,14 +250,16 @@ function parsePropertyRuns(summary: string): Array<{ name: string; runs: number 
  * plus an Invariants failure whenever an invariant was violated; never rejects. `onGate` fires once per reported
  * gate as each one becomes final, so the UI can light them one at a time.
  */
-export function runExecutionGates(input: ExecGateInput, onGate?: (r: GateResult) => void): Promise<GateResult[]> {
+export function runExecutionGates(input: ExecGateInput, onGate?: (r: GateResult) => void, opts: GateRunOptions = {}): Promise<GateResult[]> {
   return new Promise((resolve) => {
+    const nonce = (opts.nonce ?? newNonce)();
+    let forged = 0;
     const overallCapMs = input.overallCapMs ?? DEFAULT_OVERALL_CAP_MS;
     const dog = new Watchdog(input.budgetMs, overallCapMs, performance.now());
     const reported: GateResult[] = [];
     let settled = false;
     let timer: ReturnType<typeof setInterval> | undefined;
-    let worker: Worker | undefined;
+    let worker: GateWorkerPort | undefined;
 
     const report = (r: GateResult): void => {
       if (reported.some((x) => x.gate === r.gate)) return;
@@ -239,15 +282,20 @@ export function runExecutionGates(input: ExecGateInput, onGate?: (r: GateResult)
     const crash = (message: string): void => settle(crashResults(reported, dog.phase, message, dog.inFlight()?.label));
 
     try {
-      worker = new Worker(new URL('./gateWorker.ts', import.meta.url), { type: 'module' });
+      worker = (opts.createWorker ?? defaultGateWorker)();
     } catch (e) {
       crash(e instanceof Error ? e.message : String(e));
       return;
     }
 
-    worker.onmessage = (ev: MessageEvent<FromWorker>) => {
+    worker.onMessage((data) => {
       if (settled) return;
-      const m = ev.data;
+      if (!hasNonce(data, nonce)) {
+        // Not from the worker's own protocol code: something inside the worker tried to post. Never acted on.
+        if (forged++ === 0) console.warn('gate runner: ignored a gate worker message without the run nonce', data);
+        return;
+      }
+      const m = data as FromWorker;
       const t = performance.now();
       switch (m.type) {
         case 'phase':
@@ -269,12 +317,8 @@ export function runExecutionGates(input: ExecGateInput, onGate?: (r: GateResult)
           crash(m.message);
           break;
       }
-    };
-    worker.onerror = (ev: ErrorEvent) => {
-      ev.preventDefault();
-      crash(ev.message || 'the gate worker failed to start');
-    };
-    worker.onmessageerror = () => crash('a gate worker message could not be decoded');
+    });
+    worker.onError((message) => crash(message));
 
     timer = setInterval(() => {
       const o = dog.check(performance.now());
@@ -282,7 +326,7 @@ export function runExecutionGates(input: ExecGateInput, onGate?: (r: GateResult)
     }, WATCHDOG_INTERVAL_MS);
 
     try {
-      worker.postMessage({ type: 'run', input } satisfies ToWorker);
+      worker.postMessage({ type: 'run', input, nonce } satisfies ToWorker);
     } catch (e) {
       crash(`could not send the run to the gate worker: ${e instanceof Error ? e.message : String(e)}`);
     }

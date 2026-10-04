@@ -29,14 +29,26 @@ export interface Persisted {
   liveEnv: Record<string, Json>;
   /** Dataset rows, encoded, content-addressed (also inside `image.datasets`). */
   datasets: Record<string, Json>;
+  /** Datasets unbound on load because their rows were not stored (see loadStored). */
+  repaired?: string[];
 }
 
 // ───────────────────────── backends ─────────────────────────
 
-/** One atomic write: revisions to put plus kv entries to set. */
+/**
+ * One atomic write: revisions to put, kv entries to set, and kv entries to MERGE into (`mergeKv[key]` is shallow-merged
+ * into the object stored under `key`, read and written in the same transaction, so a concurrent writer's keys are
+ * kept rather than dropped).
+ */
 export interface WriteBatch {
   revisions?: Revision[];
   kv?: Record<string, unknown>;
+  mergeKv?: Record<string, Record<string, unknown>>;
+}
+
+function merged(stored: unknown, patch: Record<string, unknown>): Record<string, unknown> {
+  const base = typeof stored === 'object' && stored !== null && !Array.isArray(stored) ? (stored as Record<string, unknown>) : {};
+  return { ...base, ...patch };
 }
 
 export interface Backend {
@@ -59,6 +71,7 @@ export function memoryBackend(): Backend {
       // Clone on the way in so later mutation by a caller cannot reach stored data (as with IndexedDB).
       for (const r of batch.revisions ?? []) revisions.set(r.id, structuredClone(r));
       for (const [k, v] of Object.entries(batch.kv ?? {})) kv.set(k, structuredClone(v));
+      for (const [k, patch] of Object.entries(batch.mergeKv ?? {})) kv.set(k, structuredClone(merged(kv.get(k), patch)));
     },
     async clear() {
       revisions.clear();
@@ -133,6 +146,12 @@ export function openIdbBackend(factory: IDBFactory): Promise<Backend> {
       const finished = done(tx);
       for (const r of batch.revisions ?? []) tx.objectStore('revisions').put(r);
       for (const [k, v] of Object.entries(batch.kv ?? {})) tx.objectStore('kv').put(v, k);
+      for (const [k, patch] of Object.entries(batch.mergeKv ?? {})) {
+        // read-modify-write inside this one readwrite transaction: no other tab can write in between
+        const store = tx.objectStore('kv');
+        const got = store.get(k);
+        got.onsuccess = () => store.put(merged(got.result, patch), k);
+      }
       await finished;
     },
     async clear() {
@@ -233,39 +252,97 @@ const K_FLAGS = 'flags';
 const K_ENV = 'liveEnv';
 const K_DATASETS = 'datasets';
 
+/** What loadStored found: nothing, a usable image (possibly repaired), or an image that was discarded and why. */
+export type LoadOutcome =
+  | { kind: 'empty' }
+  | { kind: 'ok'; persisted: Persisted }
+  | { kind: 'discarded'; reason: string };
+
 /**
- * The stored image, flags and live env; null when nothing is stored or the stored data fails validation
- * (a warning is logged). Hashes are returned as stored; call reverify() if they must be recomputed.
+ * Drop, from every raw stored revision, each bound dataset whose rows are not stored. Returns the names dropped (sorted,
+ * unique); never throws on malformed input (validation reports that).
  */
-export function loadPersisted(): Promise<Persisted | null> {
-  return safely('load', null, async () => {
+function unbindMissing(revisions: Revision[], stored: Record<string, Json>): { revisions: Revision[]; dropped: string[] } {
+  const dropped = new Set<string>();
+  const out = revisions.map((rev) => {
+    const r = rev as unknown;
+    if (!isObject(r) || !isObject(r.program) || !isObject(r.program.datasets)) return rev;
+    const ds = r.program.datasets;
+    const keep: Obj = {};
+    let changed = false;
+    for (const [name, ref] of Object.entries(ds)) {
+      if (isObject(ref) && typeof ref.hash === 'string' && !(ref.hash in stored)) {
+        dropped.add(name);
+        changed = true;
+      } else {
+        keep[name] = ref;
+      }
+    }
+    return changed ? ({ ...rev, program: { ...rev.program, datasets: keep } } as Revision) : rev;
+  });
+  return { revisions: out, dropped: [...dropped].sort() };
+}
+
+/**
+ * The stored image, flags and live env. A stored image whose only problem is bound datasets with no stored rows (e.g.
+ * two tabs wrote the same database) is REPAIRED: those bindings are dropped from every revision, the repaired
+ * revisions are written back, and their names come back in `persisted.repaired`. Any other validation failure clears
+ * the store (a console warning says why) and comes back as `discarded` with the reason, for the UI to say so.
+ * Hashes are returned as stored; call reverify() if they must be recomputed.
+ */
+export function loadStored(): Promise<LoadOutcome> {
+  return safely<LoadOutcome>('load', { kind: 'empty' }, async () => {
     const { revisions, kv } = await current().readAll();
-    if (revisions.length === 0) return null;
+    if (revisions.length === 0) return { kind: 'empty' };
     const lastId = revisions[revisions.length - 1]!.id;
     const storedHead = kv[K_HEAD];
     const head =
       typeof storedHead === 'number' && revisions.some((r) => r.id === storedHead) ? storedHead : lastId;
     const storedDatasets = isObject(kv[K_DATASETS]) && Object.values(kv[K_DATASETS]).every(isJson) ? (kv[K_DATASETS] as Record<string, Json>) : {};
-    const checked = validateImage(toImage(revisions, head, storedDatasets));
+    let checked = validateImage(toImage(revisions, head, storedDatasets));
+    let repaired: string[] = [];
+    if (!checked.ok) {
+      const fixed = unbindMissing(revisions, storedDatasets);
+      if (fixed.dropped.length > 0) {
+        const again = validateImage(toImage(fixed.revisions, head, storedDatasets));
+        if (again.ok) {
+          console.warn(`[store] stored image repaired: unbound datasets with no stored rows (${fixed.dropped.join(', ')})`);
+          checked = again;
+          repaired = fixed.dropped;
+          // write the repair back, or every later load repairs (and warns) again
+          await current().write({ revisions: again.image.revisions });
+        }
+      }
+    }
     if (!checked.ok) {
       // Clear it: otherwise reseeding r1 would overwrite id 1 only and leave the broken rows behind.
       console.warn(`[store] discarding stored image: ${checked.error}`);
       await current().clear();
-      return null;
+      return { kind: 'discarded', reason: checked.error };
     }
     const f = isObject(kv[K_FLAGS]) ? kv[K_FLAGS] : {};
     const env = kv[K_ENV];
     return {
-      image: checked.image,
-      flags: {
-        takeawayShown: f.takeawayShown === true,
-        openerDismissed: f.openerDismissed === true,
-        ...(typeof f.sendSamples === 'boolean' ? { sendSamples: f.sendSamples } : {}),
+      kind: 'ok',
+      persisted: {
+        image: checked.image,
+        flags: {
+          takeawayShown: f.takeawayShown === true,
+          openerDismissed: f.openerDismissed === true,
+          ...(typeof f.sendSamples === 'boolean' ? { sendSamples: f.sendSamples } : {}),
+        },
+        liveEnv: isObject(env) && Object.values(env).every(isJson) ? (env as Record<string, Json>) : {},
+        datasets: checked.image.datasets ?? {},
+        ...(repaired.length > 0 ? { repaired } : {}),
       },
-      liveEnv: isObject(env) && Object.values(env).every(isJson) ? (env as Record<string, Json>) : {},
-      datasets: checked.image.datasets ?? {},
     };
   });
+}
+
+/** loadStored's image, or null when nothing usable is stored (empty, or discarded: see loadStored). */
+export async function loadPersisted(): Promise<Persisted | null> {
+  const r = await loadStored();
+  return r.kind === 'ok' ? r.persisted : null;
 }
 
 export function appendRevision(rev: Revision, head: number): Promise<void> {
@@ -284,8 +361,13 @@ export function saveFlags(flags: Persisted['flags']): Promise<void> {
   return safely('saveFlags', undefined, () => current().write({ kv: { [K_FLAGS]: flags } }));
 }
 
+/**
+ * Store dataset rows by hash. MERGES into what is stored (never drops a hash): another tab on the same database may
+ * have revisions that refer to rows this tab does not hold. Stored rows only go away with clearAll (reset, import).
+ */
 export function saveDatasets(datasets: Record<string, Json>): Promise<void> {
-  return safely('saveDatasets', undefined, () => current().write({ kv: { [K_DATASETS]: datasets } }));
+  if (Object.keys(datasets).length === 0) return Promise.resolve();
+  return safely('saveDatasets', undefined, () => current().write({ mergeKv: { [K_DATASETS]: datasets } }));
 }
 
 export function saveLiveEnv(env: Record<string, Json>): Promise<void> {

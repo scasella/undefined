@@ -170,6 +170,9 @@ describe('share a session', () => {
     expect(Object.keys(b.s().program.functions)).toEqual([]);
     const preview = await b.engine.previewRecording({ text, source: 'undefined-session.json' });
     expect(preview).toMatchObject({ ok: true, canSeed: true, replayable: 1, calls: [CALL], warning: RECORDING_WARNING });
+    expect(RECORDING_WARNING).toBe(
+      "This recording contains code written by someone else: model-written functions and the test code of the specs. It runs in your browser's sandbox, which limits what it can do but is not a security boundary. Only load recordings from people you trust.",
+    );
     expect(preview.ok && preview.functions).toEqual([{ name: 'median', tests: expect.any(Number), properties: expect.any(Number), status: 'new' }]);
     expect(b.s().revisions).toHaveLength(1); // previewing changes nothing
 
@@ -424,7 +427,8 @@ describe('local session log', () => {
     expect(out.entries.find((e) => e.kind === 'input')!.input).toBe(CALL);
     const gate = out.entries.find((e) => e.kind === 'gate')!;
     expect(gate).toMatchObject({ fn: 'median', detail: { gate: expect.any(String), attempt: 1, source: 'replay' } });
-    expect(gate.summary).toMatch(/^Rejected: /);
+    // a dataset is bound, so the gate line is value-free: which gate decided, never its headline's values
+    expect(gate.summary).toBe('rejected by properties');
     expect(out.entries.find((e) => e.kind === 'dataset')!.detail).toEqual({ name: 'people', rows: 2, columns: 2 });
     expect(out.entries.some((e) => e.kind === 'outcome' && /error: SyntaxError/.test(e.summary))).toBe(true);
     // never the prompt, never a row

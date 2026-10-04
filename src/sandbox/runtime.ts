@@ -19,6 +19,8 @@
  */
 import type { EvalOutcome, Hash, Json } from '../types';
 import { isDatasetRefJson, type DatasetBinding, type RuntimeMessage, type RuntimeRequest } from './replCore';
+import { hasNonce, newNonce, spawnModuleWorker } from './spawn';
+import { runtimeWorkerUrl } from './workerUrls';
 
 /** The part of a Worker the runtime uses. Injectable so the queue/timeout/rebuild logic is testable in Node. */
 export interface RuntimeWorkerLike {
@@ -53,13 +55,35 @@ const DEFAULT_BUDGET_MS = 3000;
 
 const now = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
-function defaultWorkerFactory(): RuntimeWorkerLike {
-  const w = new Worker(new URL('./runtimeWorker.ts', import.meta.url), { type: 'module' });
+/** The parts of a real Worker the authenticated port uses (a fake in tests). */
+export interface RawWorker {
+  postMessage(message: unknown): void;
+  terminate(): void;
+  onmessage: ((ev: MessageEvent) => void) | null;
+  onerror: ((ev: ErrorEvent) => void) | null;
+  onmessageerror: ((ev: MessageEvent) => void) | null;
+}
+
+/**
+ * Wrap a freshly started runtime worker: send it `{type:'init', nonce}` first, then deliver only messages that carry
+ * that nonce (stripped), so code running inside the worker cannot forge a reply or an enter/leave event (see
+ * runtimeWorker.ts). Anything else is dropped and logged once.
+ */
+export function authenticatedRuntimePort(w: RawWorker, nonce: string): RuntimeWorkerLike {
+  w.postMessage({ type: 'init', nonce });
+  let forged = 0;
   return {
     postMessage: (m) => w.postMessage(m),
     terminate: () => w.terminate(),
     onMessage: (cb) => {
-      w.onmessage = (ev: MessageEvent) => cb(ev.data as RuntimeMessage);
+      w.onmessage = (ev: MessageEvent) => {
+        if (!hasNonce(ev.data, nonce)) {
+          if (forged++ === 0) console.warn('runtime: ignored a runtime worker message without the worker nonce', ev.data);
+          return;
+        }
+        const { nonce: _n, ...m } = ev.data as RuntimeMessage & { nonce: string };
+        cb(m as RuntimeMessage);
+      };
     },
     onError: (cb) => {
       w.onerror = (ev: ErrorEvent) => {
@@ -69,6 +93,10 @@ function defaultWorkerFactory(): RuntimeWorkerLike {
       w.onmessageerror = () => cb('a message from the runtime worker could not be deserialised');
     },
   };
+}
+
+function defaultWorkerFactory(): RuntimeWorkerLike {
+  return authenticatedRuntimePort(spawnModuleWorker(runtimeWorkerUrl), newNonce());
 }
 
 export class Runtime {

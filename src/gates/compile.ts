@@ -304,15 +304,17 @@ function declProblems(ts: TsModule, file: TS.SourceFile, fnIndex: number): Array
 /**
  * `import(…)` would let a candidate load and run arbitrary code (and reach the network) outside the masked scope, and
  * `import.meta` exposes the worker's URL. Both are found by walking the AST, so strings, comments and property names
- * that merely contain the word `import` are not affected.
+ * that merely contain the word `import` are not affected. The same walk guards the user's tests/properties
+ * (transpileUserCode). It cannot see code built from a string (`(()=>0).constructor('return import(u)')`): that is
+ * what the Content-Security-Policy inherited by the sandbox workers is for (src/sandbox/spawn.ts).
  */
-function moduleProblems(ts: TsModule, file: TS.SourceFile): Array<{ message: string; start: number; length: number }> {
+function moduleProblems(ts: TsModule, file: TS.SourceFile, where = 'a candidate'): Array<{ message: string; start: number; length: number }> {
   const out: Array<{ message: string; start: number; length: number }> = [];
   const visit = (n: TS.Node): void => {
     if (ts.isCallExpression(n) && n.expression.kind === ts.SyntaxKind.ImportKeyword) {
-      out.push({ message: 'dynamic import is not allowed in a candidate', start: n.getStart(file), length: n.getWidth(file) });
+      out.push({ message: `dynamic import is not allowed in ${where}`, start: n.getStart(file), length: n.getWidth(file) });
     } else if (ts.isMetaProperty(n) && n.keywordToken === ts.SyntaxKind.ImportKeyword) {
-      out.push({ message: 'import.meta is not allowed in a candidate', start: n.getStart(file), length: n.getWidth(file) });
+      out.push({ message: `import.meta is not allowed in ${where}`, start: n.getStart(file), length: n.getWidth(file) });
     }
     ts.forEachChild(n, visit);
   };
@@ -367,6 +369,13 @@ export function transpileUserCode(src: string): { js: string; error?: string } {
   if (moduleStmt) {
     const line = sf.getLineAndCharacterOfPosition(moduleStmt.getStart(sf)).line + 1;
     return { js: '', error: `line ${line}: import/export statements are not supported here; the test API (test, eq, property, fc, …) is already in scope` };
+  }
+  // Dynamic import() / import.meta: same AST walk as the candidate check. Test code runs in the gate worker; loading
+  // code from elsewhere is never part of a spec.
+  const dynamic = moduleProblems(ts, sf, 'tests or properties')[0];
+  if (dynamic) {
+    const line = sf.getLineAndCharacterOfPosition(dynamic.start).line + 1;
+    return { js: '', error: `line ${line}: ${dynamic.message}` };
   }
   return { js: out.outputText };
 }

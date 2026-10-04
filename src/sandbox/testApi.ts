@@ -6,7 +6,7 @@
 import * as fc from 'fast-check';
 import { firstDifference, formatDifference } from '../shared/diff';
 import { isDate, isMap, isSet, show } from '../shared/show';
-import { isInvariantViolation } from './mask';
+import { isInvariantViolation, testCodeShadows } from './mask';
 
 // Intrinsics captured at load: candidate code runs in this realm and could replace the globals (mask.ts detects and
 // restores that after every call, but these keep the harness itself honest in between).
@@ -345,8 +345,18 @@ export function registerCases(js: string, name: string, candidate: (...args: unk
   const body = js.replace(/^\s*export\s*\{\s*\}\s*;?\s*$/gm, '');
   // A candidate named like an API function shadows it (duplicate params would be a SyntaxError).
   const apiNames = API_NAMES.filter((n) => n !== name);
+  // Ambient I/O / global-object names are shadowed by traps (mask.ts testCodeShadows): touching one throws a
+  // TestSandboxError instead of doing anything. Same exclusion rule for a candidate named like one of them.
+  const shadows = testCodeShadows();
+  const shadowNames: string[] = [];
+  const shadowValues: unknown[] = [];
+  shadows.names.forEach((n, i) => {
+    if (n === name || (apiNames as readonly string[]).includes(n)) return;
+    shadowNames.push(n);
+    shadowValues.push(shadows.values[i]);
+  });
   // eslint-disable-next-line no-new-func
-  const factory = new Function(...apiNames, name, body);
-  factory(...apiNames.map((n) => api[n]), candidate);
+  const factory = new Function(...shadowNames, ...apiNames, name, `"use strict";\n${body}`);
+  factory(...shadowValues, ...apiNames.map((n) => api[n]), candidate);
   return cases;
 }

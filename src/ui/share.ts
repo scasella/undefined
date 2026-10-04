@@ -2,7 +2,7 @@
  * Pure helpers for sharing a session, loading a recording and the local session log. No DOM, no engine calls:
  * unit-tested (share.test.ts).
  */
-import type { EngineState, Recording, RecordingPreview } from '../types';
+import type { EngineState, ImagePreview, Recording, RecordingPreview } from '../types';
 import { normalizeShareUrl, shareLink } from '../share/source';
 
 export const SHARE_FILENAME = 'undefined-session.json';
@@ -14,6 +14,12 @@ export const SHARE_HOST_TEXT =
   "Host it anywhere that serves the raw file with CORS (a GitHub gist's Raw URL or raw.githubusercontent.com both work).";
 export const SESSION_LOG_SENTENCE =
   "Keeps a log of what you type and what the gates decided, in this browser's storage only. It is never sent anywhere. Off by default.";
+/** What the session log holds, exactly (engine.ts: the session-log policy). */
+export const SESSION_LOG_HOLDS =
+  'It may contain values you typed in your own calls, never dataset rows or prompts. It holds your inputs, outcome kinds, which gate decided (with its headline cut to 200 characters; while any data is loaded, only the gate, e.g. "rejected by invariants (pure)"), declines, commits, pins, rollbacks, spec edits, dataset names and sizes, and errors (while data is loaded, only their kind, e.g. "threw TypeError").';
+/** Banner when another tab of this app holds the same stored program. */
+export const OTHER_TAB_TEXT = 'This program is open in another tab. Edits in two tabs overwrite each other; close one.';
+export const IMAGE_FILENAME = 'undefined-image.json';
 export const SESSION_LOG_OFF_NOTE = 'Turning it off stops new entries; the entries already kept stay until you clear them.';
 export const DROP_TEXT = 'Drop a recording or an exported program';
 
@@ -132,3 +138,18 @@ export function sessionLogCountText(s: NonNullable<EngineState['sessionLog']>): 
 function plural(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`;
 }
+
+const count = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
+
+/** The import confirmation's warning: what is replaced, and that exporting first keeps it. */
+export function importReplaceText(current: { revisions: number; functions: number }): string {
+  return `This replaces your current program (${count(current.revisions, 'revision', 'revisions')}, ${count(current.functions, 'function', 'functions')}). Export it first if you want to keep it.`;
+}
+
+/** What the image file holds, for the import confirmation. */
+export function importFileLine(p: Extract<ImagePreview, { ok: true }>): string {
+  const parts = [count(p.revisions, 'revision', 'revisions'), count(p.functions, 'function', 'functions')];
+  if (p.datasets > 0) parts.push(count(p.datasets, 'dataset', 'datasets'));
+  return `${parts.join(', ')} · exported ${p.exportedAt.slice(0, 120)}`;
+}
+

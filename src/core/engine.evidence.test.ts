@@ -297,16 +297,76 @@ describe('the lazy mutation check', () => {
     await run('median([3, 1, 4, 2])');
     await engine.pinResult(lastOutput(s()).id);
     await engine.runMutation('median');
-    expect(seen.length).toBe(12);
+    // the unmutated function first (the baseline, through the same runner), then 12 mutants
+    expect(seen.length).toBe(13);
     const rec = s().program.functions.median!;
     const { gateSeed } = await import('../shared/hash');
-    for (const i of seen) {
+    expect(seen[0]!.js).toBe(rec.artifact!.js);
+    for (const [n, i] of seen.entries()) {
       expect(i.phases).toEqual(['tests', 'properties']);
       expect(i.budgetMs).toBe(Math.min(rec.spec.budgetMs, 1000));
       expect(i.seed).toBe(gateSeed(rec.specHash, rec.testsHash));
       expect(i.pinned?.length).toBe(1);
-      expect(i.js).not.toBe(rec.artifact!.js);
+      if (n > 0) expect(i.js).not.toBe(rec.artifact!.js);
     }
+  }, 120_000);
+});
+
+describe('the mutation check needs a passing baseline', () => {
+  it('a committed function that fails its own checks (a pin it contradicts) gets no kills: the report is skipped and says why', async () => {
+    const { encodeValue } = await import('../shared/serialize');
+    const { MUTATION_BASELINE_FAILED } = await import('../shared/evidence');
+    const { plainMutation } = await import('../ui/evidence');
+    const seen: ExecGateInput[] = [];
+    const spy: EngineDeps['execGates'] = async (input, onGate) => {
+      if (input.phases) seen.push(input);
+      return realExec(input, onGate);
+    };
+    const { engine, s, run } = setup({ script: { median: [MEDIAN.goodBodies[0]!] }, examples: [MEDIAN_EX], deps: { execGates: spy } });
+    await engine.init();
+    await run('median([3, 1, 4, 2])');
+    await engine.pinResult(lastOutput(s()).id);
+    // the pin now expects a different value; pins are outside both hashes, so the artifact stays live
+    const rec = s().program.functions.median!;
+    const pin = rec.spec.pins![0]!;
+    await engine.upsertSpec({ ...rec.spec, pins: [{ ...pin, expected: encodeValue(99) }] });
+    expect(isLive(s().program.functions.median!)).toBe(true);
+    await engine.runMutation('median');
+    const m = s().program.functions.median!.artifact!.evidence!.mutation!;
+    expect(m.skipped).toBe(MUTATION_BASELINE_FAILED);
+    expect(m.skipped).toBe('the committed function fails its own checks, so mutation results would mean nothing');
+    expect(m.total).toBe(0);
+    expect(m.killed + m.killedByBound + m.survived).toBe(0);
+    // only the baseline ran: no mutant was tried
+    expect(seen.length).toBe(1);
+    expect(seen[0]!.js).toBe(rec.artifact!.js);
+    expect(plainMutation(m)).toMatch(/^No broken copies were counted: the function fails its own checks/);
+    expect(describeEvidence(s().program.functions.median!.artifact!.evidence!)).toContain('The committed function fails its own checks, so mutation results would mean nothing.');
+  }, 120_000);
+});
+
+describe('a slow-but-correct function is not reported as failing its own checks', () => {
+  it('a baseline that hits the per-call time limit is skipped as too slow, with no kills counted', async () => {
+    const { MUTATION_BASELINE_SLOW_PREFIX, MUTATION_BASELINE_FAILED } = await import('../shared/evidence');
+    let calls = 0;
+    const slowBaseline: EngineDeps['execGates'] = async (input, onGate) => {
+      if (input.phases) {
+        calls++;
+        // what the watchdog reports for a call that exceeds the budget: tests/properties interrupted, Invariants bounded
+        const skipped = (gate: GateResult['gate']): GateResult => ({ gate, status: 'skipped', ms: 0, summary: 'interrupted', diagnostics: [] });
+        return [skipped('tests'), skipped('properties'), { gate: 'invariants', status: 'fail', ms: 1000, summary: 'bounded violated', diagnostics: [{ kind: 'invariant', invariant: 'bounded', message: 'too slow', budgetMs: 1000, elapsedMs: 1010 }] }];
+      }
+      return realExec(input, onGate);
+    };
+    const { engine, s, run } = setup({ script: { median: [MEDIAN.goodBodies[0]!] }, examples: [MEDIAN_EX], deps: { execGates: slowBaseline } });
+    await engine.init();
+    await run('median([3, 1, 4, 2])');
+    await engine.runMutation('median');
+    const m = s().program.functions.median!.artifact!.evidence!.mutation!;
+    expect(m.skipped).toMatch(new RegExp('^' + MUTATION_BASELINE_SLOW_PREFIX));
+    expect(m.skipped).not.toBe(MUTATION_BASELINE_FAILED);
+    expect(m.killed + m.killedByBound + m.survived).toBe(0);
+    expect(calls).toBe(1); // only the baseline was tried
   }, 120_000);
 });
 

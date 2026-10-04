@@ -1168,7 +1168,8 @@ export const FIXTURE_PREVIEW: Extract<RecordingPreview, { ok: true }> = {
   canSeed: true,
   replayable: 1,
   skipped: [],
-  warning: 'This recording includes test code written by someone else. It runs in the sandbox like any spec you write.',
+  warning:
+    "This recording contains code written by someone else: model-written functions and the test code of the specs. It runs in your browser's sandbox, which limits what it can do but is not a security boundary. Only load recordings from people you trust.",
 };
 
 /** Scenarios that open UI-only state (the data drawer, the Repo tab, a dialog) when the fixture engine starts. */

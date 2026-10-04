@@ -62,8 +62,8 @@ export function sendCopy(mode: EngineState['mode'], samples: boolean, sampleRows
   return {
     toggle: `Send ${sampleRows} sample rows to Codex along with the type (off = the type only)`,
     line: samples
-      ? `When a call uses this data, Codex gets the type and exactly the ${sampleRows} rows below. No other row leaves your browser.`
-      : 'When a call uses this data, Codex gets the type only. No row leaves your browser.',
+      ? `When a call uses this data, Codex gets the type and exactly the ${sampleRows} rows below. If a draft is rejected, the retry feedback may quote up to 200 characters of your data while sample rows are on (a pinned result, the call the Invariants gate replayed, an error message).`
+      : 'When a call uses this data, Codex gets the type only, and retry feedback withholds anything derived from your data. No row leaves your browser.',
   };
 }
 
