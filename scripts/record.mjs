@@ -7,7 +7,9 @@ import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { startServer, launch, openApp, runCall, engineCall } from './lib/drive.mjs';
 
 const ids = process.argv.slice(2).length ? process.argv.slice(2) : ['median', 'slugify', 'fibonacci'];
-const CALLS = { median: 'median([3, 1, 4, 2])', slugify: 'slugify("Hello, World! Crème Brûlée")', fibonacci: 'fibonacci(90)' };
+const CALLS = { median: 'median([3, 1, 4, 2])', slugify: 'slugify("Hello, World! Crème Brûlée")', fibonacci: 'fibonacci(90)', orders: 'topCustomersByRevenue(rows)' };
+// Spec-less examples have no tests, so there is nothing to reject on the first candidate: committed is the requirement.
+const SPECLESS = new Set(['orders']);
 const MAX_TRIES = 4;
 mkdirSync('public/recordings', { recursive: true });
 const srv = await startServer({ mode: 'dev', port: 5193 });
@@ -21,7 +23,7 @@ try {
       const firstRejected = first.generation?.attempts[0]?.rejectedBy ?? null;
       await engineCall(b.page, 'breakIt', id);
       const second = await runCall(b.page, CALLS[id]);
-      const ok = firstRejected && first.generation.phase === 'committed' && second.generation.phase === 'committed';
+      const ok = (firstRejected || SPECLESS.has(id)) && first.generation.phase === 'committed' && second.generation.phase === 'committed';
       console.log(`${id} try ${attempt}: first candidate ${firstRejected ? 'rejected by ' + firstRejected : 'ACCEPTED'}, original ${first.generation.phase}, after break ${second.generation.phase} (${second.generation.attempts.map((a) => a.rejectedBy ?? a.status).join(',')})`);
       if (!ok) continue;
       const rec = await b.page.evaluate(() => window.__undefined.exportRecording());

@@ -128,9 +128,9 @@ export function honestySection(spec: FunctionSpec): string {
     'HONESTY (when not to write the function)',
     `- Every generated function is a pure function of its arguments. If ${spec.name} cannot honestly be written that way (its name or contract needs randomness, the current time, the network, files, the console, or state that persists between calls such as counters, caches or ids), do NOT fake it with a constant, an echo of the input or a no-op. The body must be exactly:`,
     `  throw new Error("${CANNOT_BE_PURE}: <one sentence: what it would need>");`,
-    `- If the name and the argument types do not say what the function should do, AND the contract above is empty or does not say, do not invent behaviour. The body must be exactly:`,
+    `- Decline with NEEDS_SPEC only when the name carries no meaning of its own (process, handle, data, transform, clean, run, doIt: a verb or noun that does not say what comes out) AND the contract above is empty. Then do not invent behaviour; the body must be exactly:`,
     `  throw new Error("${NEEDS_SPEC}: <one sentence: the single question you need answered>");`,
-    '- Use these sparingly. When a reasonable programmer reading only the name and the argument types would write the same function, write it (e.g. flatten, groupBy, sortDescending, titleCase, isPalindrome, hello() returning a greeting, add).',
+    '- If the name DESCRIBES the result (topCustomersByRevenue, monthlyTotals, dedupeByEmail, truncate, formatCurrency, parseCsvLine, sortDescending, isPalindrome, add), write it: choose the most conventional reading, handle the argument types sensibly, and use the notes field to name the assumptions you made in one sentence (e.g. "Assumes totals are summed per group, ties sorted alphabetically, returns the top 5."). A reasonable default with its assumptions stated is better than a question; the caller can correct you with a spec.',
   ].join('\n');
 }
 

@@ -175,8 +175,12 @@ describe('buildPrompt: the HONESTY section (declining instead of faking)', () =>
     expect(q).toContain('throw new Error("NEEDS_SPEC: <one sentence: the single question you need answered>");');
     // what counts as impure, and the guard against over-declining
     for (const w of ['randomness', 'the current time', 'the network', 'files', 'the console', 'counters, caches or ids']) expect(q).toContain(w);
-    expect(q).toContain('Use these sparingly');
-    for (const w of ['flatten', 'groupBy', 'sortDescending', 'titleCase', 'isPalindrome', 'hello()', 'add']) expect(q).toContain(w);
+    // the calibrated NEEDS_SPEC rule: decline only meaningless names; a name that describes the result is WRITTEN with
+    // its assumptions stated in the notes (measured: 78/78 writes on describing names, 21/21 declines on generic ones)
+    expect(q).toContain('only when the name carries no meaning of its own');
+    expect(q).toContain('If the name DESCRIBES the result');
+    expect(q).toContain('use the notes field to name the assumptions you made');
+    for (const w of ['topCustomersByRevenue', 'monthlyTotals', 'dedupeByEmail', 'truncate', 'sortDescending', 'isPalindrome', 'add']) expect(q).toContain(w);
     expect(q).toContain('If shuffle cannot honestly be written');
   });
 
