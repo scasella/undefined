@@ -298,6 +298,16 @@ export interface Candidate {
   headline?: string;
   /** The exact prompt sent to the model for this candidate ("what the model saw"). */
   prompt?: string;
+  /** Set when the model declined instead of faking: the candidate body is the decline sentinel, no gate was run. */
+  declined?: Declined;
+}
+
+/** The model said it cannot honestly write this function (it did not fail a gate). */
+export interface Declined {
+  /** 'cannot-be-pure': needs randomness, the clock, network, files, or hidden state. 'needs-spec': name and types say too little. */
+  reason: 'cannot-be-pure' | 'needs-spec';
+  /** The model's one sentence: what it would need / the question it needs answered. */
+  message: string;
 }
 
 // ───────────────────────── generation ─────────────────────────
@@ -437,6 +447,8 @@ export type EvalOutcome =
       /** Real argument values' TS types (shared/inferType.ts) and rendered values. */
       argTypes: string[];
       argShown: string[];
+      /** Set when the arguments were reduced to the first one because the call looks like an Array callback (value, index, array). */
+      argsTrimmed?: string;
       /** The evaluated argument values, encoded with shared/serialize.ts, so the gates can replay the real call. */
       args: Json[];
       call: string;
@@ -502,6 +514,8 @@ export type ReplEntry =
       detail?: string;
       /** Array-of-objects results render as a table. */
       table?: TablePreview;
+      /** The model's one-line note about the function this call just grew (spec-less calls: the only thing that says what it assumed). */
+      note?: string;
       /** Present when the call can be pinned as a unit test. */
       pinnable?: { fn: string; call: string; args: PinArg[]; expected: Json };
       /** Set once the pin was made. */
@@ -540,6 +554,8 @@ export interface GenerationView {
   ungated: boolean;
   /** Set when generation itself failed (codex missing, timeout…) — gate panel shows message + fix. */
   error?: GenerateError;
+  /** Set when the model declined to write the function (see Declined). The program is unchanged. */
+  declined?: Declined;
   /** Set on commit. */
   revision?: number;
   mode: 'live' | 'replay';
