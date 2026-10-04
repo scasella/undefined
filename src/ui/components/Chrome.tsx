@@ -206,7 +206,12 @@ export function Examples({ state, engine }: { state: EngineState; engine: Engine
           class="example"
           disabled={state.busy}
           title={ex.blurb}
-          onClick={() => void engine.loadExample(ex.id)}
+          onClick={() => {
+            // so Enter runs the pre-typed call straight away (focus now, and again once the call is typed in)
+            const focus = () => document.getElementById('repl-input')?.focus();
+            focus();
+            void engine.loadExample(ex.id).then(focus);
+          }}
         >
           <span class="mono">{ex.call}</span>
           <span class="example-blurb">{ex.blurb}</span>

@@ -268,7 +268,20 @@ export function createTestApi(candidate: (...args: unknown[]) => unknown, cases:
           }
           throw new AssertionFailure(actual, refError, undefined, { expected: `to throw (reference threw ${show(refError)})` });
         }
-        const actual = candidate(...args.map(cloneOrSelf));
+        let actual: unknown;
+        try {
+          actual = candidate(...args.map(cloneOrSelf));
+        } catch (e) {
+          if (!isInvariantViolation(e) && typeof e === 'object' && e !== null) {
+            // lets the failure description say what the reference returned where the candidate threw
+            try {
+              Object.defineProperty(e, '__expectedShown', { value: show(expected), configurable: true });
+            } catch {
+              /* frozen error object: the plain 'threw' description still applies */
+            }
+          }
+          throw e;
+        }
         if (!deepEqual(actual, expected)) throw new AssertionFailure(actual, expected);
       };
       cases.push({ kind: 'property', name, arbs, predicate, numRuns: checkRuns('matchesReference', name, opts) });

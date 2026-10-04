@@ -79,9 +79,9 @@ const printed: string[] = [];
 
 const EXPECTED_HEADLINES: Record<string, string[]> = {
   median: [
-    'Rejected: median([-1, 0, -2]) returned -2, expected -1', // property (seed-dependent)
+    'Rejected: median([2, 0, 100]) returned 100, expected 2', // property (seed-dependent)
     'Rejected: median([1, 2]) returned 2, expected 1.5',
-    'Rejected: test "empty list" failed after median([]): expected NaN, got "threw Error"',
+    'Rejected: median([]) threw Error: empty list, expected NaN',
     'Rejected: median([3, 1, 4, 2]) mutated its argument (pure)',
   ],
   slugify: [

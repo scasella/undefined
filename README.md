@@ -16,7 +16,7 @@ revision of your running program. Everything runs in your browser except the mod
 
 ## Run it
 
-**Prerequisites:** Node 20+, [Codex CLI](https://github.com/openai/codex) 0.157 or later (`npm i -g @openai/codex`), and
+**Prerequisites:** Node 20+ (developed and tested on Node 25; Node 20 is untested), [Codex CLI](https://github.com/openai/codex) 0.157 or later (`npm i -g @openai/codex`), and
 `codex login` completed. No API keys, no cloud backend, nothing leaves your machine except the prompt to Codex.
 
 ```bash
@@ -96,16 +96,19 @@ docs are terse, test names are vague, and the property/test bodies are hidden fr
 
 | example | what the gates catch | measured on gpt-6-luna (effort `low`, 8 samples each, first attempt → retry) |
 |---|---|---|
-| `median` | empty list: the model throws, the tests expect `NaN` (headline: `test "empty list" failed after median([]): expected NaN, got "threw Error"`) | 8/8 rejected by Tests → 8/8 passed on retry |
+| `median` | empty list: the model throws, the reference returns `NaN`. The reference-comparison property generates `[]` and fast-check shrinks to it (headline: `median([]) threw Error: …, expected NaN`) | 8/8 rejected by Properties → 8/8 passed on retry |
 | `slugify` | convention gaps: `"Don't Stop"` → `dont-stop` (the model says `don-t-stop`), `&` → `and`, `ß`/`ø` | 8/8 rejected by Tests → 7/8 passed on retry |
 | `fibonacci` | the obvious O(n) bigint loop takes ~4 s at `n = 1,000,000`; the 1.5 s bounded invariant terminates it; the diagnostic steers the model to fast doubling | 8/8 rejected by Invariants (bounded) → 8/8 passed on retry |
+
+Models also fail in ways nobody tuned: in one live `slugify` run the first candidate came back with a literal `\n` in place
+of a newline and the compiler rejected it ("Invalid character"), which is exactly the kind of thing the compile gate is for.
 
 These are rates I measured on one day with one model; they are not a guarantee. A live run can pass first time. The
 shipped recordings are real sessions captured from the live app (nothing was edited), made on runs where the first
 candidate was rejected, which is the typical outcome above.
 
-Two honest deviations from the idealised story: the `median` rejection is the empty list, not `median([1, 2])` returning
-`1` (this model gets the textbook cases right), and `fibonacci` is rejected for the loop at `n = 1,000,000`, not for naive
+Two honest deviations from the idealised story: the `median` rejection is the empty list (shrunk by fast-check), not
+`median([1, 2])` returning `1` (this model gets the textbook cases right), and `fibonacci` is rejected for the loop at `n = 1,000,000`, not for naive
 recursion at `n = 90` (this model never wrote the naive recursion unprompted, even with the recurrence in the doc).
 
 ## Replay mode and recordings
@@ -174,9 +177,9 @@ rates above against your own Codex login (results in `.tmp/tune-out.json`).
    Press **Enter**.
 2. **0:03** The REPL prints `ReferenceError: median is not defined`, then *Generating…* with live Codex progress lines and a
    timer. Point at the retry strip: attempt 1 of 3.
-3. **0:10** Candidate #1 types into the code pane. The gate panel runs top to bottom: **Compile ✓**, then **Tests ✗**. The
-   giant red headline names the gate and the evidence: `test "empty list" failed after median([]): expected NaN, got "threw
-   Error"`. *"The model didn't lose an argument with a person; a test it never saw said no."*
+3. **0:10** Candidate #1 types into the code pane. The gate panel runs top to bottom: **Compile ✓**, **Tests ✓**, then
+   **Properties ✗**. The giant red headline names the gate and the shrunk counterexample: `median([]) threw Error: …,
+   expected NaN`. *"The model didn't lose an argument with a person; a property check it never saw said no."*
 4. **0:18** Candidate #2 appears, passes all four gates, and the banner turns green: *Accepted, committed as r2*. The REPL
    prints `2.5` labelled **generated · revision 2**. Candidate #1 is still in the strip, in red.
 5. **0:25** Press Enter on `median([9, 7, 1])`: `7`, instantly, labelled **cached artifact**, with the one-time line *"You didn't

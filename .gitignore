@@ -3,3 +3,10 @@ dist
 .DS_Store
 *.log
 .tmp
+
+# Local reversal pipeline artifacts
+.venv/
+.cache/
+__pycache__/
+.pytest_cache/
+data/

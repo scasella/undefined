@@ -219,7 +219,7 @@ describe('executeGates', () => {
 
   it('reports a property whose candidate threw on the shrunk input', () => {
     const { results } = run(input({ js: MEDIAN_THROWS, testsJs: '' }));
-    expect(results[1].headline).toMatch(/^Rejected: median\(\[-?\d+\]\) threw Error: boom$/);
+    expect(results[1].headline).toMatch(/^Rejected: median\(\[-?\d+\]\) threw Error: boom, expected -?\d+(\.5)?$/);
   });
 
   it('reports unit test failures with expected and actual, running every test', () => {

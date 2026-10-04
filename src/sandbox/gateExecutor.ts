@@ -262,8 +262,11 @@ export function executeGates(input: ExecGateInput, hooks: ExecHooks): GateResult
       return { headline: `Rejected: ${subject} failed${call ? ` after ${call}` : ''}: ${e.message}`, fields };
     }
     const error = show(e);
+    const expectedShown = typeof e === 'object' && e !== null ? (e as { __expectedShown?: unknown }).__expectedShown : undefined;
+    const expected = typeof expectedShown === 'string' ? expectedShown : undefined;
     if (rec?.threw && rec.thrown === e) {
-      return { headline: `Rejected: ${call} threw ${error}`, fields: { call, error, message: `${call} threw ${error}` } };
+      const tail = expected !== undefined ? `, expected ${expected}` : '';
+      return { headline: `Rejected: ${call} threw ${error}${tail}`, fields: { call, error, expected, message: `${call} threw ${error}${tail}` } };
     }
     return {
       headline: `Rejected: ${subject} threw ${error}${call ? ` after ${call}` : ''}`,

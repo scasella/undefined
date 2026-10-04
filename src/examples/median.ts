@@ -5,7 +5,7 @@ import type { ExampleDef } from './index';
  * Natural first-attempt mistakes and the check that catches each:
  *   - `.sort()` without a comparator sorts as strings     → properties (reference comparison)
  *   - even length returns one middle value, not the mean  → tests
- *   - empty list throws instead of returning NaN          → tests
+ *   - empty list throws instead of returning NaN          → properties (the reference-comparison property generates [])
  *   - `numbers.sort(...)` sorts the caller's array        → invariants (pure: frozen-argument replay)
  */
 
@@ -27,16 +27,6 @@ test('single value', () => {
 test('negative and fractional values', () => {
   eq(median([0.5, -1, 2]), 0.5);
 });
-
-test('empty list', () => {
-  let actual: unknown;
-  try {
-    actual = median([]);
-  } catch (e) {
-    actual = 'threw ' + (e as Error).name;
-  }
-  eq(actual, NaN);
-});
 `;
 
 const PROPERTIES = String.raw`const ints = fc.array(fc.integer({ min: -1000, max: 1000 }), { minLength: 1 });
@@ -47,7 +37,7 @@ const reference = (xs: number[]): number => {
   return s.length % 2 === 1 ? s[m] : (s[m - 1] + s[m]) / 2;
 };
 
-matchesReference('agrees with a sort-based reference', [ints], reference);
+matchesReference('agrees with a sort-based reference', [fc.array(fc.integer({ min: -1000, max: 1000 }))], reference);
 
 property('the order of the input does not matter', [ints], (xs: number[]) => {
   const reversed = median([...xs].reverse());
@@ -162,8 +152,8 @@ return sorted[Math.floor(sorted.length / 2)];`,
 const sorted = [...numbers].sort((a, b) => a - b);
 const mid = Math.floor(sorted.length / 2);
 return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;`,
-      rejectedBy: 'tests',
-      why: 'Mishandles the empty list: throws an Error where the tests expect NaN.',
+      rejectedBy: 'properties',
+      why: 'Mishandles the empty list: throws an Error where the reference returns NaN (fast-check generates [] and shrinks to it).',
     },
     {
       body: String.raw`if (numbers.length === 0) return NaN;
