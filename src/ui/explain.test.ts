@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Diagnostic, FunctionSpec, GateResult } from '../types';
 import { buildPrompt } from '../shared/prompt';
-import { declineCopy, modelSawSummary, PINNED_NEXT, PINNED_WHO, promptData, promptFeatures, UNCHECKED_TEXT, whoDecided } from './explain';
+import { declineCopy, GATE_QUESTION, howFound, modelSawSummary, PINNED_NEXT, PINNED_WHO, plainGateText, plainHeadline, promptData, promptFeatures, splitCall, UNCHECKED_TEXT, whoDecided } from './explain';
 
 const fail = (gate: GateResult['gate'], diagnostics: Diagnostic[], extra: Partial<GateResult> = {}): GateResult => ({
   gate,
@@ -81,10 +81,10 @@ describe('whoDecided', () => {
   });
 
   it('a test or property without silentOn is neutral', () => {
-    expect(whoDecided(fail('tests', [test()]), 1)).toEqual(['A check you wrote failed, with the evidence above.']);
-    expect(whoDecided(fail('properties', [prop()]), 1)).toEqual(['A check you wrote failed, with the evidence above.']);
-    expect(whoDecided(fail('properties', []), 1)).toEqual(['A check you wrote failed, with the evidence above.']);
-    expect(whoDecided(fail('invariants', []), 1)).toEqual(['A purity or time-limit check failed, with the evidence above.']);
+    expect(whoDecided(fail('tests', [test()]), 1)).toEqual(['A check you wrote failed. The evidence is below.']);
+    expect(whoDecided(fail('properties', [prop()]), 1)).toEqual(['A check you wrote failed. The evidence is below.']);
+    expect(whoDecided(fail('properties', []), 1)).toEqual(['A check you wrote failed. The evidence is below.']);
+    expect(whoDecided(fail('invariants', []), 1)).toEqual(['It broke the time-limit or no-side-effects rule. The evidence is below.']);
   });
 
   it('failures that are not the candidate\'s fault never blame it', () => {
@@ -200,6 +200,31 @@ describe('decline and spec-less copy', () => {
     for (const c of [pure, spec]) expect(`${c.title} ${c.next}`).not.toMatch(/reject/i);
   });
   it('UNCHECKED_TEXT says what was and was not checked', () => {
-    expect(UNCHECKED_TEXT).toBe('Only compiled and checked for purity — nothing checked that this is what you meant.');
+    expect(UNCHECKED_TEXT).toBe('It compiles and has no side effects, but nothing checked that it does what you meant.');
+  });
+});
+
+describe('plain words for the gates', () => {
+  const JARGON = /property-based|\binvariant\b|\bmutants?\b|\bshrunk\b|fast-check|counterexample/i;
+  it('strips the prefix and the rule tag from a headline', () => {
+    expect(plainHeadline('Rejected: median([]) threw Error: empty, expected NaN')).toBe('median([]) threw Error: empty, expected NaN');
+    expect(plainHeadline('Rejected: fibonacci(1000000) did not return within 1500 ms (bounded)')).toBe('fibonacci(1000000) did not return within 1500 ms');
+  });
+  it('splits a leading call off a headline, respecting brackets and strings', () => {
+    expect(splitCall('median([]) threw Error')).toEqual({ call: 'median([])', rest: ' threw Error' });
+    expect(splitCall('slugify("a (b") returned "a-b"')).toEqual({ call: 'slugify("a (b")', rest: ' returned "a-b"' });
+    expect(splitCall('line 3: Type error')).toBeNull();
+    expect(splitCall('f(1')).toBeNull();
+  });
+  it('rewords the gates\' own terms and leaves the rest alone', () => {
+    expect(plainGateText('interrupted: invariant violated')).not.toMatch(JARGON);
+    expect(plainGateText('bounded violated')).toBe('too slow: over the time limit');
+    expect(plainGateText('4/4 tests passed')).toBe('4/4 tests passed');
+    expect(plainGateText('pure ✓ bounded ✓ (26 sampled calls replayed on frozen arguments)')).toBe('no side effects ✓ fast enough ✓ (26 calls re-run on locked inputs)');
+  });
+  it('explains how a failing input was found without jargon', () => {
+    const d = { kind: 'property' as const, name: 'p', counterexample: '[[]]', seed: 1, shrinks: 3, runs: 100 };
+    expect(howFound(d)).toMatch(/^Found by trying up to 100 random inputs, then cut down in 3 steps/);
+    expect(`${howFound(d)} ${Object.values(GATE_QUESTION).join(' ')}`).not.toMatch(JARGON);
   });
 });

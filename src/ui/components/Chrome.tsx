@@ -11,14 +11,14 @@ function ModeBadge({ state }: { state: EngineState }) {
     return (
       <span class="mode-badge mode-live" title={s.effort ? `reasoning effort: ${s.effort}` : undefined}>
         <span class="dot" aria-hidden="true" />
-        LIVE · {s.model ?? 'model'} via Codex CLI {s.codexVersion ?? (s.state === 'degraded' ? 'unavailable' : '…')}
+        Live · {s.model ?? 'model'} via Codex CLI {s.codexVersion ?? (s.state === 'degraded' ? 'unavailable' : '…')}
       </span>
     );
   }
   return (
     <span class="mode-badge mode-replay">
       <span class="dot" aria-hidden="true" />
-      REPLAY · gates live
+      Replay · gates live
     </span>
   );
 }
@@ -43,7 +43,7 @@ function Menu({ state, engine }: { state: EngineState; engine: Engine }) {
 
   return (
     <details class="menu" ref={menuRef}>
-      <summary class="btn btn-ghost">Image ▾</summary>
+      <summary class="btn btn-ghost">Image <span aria-hidden="true">▾</span></summary>
       <div class="menu-pop" role="menu">
         <button type="button" role="menuitem" onClick={exportImage}>
           Export image <span class="muted small">undefined-image.json</span>
@@ -116,18 +116,19 @@ function Menu({ state, engine }: { state: EngineState; engine: Engine }) {
   );
 }
 
-export function Header({ state, engine }: { state: EngineState; engine: Engine }) {
+export function Header({ state, engine, onRunLive }: { state: EngineState; engine: Engine; onRunLive: () => void }) {
   return (
     <header class="topbar">
       <div class="brand">
         <h1 class="wordmark">
           Undefined<span class="wm-caret" aria-hidden="true" />
         </h1>
-        <p class="tagline">the model proposes · your toolchain decides</p>
+        <p class="tagline">The model proposes. Your toolchain decides.</p>
       </div>
+      <ModeBanner state={state} onRunLive={onRunLive} />
       <div class="topbar-right">
-        <ModeBadge state={state} />
-        <span class="rev-chip mono" title="Head revision">
+        {state.mode === 'live' && <ModeBadge state={state} />}
+        <span class="rev-chip" title="The current revision of your program">
           r{state.headRevision}
         </span>
         <button
@@ -184,8 +185,8 @@ export function RunLiveDialog({ state, engine, open, onClose }: { state: EngineS
     <dialog ref={ref} class="dialog" onClose={onClose} aria-labelledby="runlive-title">
       <h2 id="runlive-title">Run it live</h2>
       <p>
-        This page is replaying candidates a model wrote earlier; the compiler, tests, property checks and invariants run
-        live in your browser right now. To have the model write new candidates, run the local generation service:
+        This page replays drafts a model wrote earlier. The four gates that judge them run live in your browser right now.
+        To have the model write new drafts, run the local generation service:
       </p>
       <h3>Prerequisites</h3>
       <ul class="prereq">
@@ -234,7 +235,7 @@ export function Examples({ state, engine }: { state: EngineState; engine: Engine
   if (state.examples.length === 0) return null;
   return (
     <nav class="examples" aria-label="Examples">
-      <span class="label">examples</span>
+      <span class="label examples-label">try</span>
       {state.examples.map((ex) => (
         <button
           type="button"
@@ -249,8 +250,7 @@ export function Examples({ state, engine }: { state: EngineState; engine: Engine
             void engine.loadExample(ex.id).then(focus);
           }}
         >
-          <span class="mono">{ex.call}</span>
-          <span class="example-blurb">{ex.blurb}</span>
+          <span class="example-call">{ex.call}</span>
         </button>
       ))}
     </nav>

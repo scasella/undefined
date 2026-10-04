@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import type { Engine } from '../types';
+import type { Engine, EngineState } from '../types';
 import { CodePane } from './components/CodePane';
-import { Examples, Header, ModeBanner, RunLiveDialog, Toast } from './components/Chrome';
+import { Examples, Header, RunLiveDialog, Toast } from './components/Chrome';
 import { DataDrawer } from './components/DataDrawer';
 import { PanelBoundary } from './components/common';
 import { GatePanel } from './components/GatePanel';
@@ -12,11 +12,39 @@ import { DropOverlay, LoadRecordingDialog, RecordingBanner, RecordingConfirm, Se
 import { Revisions } from './components/Revisions';
 import { focusFn, lowerTab } from './uiState';
 
+/**
+ * On a phone the panels are stacked, so the key moments (the rejection card, the commit) would happen off-screen while
+ * the REPL stays in view. Follow the action: candidate typing -> gates and verdict -> the result in the REPL.
+ * Desktop shows everything at once and is never scrolled by this.
+ */
+function useFollowTheAction(state: EngineState): void {
+  const gen = state.generation;
+  const a = gen?.attempts[gen.attempts.length - 1];
+  const key = gen && a ? `${gen.id}:${a.attempt}:${a.status}` : null;
+  const last = useRef<string | null>(null);
+  useEffect(() => {
+    if (!key || key === last.current || typeof window === 'undefined') return;
+    last.current = key;
+    if (!window.matchMedia?.('(max-width: 700px)').matches) return;
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const go = (sel: string) => document.querySelector(sel)?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+    const status = a?.status;
+    if (status === 'typing') go('.panel-code');
+    else if (status === 'gating' || status === 'rejected' || status === 'accepted') go('.panel-gates');
+    if (status === 'accepted') {
+      const t = window.setTimeout(() => go('.panel-repl'), 2600); // the payoff line, once the verdict has been read
+      return () => window.clearTimeout(t);
+    }
+    return undefined;
+  }, [key]);
+}
+
 export function App({ engine, initError }: { engine: Engine; initError?: string | null }) {
   const state = engine.state.value;
   const [runLive, setRunLive] = useState(false);
   const focusSpec = state.focusSpec;
   const handledNonce = useRef<number | null>(null);
+  useFollowTheAction(state);
 
   // "Edit the spec" restart: open the Repo tab; the matching card expands, scrolls into view and focuses its doc
   useEffect(() => {
@@ -43,7 +71,7 @@ export function App({ engine, initError }: { engine: Engine; initError?: string 
         <h1 class="wordmark">
           Undefined<span class="wm-caret" aria-hidden="true" />
         </h1>
-        <p class="muted">loading the program and probing the local service…</p>
+        <p class="boot-line">Loading your program and looking for the local model service…</p>
       </main>
     );
   }
@@ -53,10 +81,11 @@ export function App({ engine, initError }: { engine: Engine; initError?: string 
     <>
       <div class="stage">
         <PanelBoundary name="Header">
-          <Header state={state} engine={engine} />
-          <ModeBanner state={state} onRunLive={() => setRunLive(true)} />
+          <Header state={state} engine={engine} onRunLive={() => setRunLive(true)} />
+          <div class="subhead">
+            <Examples state={state} engine={engine} />
+          </div>
           <RecordingBanner state={state} engine={engine} />
-          <Examples state={state} engine={engine} />
         </PanelBoundary>
         <main class="bench" id="main">
           <div class="col col-left">

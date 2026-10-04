@@ -38,8 +38,8 @@ export function whoDecided(fail: GateResult, attempt: number): string[] {
       d.reasonable?.trim() || `Candidate #${attempt} made a defensible choice the spec never ruled out.`,
     ];
   }
-  if (fail.gate === 'invariants') return ['A purity or time-limit check failed, with the evidence above.'];
-  return ['A check you wrote failed, with the evidence above.'];
+  if (fail.gate === 'invariants') return ['It broke the time-limit or no-side-effects rule. The evidence is below.'];
+  return ['A check you wrote failed. The evidence is below.'];
 }
 
 /** Name prefix of a pinned result's test diagnostic (sandbox/gateExecutor.ts PINNED_PREFIX; not imported: fast-check). */
@@ -122,7 +122,7 @@ export function modelSawSummary(spec: Pick<FunctionSpec, 'tests' | 'properties'>
  * Under the result of a call that grew a function with no tests and no properties (the engine marks it by setting
  * the output's `note`): an accept there is not an endorsement, so the line says what was and was not checked.
  */
-export const UNCHECKED_TEXT = 'Only compiled and checked for purity — nothing checked that this is what you meant.';
+export const UNCHECKED_TEXT = 'It compiles and has no side effects, but nothing checked that it does what you meant.';
 
 /** The decline card: a plain headline and the suggested next step. Not a rejection: no gate judged anything. */
 export function declineCopy(d: Declined): { title: string; next: string } {
@@ -135,4 +135,97 @@ export function declineCopy(d: Declined): { title: string; next: string } {
         title: 'The model needs a spec for this.',
         next: 'Write a one-line spec that answers the question (“Write a spec” in the REPL opens it with the parameters filled in), then call it again.',
       };
+}
+
+// ───────────── plain words for what the gates report (display only; the gates' own wording stays in title/details) ─────────────
+
+/** One plain question per gate, shown under its name. */
+export const GATE_QUESTION = {
+  compile: 'Does it compile?',
+  tests: 'Do your examples pass?',
+  properties: 'Does it hold for lots of random inputs?',
+  invariants: 'Is it pure and fast enough?',
+} as const;
+
+/** The precise description of each gate, for its title attribute. */
+export const GATE_PRECISE = {
+  compile: 'strict TypeScript compiler, lib ES2022 only',
+  tests: 'your unit tests (and pinned results)',
+  properties: 'property-based tests (fast-check), fixed seed derived from the spec',
+  invariants: 'invariants: pure (no globals, no argument mutation, deterministic) and bounded (per-call time limit)',
+} as const;
+
+/** A rejection headline without its "Rejected: " prefix (the card already says so) and without the rule tag. */
+export function plainHeadline(headline: string): string {
+  return headline
+    .replace(/^Rejected:\s*/, '')
+    .replace(/\s*\((bounded|pure)\)$/, '');
+}
+
+/**
+ * Split a headline that starts with a call (`median([]) threw …`) into the call and the rest, so the call can be set
+ * as code. null when it does not start with `name(` or the parentheses do not balance.
+ */
+export function splitCall(text: string): { call: string; rest: string } | null {
+  const m = /^[A-Za-z_$][\w$]*\(/.exec(text);
+  if (!m) return null;
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = m[0].length - 1; i < text.length; i++) {
+    const c = text[i];
+    if (quote) {
+      if (c === '\\') i++;
+      else if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') quote = c;
+    else if (c === '(' || c === '[' || c === '{') depth++;
+    else if (c === ')' || c === ']' || c === '}') {
+      depth--;
+      if (depth === 0) return { call: text.slice(0, i + 1), rest: text.slice(i + 1) };
+    }
+  }
+  return null;
+}
+
+/** Gate notes and summaries the gates word in their own terms, in plain words. Anything else is returned unchanged. */
+export function plainGateText(text: string): string {
+  if (text === 'interrupted: invariant violated') return 'stopped early: a time-limit or side-effect rule broke first';
+  if (text === 'interrupted') return 'stopped early';
+  if (text === 'bounded violated') return 'too slow: over the time limit';
+  if (text === 'pure violated') return 'has a side effect';
+  if (text === 'pure ✓ bounded ✓ (no sampled calls to replay)') return 'no side effects ✓ fast enough ✓ (no calls to re-run)';
+  const m = /^pure ✓ bounded ✓ \((\d+) sampled calls? replayed on frozen arguments\)$/.exec(text);
+  if (m) return `no side effects ✓ fast enough ✓ (${m[1]} call${m[1] === '1' ? '' : 's'} re-run on locked inputs)`;
+  return text;
+}
+
+/** The rule an invariant diagnostic is about, in plain words. */
+export function ruleName(invariant: 'pure' | 'bounded'): string {
+  return invariant === 'bounded' ? 'return within the time limit' : 'no side effects';
+}
+
+/** A REPL error name, in plain words when it is the gates' own term. */
+export function plainErrorName(name: string): string {
+  return name === 'InvariantViolation' ? 'RuleBroken' : name;
+}
+
+/** How a failing check found its input, in one plain sentence (the precise terms live in the details line). */
+export function howFound(d: Diagnostic): string | null {
+  switch (d.kind) {
+    case 'property': {
+      const tries = `${d.runs} random input${d.runs === 1 ? '' : 's'}`;
+      return d.shrinks > 0
+        ? `Found by trying up to ${tries}, then cut down in ${d.shrinks} step${d.shrinks === 1 ? '' : 's'} to the smallest input that still fails. The same spec always tries the same inputs.`
+        : `Found by trying up to ${tries}. The same spec always tries the same inputs.`;
+    }
+    case 'test':
+      return d.name.startsWith(PINNED_TEST_PREFIX) ? 'A result you pinned from an earlier call.' : `Your test "${d.name}".`;
+    case 'compile':
+      return `TypeScript error TS${d.code}, line ${d.line} of the body.`;
+    case 'invariant':
+      if (!d.phase) return null;
+      const phase: Record<string, string> = { tests: 'your tests', properties: 'the random-input checks', invariants: 'the final replay' };
+      return `Caught while ${phase[d.phase] ?? d.phase} were running.`;
+  }
 }

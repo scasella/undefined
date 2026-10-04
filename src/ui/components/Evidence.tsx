@@ -5,9 +5,9 @@
  */
 import { useState } from 'preact/hooks';
 import type { Artifact, Engine, EngineState, FunctionRecord, GenerationView } from '../../types';
-import { describeEvidence, mutationAdvice, mutationFailed, mutationProgress, survivorLine } from '../../shared/evidence';
+import { describeEvidence, survivorLine } from '../../shared/evidence';
 import { alwaysChecked, suggestProperties } from '../../suggest/suggest';
-import { addedOutcome } from '../evidence';
+import { addedOutcome, plainEvidence, plainMutationProgress, plainSurvivor } from '../evidence';
 import { addedChecks } from '../uiState';
 
 /** Rows visible before "more". */
@@ -19,18 +19,18 @@ function Survivors({ a, open }: { a: Artifact; open?: boolean }) {
   const more = m.survived - m.survivors.length;
   return (
     <details class="survivors" open={open}>
-      <summary>see survivors ({m.survived})</summary>
+      <summary title="surviving mutants">See what slipped through ({m.survived})</summary>
       <ul>
         {m.survivors.map((s) => (
-          <li key={s.id} class="mono">
-            {survivorLine(s)}
+          <li key={s.id} title={survivorLine(s)}>
+            {plainSurvivor(s)}
           </li>
         ))}
       </ul>
       {more > 0 && <p class="muted small">and {more} more not listed</p>}
       <p class="muted small">
-        A survivor is a broken copy every check accepted. Lines are lines of the compiled JavaScript body, not of the
-        TypeScript above.
+        Each is a deliberately broken copy that every check accepted. It may behave exactly like the original. Line
+        numbers are of the compiled JavaScript, not the TypeScript above.
       </p>
     </details>
   );
@@ -39,15 +39,15 @@ function Survivors({ a, open }: { a: Artifact; open?: boolean }) {
 /** The confidence line and the mutation status under the "Accepted — committed as rN" banner. */
 export function Confidence({ a, fn, mutation }: { a: Artifact; fn: string; mutation: EngineState['mutation'] }) {
   if (!a.evidence) return null;
-  const progress = mutationProgress(mutation, fn);
-  const advice = mutationAdvice(a.evidence.mutation);
-  const failed = mutationFailed(a.evidence.mutation);
+  const progress = plainMutationProgress(mutation, fn);
+  const done = !!a.evidence.mutation;
   return (
-    <div class="evidence" aria-label="What ran against this function">
-      <p class="confidence">{describeEvidence(a.evidence)}</p>
-      {progress && !a.evidence.mutation && <p class="mut-progress mono small">{progress}</p>}
-      {advice && <p class="mut-advice small">{advice}</p>}
-      {failed && <p class="mut-failed small">The mutation check itself failed; no mutant was counted as killed.</p>}
+    <div class="evidence" aria-label="What ran against this function" data-mutation={done ? 'done' : 'pending'}>
+      <p class="evidence-label">What ran against it</p>
+      <p class="confidence" title={describeEvidence(a.evidence)}>
+        {plainEvidence(a.evidence)}
+      </p>
+      {progress && !done && <p class="mut-progress">{progress}</p>}
       <Survivors a={a} />
     </div>
   );
@@ -62,7 +62,7 @@ function AddedRow({ rec, gen, check }: { rec: FunctionRecord | undefined; gen: G
         <span class="check-title">{check.title}</span>
         <span class="check-why">
           {outcome === 'recertified'
-            ? 'added ✓ — function re-certified'
+            ? 'added ✓ — the committed function passes it'
             : outcome === 'fails'
               ? 'the committed function fails it'
               : outcome === 'added'
@@ -90,7 +90,7 @@ export function MoreChecks({ state, engine, fn }: { state: EngineState; engine: 
   return (
     <section class="more-checks" aria-labelledby={`more-checks-${fn}`}>
       <h3 id={`more-checks-${fn}`} class="more-checks-title">
-        More checks you can add
+        More checks you could add
       </h3>
       <ul class="check-rows">
         {added.map((c) => (
@@ -107,7 +107,7 @@ export function MoreChecks({ state, engine, fn }: { state: EngineState; engine: 
               type="button"
               class="btn btn-xs"
               disabled={state.busy}
-              title="Add this property to the spec and re-check the committed function against it"
+              title="Add this check (a property) to the spec and re-check the committed function against it"
               onClick={() => {
                 addedChecks.value = [...addedChecks.value, { fn, id: s.id, title: s.title, why: s.why }];
                 void engine.addSuggestedProperty(fn, s.id);
@@ -136,7 +136,7 @@ export function MoreChecks({ state, engine, fn }: { state: EngineState; engine: 
             <span class="check-tag mono">already checked</span>
             <span class="check-text">
               <span class="check-title">{c.title}</span>
-              <span class="check-why">by the {c.by} gate, on every candidate</span>
+              <span class="check-why">by the {c.by} gate, on every draft</span>
             </span>
           </li>
         ))}
@@ -159,30 +159,29 @@ export function ArtifactEvidence({
   state: EngineState;
   engine: Engine;
 }) {
-  const progress = mutationProgress(state.mutation, fn);
+  const progress = plainMutationProgress(state.mutation, fn);
   const running = state.mutation?.fn === fn && state.mutation.phase === 'running';
-  const advice = mutationAdvice(a.evidence?.mutation);
   return (
     <section class="artifact-evidence" aria-label="Evidence">
       <h4>What ran against it</h4>
       {a.evidence ? (
-        <p class="confidence">{describeEvidence(a.evidence)}</p>
+        <p class="confidence" title={describeEvidence(a.evidence)}>
+          {plainEvidence(a.evidence)}
+        </p>
       ) : (
-        <p class="muted small">No evidence was recorded for this artifact (it was committed before evidence was kept).</p>
+        <p class="muted small">Nothing was recorded for this function (it was committed before this was kept).</p>
       )}
-      {progress && <p class="mut-progress mono small">{progress}</p>}
-      {advice && <p class="mut-advice small">{advice}</p>}
-      {mutationFailed(a.evidence?.mutation) && <p class="mut-failed small">The mutation check itself failed; no mutant was counted as killed.</p>}
+      {progress && <p class="mut-progress">{progress}</p>}
       <Survivors a={a} open />
       <div class="evidence-actions">
         <button
           type="button"
           class="btn btn-ghost btn-xs"
           disabled={stale || state.busy || running}
-          title={stale ? 'The artifact is stale: it regrows on the next call' : 'Run the broken copies against the current checks again'}
+          title={stale ? 'The function is out of date: it is written again on the next call' : 'Mutation testing: run deliberately broken copies against the current checks again'}
           onClick={() => void engine.runMutation(fn)}
         >
-          Re-run mutation check
+          Re-run the broken-copy check
         </button>
       </div>
       {a.recertified && a.recertified.length > 0 && (

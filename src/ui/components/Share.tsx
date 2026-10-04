@@ -75,8 +75,8 @@ function ShareBody({ engine }: { engine: Engine }) {
   return (
     <>
       <p class="muted small">
-        Someone who opens your link replays what the model wrote here; the compiler, tests, properties and invariants run
-        live in their browser.
+        Someone who opens your link replays what the model wrote here, and all four gates judge it again, live, in their
+        browser.
       </p>
       <ol class="share-steps">
         <li>

@@ -154,7 +154,7 @@ describe('seedFromRecording', () => {
     const seed = seedFromRecording(r.recording);
     const fns = [...new Set(r.recording.sessions.map((s) => s.fn))];
     expect(seed.specs.map((s) => s.name)).toEqual(fns);
-    expect(seed.specs).toHaveLength(3);
+    expect(seed.specs).toHaveLength(BUNDLED.length); // one function per bundled recording (the count follows public/recordings)
     expect(seed.datasets[H1]).toEqual([{ a: 1 }]); // first wins
     expect(seed.datasets[H2]).toEqual([{ a: 2 }]);
     expect(seed.datasetRefs.map((d) => [d.name, d.hash])).toEqual([
@@ -163,7 +163,7 @@ describe('seedFromRecording', () => {
     ]);
     expect(seed.calls).toEqual([...new Set(r.recording.sessions.flatMap((s) => s.calls ?? []))]);
     expect(seed.summary).toBe(
-      `3 functions (${fns.join(', ')}), 3 later spec variants not loaded, 2 datasets, ${seed.calls.length} calls, recorded with gpt-6-luna via Codex 0.159.2 on 2026-10-04; the gates will run live in your browser.`,
+      `${BUNDLED.length} functions (${fns.join(', ')}), ${BUNDLED.length} later spec variants not loaded, ${Object.keys(seed.datasets).length} datasets, ${seed.calls.length} calls, recorded with gpt-6-luna via Codex 0.159.2 on 2026-10-04; the gates will run live in your browser.`,
     );
   });
 

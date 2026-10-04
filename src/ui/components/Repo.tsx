@@ -70,14 +70,14 @@ function SpecEditor({ rec, engine, busy }: { rec: FunctionRecord; engine: Engine
         if (dirty && numbersOk) void engine.editSpec(spec.name, patch);
       }}
     >
-      <label for={`${id}-doc`}>doc — the model reads this</label>
+      <label for={`${id}-doc`}>doc — what it must do; the model reads this</label>
       <textarea
         id={`${id}-doc`}
         rows={3}
         value={draft.doc}
         onInput={(e) => setDraft({ ...draft, doc: e.currentTarget.value })}
       />
-      <label for={`${id}-tests`}>tests — the model sees only their names</label>
+      <label for={`${id}-tests`}>tests — worked examples; the model sees only their names</label>
       <textarea
         id={`${id}-tests`}
         class="mono"
@@ -87,7 +87,9 @@ function SpecEditor({ rec, engine, busy }: { rec: FunctionRecord; engine: Engine
         placeholder={'test("…", () => eq(fn(…), …));'}
         onInput={(e) => setDraft({ ...draft, tests: e.currentTarget.value })}
       />
-      <label for={`${id}-props`}>properties — fast-check, fixed seed</label>
+      <label for={`${id}-props`} title="property-based tests (fast-check), fixed seed">
+        properties — rules that must hold for lots of random inputs
+      </label>
       <textarea
         id={`${id}-props`}
         class="mono"
@@ -99,11 +101,11 @@ function SpecEditor({ rec, engine, busy }: { rec: FunctionRecord; engine: Engine
       />
       <div class="spec-numbers">
         <label>
-          budgetMs <span class="muted small">per call (bounded)</span>
+          budgetMs <span class="muted small">time limit per call, in ms</span>
           <input type="number" min={1} step={1} value={budget} onInput={(e) => setBudget(e.currentTarget.value)} />
         </label>
         <label>
-          maxAttempts <span class="muted small">candidates per growth</span>
+          maxAttempts <span class="muted small">drafts the model gets</span>
           <input type="number" min={1} max={10} step={1} value={attempts} onInput={(e) => setAttempts(e.currentTarget.value)} />
         </label>
       </div>
@@ -127,7 +129,7 @@ function SpecEditor({ rec, engine, busy }: { rec: FunctionRecord; engine: Engine
           </button>
         )}
         {rec.artifact && dirty && (
-          <span class="muted small">Saving changes the hashes; the current artifact becomes invalid and regrows on the next call.</span>
+          <span class="muted small">Saving changes the spec, so the current code no longer counts: it is written again on the next call.</span>
         )}
       </div>
     </form>
@@ -168,7 +170,7 @@ function ArtifactView({ a, spec, stale, state, engine }: { a: Artifact; spec: Fu
       <ArtifactEvidence a={a} fn={spec.name} stale={stale} state={state} engine={engine} />
       <CodeView signature={signatureOf(spec, a.returnType)} body={a.body} />
       <details class="history">
-        <summary>Candidate history — every proposal and who rejected it</summary>
+        <summary>Every draft, and which gate turned it away</summary>
         <ol>
           {a.candidates.map((c) => (
             <li key={c.id} class={`hist hist-${c.verdict}`}>
@@ -340,7 +342,7 @@ function FunctionCard({
           {rec.artifact ? (
             <ArtifactView a={rec.artifact} spec={spec} stale={status.kind === 'stale'} state={state} engine={engine} />
           ) : (
-            <p class="empty">No artifact yet — it grows on the first call.</p>
+            <p class="empty">No code yet: the model writes it on the first call.</p>
           )}
         </div>
       </div>
@@ -436,7 +438,7 @@ function NewSpecForm({ engine, existing, busy, gen }: { engine: Engine; existing
         </p>
       )}
       {error && <p class="form-error">{error}</p>}
-      <p class="muted small">Starts with no tests (budget 1500 ms, 3 attempts); add tests above once it exists.</p>
+      <p class="muted small">It starts with no tests (1500 ms per call, 3 drafts). Add tests above once it exists.</p>
       <button type="submit" class="btn" disabled={busy}>
         Add spec
       </button>

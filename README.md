@@ -122,11 +122,14 @@ full candidate history including rejected attempts. Nothing here claims the mode
 
 ## How much to trust a committed function
 
-Under the green *Accepted, committed as rN* banner (and in the Repo tab's artifact card) is one muted line of facts
+Under the *Accepted — committed as rN* banner (and in the Repo tab's artifact card) is one muted line of facts
 about what actually ran against the function, for example:
 
-> Compiled. 4 unit tests. 3 properties, 100 runs each. 26 calls replayed for purity. Tests killed 11 of 12 mutants
-> (1 survived, which may be equivalent).
+> Compiled. 4 tests passed. 3 rules held for 100 random inputs each. 26 calls re-run to look for side effects. Your
+> checks caught 11 of 12 deliberately broken copies.
+
+(In the UI the sentence is written in plain words like this; the precise terms, *properties*, *replayed on frozen
+arguments*, *mutants*, are in its tooltip. The rest of this section uses the precise terms.)
 
 It always lists the same five facts and says "no …" when one of them is zero: whether it compiled, the unit tests (and
 pinned tests), the properties with their fast-check run counts, how many calls the Invariants gate replayed on frozen
@@ -145,14 +148,14 @@ buckets, which are reported separately and never merged:
 - **stopped by the time limit**: a call did not return within the bound, as with an infinite loop. This is a kill,
   reported on its own.
 - **survived**: every check accepted the broken copy. It *may be an equivalent mutant* (a change that makes no
-  observable difference), so a survivor is a lead, not a verdict. "see survivors" lists each one as
-  `compiled line N: original → mutated`. N is a line of the compiled JavaScript body, not of the TypeScript the model
+  observable difference), so a survivor is a lead, not a verdict. "See what slipped through" lists each one as
+  `line N of the compiled code: original → mutated`. N is a line of the compiled JavaScript body, not of the TypeScript the model
   wrote.
 - **did not compile**: never run and never counted as a kill.
 
 If the check cannot run at all (a broken copy fails to load, or the gate runner fails), it says *Mutation check could
 not run: …* and counts nothing as killed. A function with no tests, properties or pins reads *No tests yet: nothing
-could kill a mutant. Add one to make the gate stricter.* **Re-run mutation check** in the Repo tab runs it again on
+could kill a mutant. Add one to make the gate stricter.* **Re-run the broken-copy check** in the Repo tab runs it again on
 demand.
 
 **More checks you can add.** When the function's name, types or doc suggest a property its spec does not state yet
@@ -330,9 +333,9 @@ rates above against your own Codex login (results in `.tmp/tune-out.json`).
 2. **0:03** The REPL prints `ReferenceError: median is not defined`, then *Generating…* with live Codex progress lines and a
    timer. Point at the retry strip: attempt 1 of 3.
 3. **0:10** Candidate #1 types into the code pane. The gate panel runs top to bottom: **Compile ✓**, **Tests ✓**, then
-   **Properties ✗**. The giant red headline names the gate and the shrunk counterexample: `median([]) threw Error: …,
+   **Properties ✗**. The large red headline names the gate and the shrunk counterexample: `median([]) threw Error: …,
    expected NaN`. *"The model didn't lose an argument with a person; a property check it never saw said no."*
-4. **0:18** Candidate #2 appears, passes all four gates, and the banner turns green: *Accepted, committed as r2*. The REPL
+4. **0:18** Candidate #2 appears, passes all four gates, and the verdict reads *Accepted — committed as r2*. The REPL
    prints `2.5` labelled **generated · revision 2**. Candidate #1 is still in the strip, in red.
 5. **0:25** Press Enter on `median([9, 7, 1])`: `7`, instantly, labelled **cached artifact**, with the one-time line *"You didn't
    write this. The model wrote it. Your compiler and tests decided whether to keep it."*
@@ -343,9 +346,9 @@ rates above against your own Codex login (results in `.tmp/tune-out.json`).
 8. **0:52** (live mode) Click **orders** and press Enter. The model sees only `type Row` and three sample rows (the
    **Data** drawer shows exactly which). The result renders as a table; press **Pin as test**. From now on every
    regeneration of `topCustomersByRevenue` has to reproduce that result, or Tests rejects it.
-9. **0:54** Back on the committed median, wait a few seconds: under the green banner the confidence line fills in
+9. **0:54** Back on the committed median, wait a few seconds: under the Accepted banner the confidence line fills in
    with the mutation check (the recorded median reads *Tests killed 12 of 12 mutants*). When something survives,
-   **see survivors** shows the broken copy your checks let through. There is no score, only what ran.
+   **See what slipped through** shows the broken copy your checks let through. There is no score, only what ran.
 10. **0:55** Open **Revisions** and click **Roll back to r2**. Then **Image → Export** to download your whole program.
 11. **0:58** **Image → Share this session…**: download `undefined-session.json`, put it in a gist, paste the gist's Raw URL
     and copy the `?recording=` link. Whoever opens it is asked first, then presses Enter to watch your session replay with

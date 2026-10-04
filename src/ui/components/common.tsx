@@ -47,18 +47,19 @@ export const statusWord = (s: GateStatus): string => STATUS_WORD[s];
 export function GeneratedBadge() {
   return (
     <span class="badge badge-generated" title="Written by the model, accepted by the gates. Read-only.">
-      generated · read-only
+      written by the model · read-only
     </span>
   );
 }
 
-export function PanelHead({ ch, title, children }: { ch: string; title: string; children?: ComponentChildren }) {
+export function PanelHead({ ch, title, sub, children }: { ch: string; title: string; sub?: string; children?: ComponentChildren }) {
   return (
     <header class="panel-head">
       <span class="ch" aria-hidden="true">
         {ch}
       </span>
       <h2 class="panel-title">{title}</h2>
+      {sub && <span class="panel-sub">{sub}</span>}
       <div class="panel-head-extra">{children}</div>
     </header>
   );

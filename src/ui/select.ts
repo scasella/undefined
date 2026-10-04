@@ -129,7 +129,7 @@ export function functionStatusText(s: FunctionStatus): string {
     case 'stale':
       return `invalid: ${s.what} changed — regenerates on next call`;
     case 'none':
-      return 'no artifact yet — grows on first call';
+      return 'no code yet — written on the first call';
   }
 }
 

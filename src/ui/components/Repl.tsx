@@ -5,7 +5,7 @@ import { inputHistory } from '../select';
 import { focusFn, lowerTab, useElapsed } from '../uiState';
 import { pinnedText } from '../data';
 import { DataTable } from './DataTable';
-import { UNCHECKED_TEXT } from '../explain';
+import { plainErrorName, UNCHECKED_TEXT } from '../explain';
 import { PanelHead, Ticks } from './common';
 
 /**
@@ -94,7 +94,10 @@ function Entry({ e, engine, live, state }: { e: ReplEntry; engine: Engine; live:
       return (
         <li class={`r-error${e.name === 'Declined' ? ' is-declined' : ''}${e.resolved ? ' is-resolved' : ''}`}>
           <p>
-            <span class="err-name">{e.name}</span>: <Ticks text={e.message} />
+            <span class="err-name" title={e.name !== plainErrorName(e.name) ? e.name : undefined}>
+              {plainErrorName(e.name)}
+            </span>
+            : <Ticks text={e.message} />
           </p>
           {e.restarts && e.restarts.length > 0 && (
             <div class="restarts" role="group" aria-label="Restarts">
@@ -148,12 +151,12 @@ function LiveGeneration({ gen }: { gen: GenerationView }) {
       <p class="live-head">
         <span class="spinner" aria-hidden="true" />
         {waiting
-          ? 'model is writing'
+          ? 'the model is writing'
           : current?.status === 'typing'
-            ? 'candidate arriving'
+            ? 'the draft is arriving'
             : current?.status === 'gating'
-              ? 'gates judging'
-              : 'preparing the next attempt'}{' '}
+              ? 'the gates are checking it'
+              : 'getting the next attempt ready'}{' '}
         ·{' '}
         <span class="mono">
           {gen.fn} · attempt {gen.attempt} of {gen.maxAttempts}
@@ -260,11 +263,15 @@ export function Repl({ state, engine }: { state: EngineState; engine: Engine }) 
 
   return (
     <section class="panel panel-repl" aria-label="REPL">
-      <PanelHead ch="01" title="REPL">
+      <PanelHead ch="01" title="REPL" sub="call any function, even one that doesn't exist">
         {state.busy && <span class="chip st-gating">busy</span>}
       </PanelHead>
       <div class="panel-body repl-scroll" ref={scrollRef}>
-        {state.hints.opener && <p class="opener">This function doesn't exist. Press Enter.</p>}
+        {state.hints.opener && (
+          <p class="opener">
+            This function doesn't exist. <em>Press Enter.</em>
+          </p>
+        )}
         <ol class="transcript" ref={listRef} aria-live="polite" aria-relevant="additions">
           {state.repl.map((e) => (
             <Entry key={e.id} e={e} engine={engine} live={e.id === liveInfoId} state={state} />
@@ -291,14 +298,26 @@ export function Repl({ state, engine }: { state: EngineState; engine: Engine }) 
           autocapitalize="off"
           aria-describedby="repl-hint"
           placeholder={state.busy ? 'waiting for the gates…' : 'call anything, e.g. median([5, 1, 3])'}
+          enterKeyHint="go"
         />
-        <span id="repl-hint" class="kbd-hint muted small">
+        <span id="repl-hint" class="kbd-hint">
           {state.busy ? 'busy' : '⏎ run · ↑↓ history'}
         </span>
+        <button
+          type="button"
+          class="btn run-btn"
+          disabled={state.busy}
+          onClick={() => {
+            setHistIdx(null);
+            void engine.submit();
+          }}
+        >
+          Run
+        </button>
       </div>
       {envNames.length > 0 && (
         <div class="env" aria-label="Live state">
-          <span class="label">live state</span>
+          <span class="label" title="REPL variables: the live state that revisions keep">variables</span>
           {envNames.map((k) => (
             <span key={k} class="env-var mono">
               {k} = <span class="muted">{state.env[k]}</span>

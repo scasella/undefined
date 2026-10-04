@@ -82,7 +82,7 @@ describe('function status', () => {
     const testsOnly = { ...committed, testsHash: 'x'.repeat(64) };
     expect(functionStatus(testsOnly)).toEqual({ kind: 'stale', what: 'tests' });
     const none = SCENARIOS.opening().program.functions.median;
-    expect(functionStatusText(functionStatus(none))).toBe('no artifact yet — grows on first call');
+    expect(functionStatusText(functionStatus(none))).toBe('no code yet — written on the first call');
   });
 
   it('finds the most recently committed function', () => {
