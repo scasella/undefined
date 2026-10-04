@@ -408,6 +408,14 @@ export interface RecordedSession {
   datasetRefs?: DatasetRef[];
   /** v2: the REPL inputs that triggered/followed this session, in order. */
   calls?: string[];
+  /**
+   * v2, optional: who generated THIS session's candidates, when it differs from the recording's top-level fields (a
+   * shared session that mixes candidates replayed from someone else's recording with ones generated live here).
+   * Replay uses them in place of the top-level model/codexVersion/effort.
+   */
+  model?: string;
+  codexVersion?: string;
+  effort?: string;
   /** Human label, e.g. "median — original spec", "median — after 'break it'". */
   label: string;
   /** Candidates in the order they were generated (index = GenerateRequest.attempt). */
@@ -615,7 +623,54 @@ export interface EngineState {
    * broken copies checked), 'done' (the report is on the artifact's evidence). Absent when nothing is scheduled.
    */
   mutation?: { fn: string; phase: 'waiting' | 'running' | 'done'; done: number; total: number };
+  /**
+   * A recording the user loaded (Load a recording / drop / `?recording=`): its candidates are replayed by hash, even
+   * when the live service is up. `calls` are its REPL inputs; `dismissed` hides the banner (the recording stays loaded).
+   */
+  loadedRecording?: { title: string; source: string; calls: string[]; dismissed: boolean };
+  /**
+   * A recording named by `?recording=<url>` at boot, fetched and validated but NOT loaded: the UI asks first
+   * (loadRecording to accept, dismissRecordingOffer to decline). Nothing ever runs without that click.
+   */
+  recordingOffer?: { url: string; source: string; preview: RecordingPreview };
+  /** The opt-in local session log (off by default; never transmitted). */
+  sessionLog?: { enabled: boolean; count: number; status: 'memory' | 'indexeddb' | 'failed' };
 }
+
+/** What loading a recording would do, shown before anything is loaded (Engine.previewRecording). */
+export type RecordingPreview =
+  | {
+      ok: true;
+      title: string;
+      /** Where it came from: a file name or the URL's host. */
+      source: string;
+      /** One plain sentence (share/source.ts seedFromRecording). */
+      summary: string;
+      /**
+       * Functions it carries. `status`: 'new' (added), 'same' (your spec is identical), 'replaces' (your spec of that
+       * name is replaced, its artifact goes stale), 'replay-only' (no spec in the recording: replays only if you
+       * already have the exact spec).
+       */
+      functions: Array<{ name: string; tests: number; properties: number; status?: 'new' | 'same' | 'replaces' | 'replay-only' }>;
+      /** The recorded REPL inputs, in order (pre-typed one at a time; never run without Enter). */
+      calls: string[];
+      datasets: Array<{ name: string; rows: number; columns: number }>;
+      model: string;
+      codexVersion: string;
+      effort: string;
+      recordedAt: string;
+      /** The recording carries specs (version 2), so it can seed an empty program. */
+      canSeed: boolean;
+      /** Recorded sessions whose spec matches (or will match after loading) what the program holds. */
+      replayable: number;
+      /** Sessions or datasets that will not be loaded, each with the reason. */
+      skipped: string[];
+      /** Set when nothing in it can be used here; Load is not offered. */
+      blocked?: string;
+      /** "This recording includes test code written by someone else. …" */
+      warning: string;
+    }
+  | { ok: false; error: string; hint?: string };
 
 /** Result of parsing pasted/dropped data before it is loaded (drives the data drawer preview). */
 export type DatasetPreview =
@@ -667,7 +722,10 @@ export interface Engine {
   recheckService(): Promise<void>;
   exportImage(): Promise<string>;
   importImage(json: string): Promise<void>;
-  /** Everything generated live this session as a Recording (null when nothing was generated live). */
+  /**
+   * Every generation this session as a Recording: candidates generated live, and candidates replayed from a
+   * recording (kept verbatim, with that recording's model/codexVersion/effort). null when nothing was generated.
+   */
   exportRecording(): Recording | null;
   /** Discard persisted state and reseed r1. */
   resetImage(): Promise<void>;
@@ -688,4 +746,20 @@ export interface Engine {
    * it: passing re-certifies it in place (no regeneration); failing leaves it stale and shows the counterexample.
    */
   addSuggestedProperty(fn: string, suggestionId: string): Promise<void>;
+  /** Fetch (a user-supplied URL) or parse (dropped/picked text) a recording and say what loading it would do. Never throws. */
+  previewRecording(input: { text?: string; url?: string; source?: string }): Promise<RecordingPreview>;
+  /**
+   * Load it: its specs and datasets become ONE revision of kind 'import', its candidates replay by hash (ahead of the
+   * live service), its first call is pre-typed. Runs nothing. Problems become a notice; the program is unchanged.
+   */
+  loadRecording(input: { text?: string; url?: string; source?: string }): Promise<void>;
+  /** Hide the "Replaying a recorded session" banner (the recording stays loaded). */
+  dismissRecordingBanner(): void;
+  /** Decline the `?recording=` offer (nothing is loaded). */
+  dismissRecordingOffer(): void;
+  /** Turn the local session log on or off (off keeps the entries until clearSessionLog). */
+  setSessionLogEnabled(on: boolean): Promise<void>;
+  /** The log as JSON (format 'undefined-session-log'), for the user to download. */
+  exportSessionLog(): Promise<string>;
+  clearSessionLog(): Promise<void>;
 }

@@ -2,12 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GATE_ORDER, type EngineState } from '../../types';
 import { createFixtureEngine } from './fixtureEngine';
 import { MEDIAN_PROPS_SUMMARY, SCENARIO_NAMES, SCENARIOS } from './fixtures';
-import { dataDrawerOpen, lowerTab } from '../uiState';
+import { dataDrawerOpen, lowerTab, pendingRecording, sessionLogOpen, shareOpen } from '../uiState';
 
 const REQUIRED = [
   'opening', 'generating', 'rejected-properties', 'committed', 'cached', 'compile-rejected', 'invariant-timeout',
   'no-tests', 'budget-exhausted', 'rejected-silent', 'service-error', 'fault-restart', 'replay-banner', 'repo-stale', 'many-revisions',
   'declined-pure', 'declined-spec', 'spec-less-accept', 'table-result', 'pinned', 'data-drawer-open',
+  'share-dialog', 'load-recording', 'session-log', 'recording-loaded',
 ];
 
 function checkInvariants(s: EngineState): void {
@@ -197,5 +198,23 @@ describe('fixture engine', () => {
     const first = e.state.value.focusSpec;
     expect(first).toMatchObject({ fn: 'median' });
     expect(typeof first?.nonce).toBe('number');
+  });
+
+  it('sharing scenarios open their dialog; the fixture loads a recording and keeps the log count', async () => {
+    createFixtureEngine('share-dialog');
+    expect(shareOpen.value).toBe(true);
+    createFixtureEngine('session-log');
+    expect(sessionLogOpen.value).toBe(true);
+    const e = createFixtureEngine('load-recording');
+    expect(pendingRecording.value?.preview.ok).toBe(true);
+    await e.loadRecording(pendingRecording.value!.input);
+    expect(e.state.value.loadedRecording).toMatchObject({ dismissed: false });
+    expect(e.state.value.replInput).toBe(e.state.value.loadedRecording!.calls[0]);
+    e.dismissRecordingBanner();
+    expect(e.state.value.loadedRecording!.dismissed).toBe(true);
+    expect((await e.previewRecording({ text: 'nope' })).ok).toBe(false);
+    shareOpen.value = false;
+    sessionLogOpen.value = false;
+    pendingRecording.value = null;
   });
 });

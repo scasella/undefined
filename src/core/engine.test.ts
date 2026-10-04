@@ -789,7 +789,11 @@ describe('engine: images and persistence', () => {
     expect(c.source).toBe('replay');
     expect(gen.requests[0]!.prompt).not.toBe('THE RECORDED PROMPT');
     expect(c.prompt).toBe('THE RECORDED PROMPT');
-    expect(engine.exportRecording()).toBeNull(); // replayed candidates are never re-recorded
+    // a replayed session can be shared: the recorded attempt verbatim, credited to the recording's model, never "live"
+    const shared = engine.exportRecording()!;
+    expect(shared.title).toBe('Replayed session: median');
+    expect(shared).toMatchObject({ model: 'm', codexVersion: '0', effort: 'low' });
+    expect(shared.sessions[0]!.attempts).toEqual(recording.sessions[0]!.attempts);
   }, 30_000);
 });
 

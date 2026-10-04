@@ -2,6 +2,7 @@
 import { signal } from '@preact/signals';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { AttemptSelection } from './select';
+import type { RecordingPreview } from '../types';
 
 export const selection = signal<AttemptSelection | null>(null);
 export const lowerTab = signal<'revisions' | 'repo'>('revisions');
@@ -76,3 +77,13 @@ export function downloadText(filename: string, text: string, type = 'application
  * marker is in the spec, so the row that says how it went ("re-certified" / "fails it") is remembered here.
  */
 export const addedChecks = signal<Array<{ fn: string; id: string; title: string; why: string }>>([]);
+
+/** The Image menu's dialogs: share this session, load a recording, the local session log. */
+export const shareOpen = signal(false);
+export const loadRecordingOpen = signal(false);
+export const sessionLogOpen = signal(false);
+/**
+ * A recording the user picked, dropped or fetched, previewed and waiting for Load / Cancel. (The `?recording=` offer
+ * lives in the engine's state.recordingOffer; the same confirmation dialog shows it.)
+ */
+export const pendingRecording = signal<{ input: { text?: string; url?: string; source: string }; preview: RecordingPreview } | null>(null);

@@ -219,8 +219,8 @@ naive recursion, because the model never wrote the recursion.
 
 ## Replay mode and recordings
 
-Every live session is recordable: **Download recording** (live mode) saves a JSON file of the model candidates with their
-prompts and progress lines. Recordings in `public/recordings/` are matched by function name + spec hash + tests hash, so
+Every session is recordable: **Image → Share this session…** saves a JSON file of the model candidates with their
+prompts and progress lines (see *Share a session* below). Recordings in `public/recordings/` are matched by function name + spec hash + tests hash, so
 replay works for the unmodified examples and for their **Break it** edits. Edit a spec to something that was never
 recorded and replay mode says so, and tells you how to run live.
 
@@ -228,6 +228,49 @@ Maintainers re-record the shipped sessions with `npm run record` (starts the dev
 real app against your Codex login, and writes `public/recordings/*.json`; it keeps a session only if the first candidate
 was rejected and prints how many tries that took). `npm run check:replay` serves the production build with no backend and
 checks that each example replays from its recording through the real UI.
+
+## Share a session
+
+**Image → Share this session…** works on the static site as well as in live mode, because a session you *replayed* is
+shareable too. Three steps:
+
+1. **Download the recording** (`undefined-session.json`). It holds every candidate generated in this page load: live
+   ones as generated, replayed ones exactly as they were recorded, credited to the model, Codex version and effort that
+   really wrote them (a replayed session is never marked live; a file that mixes both puts the other model on its own
+   sessions). The recording includes your spec and test code and any dataset rows used in the session, with the prompts,
+   candidates and the calls you typed; nothing else. Nothing generated yet: the dialog says so.
+2. **Host it** anywhere that serves the raw file with CORS: a GitHub gist's **Raw** URL or `raw.githubusercontent.com`
+   both work (a `github.com/…/blob/…` or `gist.github.com/<user>/<id>` page URL is turned into its raw URL for you).
+3. **Paste that URL** into the dialog and copy the link it builds: `<this site>?recording=<url>`.
+
+Someone who opens the link is asked first; nothing loads or runs on its own. The page fetches that one URL (besides its own files, the
+only request the page ever makes other than to the local generation service in live mode), validates it, and shows what it holds: the
+functions with their test and property counts, the number of calls, datasets, the model / CLI / date, anything that will
+be skipped and why, and the plain warning *"This recording includes test code written by someone else. It runs in the
+sandbox like any spec you write."* A link that fails to load shows the error and the CORS hint.
+
+The same confirmation appears when you **drop a .json file anywhere on the page** (a recording and an exported program
+image are told apart by their `format`; an image imports exactly as **Import image…** does) or use **Image → Load a
+recording…** (a file picker and a URL field). **Load** adds the recording's specs and datasets (bound to their variable
+names) as one revision, *Loaded recording: <title>*, registers its candidates so they replay by hash even when the live
+service is up (anything it does not cover goes to the normal generator), types its first call into the REPL, and shows a
+dismissible banner: *Replaying a recorded session from <source>: press Enter to run its calls; the gates run live in
+your browser.* Each Enter on a recorded call types the next one in. What is checked before anything loads: every
+session's spec must hash to what its candidates were recorded under and have a growable name, and every dataset's rows
+must hash to their content address and fit the data limits; failures are listed and skipped. A spec of the same name in
+your program is replaced (the dialog says so; roll back to undo). An older (version 1) recording that carries only hashes
+replays only when you already have the matching spec, for example a shipped example; otherwise the dialog says there is
+nothing it can replay. Loaded candidates last for the page load; the specs stay in your program.
+
+## Local session log
+
+**Image → Session log (this browser only)** is off by default. Turned on, it keeps a short log of what you type and what
+the gates decided, in this browser's storage only (IndexedDB database `undefined-session-log`, memory if that is
+blocked); it is never sent anywhere. Each entry is small: REPL inputs, the kind of outcome (never the value), which gate
+rejected a candidate with its headline, declines, commits, pins, rollbacks, spec edits, dataset loads (name, row and
+column counts only) and errors. It never holds prompts or dataset rows. The dialog shows the entry count, **Export log**
+(`undefined-session-log.json`) and **Clear**; turning it off stops new entries and keeps the old ones until you clear
+them. At most 5,000 entries are kept (oldest dropped first).
 
 ## The generation service
 
@@ -272,6 +315,7 @@ src/gates/         strict TypeScript compile gate (lazy-loaded compiler + libs),
 src/sandbox/       gate executor + worker + watchdog, REPL runtime worker, purity masking
 src/shared/        prompt builder, value display/serialisation, hashing, type inference
 src/examples/      median, slugify, fibonacci (+ known-good and known-bad candidates used by tests)
+src/share/         loading a shared recording (text, URL, ?recording=);  src/sessionlog/  the opt-in local session log
 src/ui/            Preact UI;  public/recordings/  recorded sessions;  docs/DESIGN.md  module contracts
 scripts/           tune.tune.ts: samples the real model against the real gates (see below)
 ```
@@ -303,3 +347,6 @@ rates above against your own Codex login (results in `.tmp/tune-out.json`).
    with the mutation check (the recorded median reads *Tests killed 12 of 12 mutants*). When something survives,
    **see survivors** shows the broken copy your checks let through. There is no score, only what ran.
 10. **0:55** Open **Revisions** and click **Roll back to r2**. Then **Image → Export** to download your whole program.
+11. **0:58** **Image → Share this session…**: download `undefined-session.json`, put it in a gist, paste the gist's Raw URL
+    and copy the `?recording=` link. Whoever opens it is asked first, then presses Enter to watch your session replay with
+    the gates running live in their browser.

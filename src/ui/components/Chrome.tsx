@@ -2,7 +2,7 @@
 import { useEffect, useRef } from 'preact/hooks';
 import type { Engine, EngineState } from '../../types';
 import { repoUrlFromPages } from '../format';
-import { dataDrawerOpen, dismissedNotice, downloadText, localNotice, noticeKey, showNotice } from '../uiState';
+import { dataDrawerOpen, dismissedNotice, downloadText, loadRecordingOpen, localNotice, noticeKey, sessionLogOpen, shareOpen, showNotice } from '../uiState';
 import { CopyBlock, Ticks } from './common';
 
 function ModeBadge({ state }: { state: EngineState }) {
@@ -36,12 +36,6 @@ function Menu({ state, engine }: { state: EngineState; engine: Engine }) {
       showNotice('error', `Export failed: ${(e as Error).message}`);
     }
   };
-  const exportRecording = () => {
-    close();
-    const rec = engine.exportRecording();
-    if (!rec) return showNotice('info', 'Nothing generated live yet — make a call first.');
-    downloadText(`undefined-recording-${rec.id}.json`, JSON.stringify(rec, null, 2));
-  };
   const reset = () => {
     close();
     if (confirm('Reset discards every revision and the live state, and reseeds r1. Continue?')) void engine.resetImage();
@@ -65,11 +59,38 @@ function Menu({ state, engine }: { state: EngineState; engine: Engine }) {
         >
           Import image…
         </button>
-        {state.mode === 'live' && (
-          <button type="button" role="menuitem" onClick={exportRecording}>
-            Download recording <span class="muted small">this session's live candidates</span>
-          </button>
-        )}
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            close();
+            shareOpen.value = true;
+          }}
+        >
+          Share this session… <span class="muted small">download, host, link</span>
+        </button>
+        <button
+          type="button"
+          role="menuitem"
+          disabled={state.busy}
+          onClick={() => {
+            close();
+            loadRecordingOpen.value = true;
+          }}
+        >
+          Load a recording…
+        </button>
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            close();
+            sessionLogOpen.value = true;
+          }}
+        >
+          Session log (this browser only){' '}
+          <span class="muted small">{state.sessionLog?.enabled ? `on · ${state.sessionLog.count}` : 'off'}</span>
+        </button>
         <button type="button" role="menuitem" class="danger" disabled={state.busy} onClick={reset}>
           Reset…
         </button>

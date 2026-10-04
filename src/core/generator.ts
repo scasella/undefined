@@ -383,6 +383,11 @@ function sessionKey(fn: string, specHash: string, testsHash: string): string {
 export class ReplayGenerator implements Generator {
   readonly mode = 'replay' as const;
   private readonly sessions = new Map<string, { session: RecordedSession; recording: Recording }>();
+
+  /** Whether a recorded session exists for this function + spec text (the engine routes a grow by this). */
+  has(fn: string, specHash: string, testsHash: string): boolean {
+    return this.sessions.has(sessionKey(fn, specHash, testsHash));
+  }
   private readonly maxMs: number;
   private readonly sleep: Sleep;
 
@@ -451,8 +456,8 @@ export class ReplayGenerator implements Generator {
     return {
       body: attempt.body,
       notes: attempt.notes,
-      model: recording.model,
-      codexVersion: recording.codexVersion,
+      model: session.model ?? recording.model,
+      codexVersion: session.codexVersion ?? recording.codexVersion,
       durationMs: Math.round(waited),
       source: 'replay',
       progress: emitted,
@@ -470,6 +475,41 @@ export function recordedPrompt(recordings: readonly Recording[], req: Pick<Gener
     for (const session of recording.sessions) {
       if (session.fn === req.fn && session.specHash === req.specHash && session.testsHash === req.testsHash) {
         return session.attempts[req.attempt]?.prompt;
+      }
+    }
+  }
+  return undefined;
+}
+
+/** Who generated a recorded session's candidates: the session's own fields, else the recording's. */
+export interface Provenance {
+  model: string;
+  codexVersion: string;
+  effort: string;
+}
+
+/**
+ * The recorded attempt a replayed candidate came from, verbatim (its real prompt, durations and progress, not the
+ * compressed timings ReplayGenerator plays), with its provenance. Same lookup as ReplayGenerator: first recording wins.
+ */
+export function recordedAttempt(
+  recordings: readonly Recording[],
+  req: Pick<GenerateRequest, 'fn' | 'specHash' | 'testsHash' | 'attempt'>,
+): { attempt: RecordedAttempt; provenance: Provenance; label: string } | undefined {
+  for (const recording of recordings) {
+    for (const session of recording.sessions) {
+      if (session.fn === req.fn && session.specHash === req.specHash && session.testsHash === req.testsHash) {
+        const attempt = session.attempts[req.attempt];
+        if (!attempt) return undefined;
+        return {
+          attempt,
+          label: session.label,
+          provenance: {
+            model: session.model ?? recording.model,
+            codexVersion: session.codexVersion ?? recording.codexVersion,
+            effort: session.effort ?? recording.effort,
+          },
+        };
       }
     }
   }
@@ -549,7 +589,7 @@ function readRecording(raw: unknown): Recording {
   };
 }
 
-const V2_FIELDS = ['spec', 'calls', 'datasets', 'datasetRefs'] as const;
+const V2_FIELDS = ['spec', 'calls', 'datasets', 'datasetRefs', 'model', 'codexVersion', 'effort'] as const;
 
 function readSession(raw: unknown, path: string, version: 1 | 2): RecordedSession {
   const o = obj(raw, path);
@@ -570,6 +610,10 @@ function readSession(raw: unknown, path: string, version: 1 | 2): RecordedSessio
     return session;
   }
   // v2: every new field is optional, and strictly checked when present.
+  for (const k of ['model', 'codexVersion', 'effort'] as const) {
+    const v = optStr(o, k, p);
+    if (v !== undefined) session[k] = v;
+  }
   if (o.spec !== undefined) {
     const spec = readSpec(o.spec, `${p}spec`);
     if (spec.name !== fn) fail(`${p}spec.name`, `must equal the session's fn ${JSON.stringify(fn)} (got ${describe(spec.name)})`);
@@ -804,12 +848,22 @@ export interface RecordingContext {
   /** Dataset rows the calls run over, by hash (plumbing for datasets; not sent by the engine yet). */
   datasets?: Record<Hash, Json>;
   datasetRefs?: DatasetRef[];
+  /** Reasoning effort of the live service (live results); the sink's default otherwise. */
+  effort?: string;
+  /**
+   * A REPLAYED result is recorded only with this: the recorded attempt it came from (kept verbatim) and that
+   * recording's provenance. Without it a replay result is ignored.
+   */
+  replayed?: { attempt: RecordedAttempt; provenance: Provenance };
 }
 
-/** Collects everything generated live this session so it can be exported as a Recording. */
+/**
+ * Collects every generation of this session so it can be exported as a Recording (and shared): live candidates as
+ * generated, and replayed candidates exactly as they were recorded, with the model that really wrote them.
+ */
 export class RecordingSink {
   private readonly sessions = new Map<string, RecordedSession>();
-  private first: { model: string; codexVersion: string } | null = null;
+  private readonly provenance = new Map<string, Provenance & { source: 'live' | 'replay' }>();
   private readonly effort: string;
   private readonly now: () => Date;
 
@@ -821,20 +875,30 @@ export class RecordingSink {
   /**
    * Record one live result. Attempt 0 starts a fresh session for its fn+specHash+testsHash (replacing an older one,
    * whose triggering calls are carried over so the session still lists every input that grew this spec);
-   * later attempts append. Replay results, and attempts that would leave a gap in the session, are ignored because
-   * replay indexes attempts by position. `ctx` adds the v2 fields: the spec, the triggering REPL input (deduped,
+   * later attempts append. A replay result is recorded only when `ctx.replayed` names the recorded attempt it came from
+   * (kept verbatim, credited to that recording's model); without it, and for attempts that would leave a gap in the
+   * session, the result is ignored because replay indexes attempts by position. `ctx` adds the v2 fields: the spec, the triggering REPL input (deduped,
    * in order) and, when given, datasets.
    */
   add(req: GenerateRequest, result: GenerateResult, label: string, ctx: RecordingContext = {}): void {
-    if (result.source !== 'live') return;
+    if (result.source !== 'live' && !(result.source === 'replay' && ctx.replayed)) return;
     const key = sessionKey(req.fn, req.specHash, req.testsHash);
-    const attempt: RecordedAttempt = {
-      prompt: req.prompt,
-      body: result.body,
-      notes: result.notes,
-      durationMs: Math.max(0, result.durationMs),
-      progress: result.progress.map((p) => ({ t: Math.max(0, p.t), text: p.text, channel: p.channel })),
-    };
+    const replayed = result.source === 'replay' ? ctx.replayed : undefined;
+    const attempt: RecordedAttempt = replayed
+      ? {
+          prompt: replayed.attempt.prompt,
+          body: replayed.attempt.body,
+          notes: replayed.attempt.notes,
+          durationMs: Math.max(0, replayed.attempt.durationMs),
+          progress: replayed.attempt.progress.map((p) => ({ t: Math.max(0, p.t), text: p.text, channel: p.channel })),
+        }
+      : {
+          prompt: req.prompt,
+          body: result.body,
+          notes: result.notes,
+          durationMs: Math.max(0, result.durationMs),
+          progress: result.progress.map((p) => ({ t: Math.max(0, p.t), text: p.text, channel: p.channel })),
+        };
     const existing = this.sessions.get(key);
     let session: RecordedSession;
     if (req.attempt === 0) {
@@ -865,27 +929,55 @@ export class RecordingSink {
       for (const r of ctx.datasetRefs) refs.set(r.name, structuredClone(r));
       session.datasetRefs = [...refs.values()];
     }
-    this.first ??= { model: result.model, codexVersion: result.codexVersion };
+    // a session's provenance is that of its first attempt (one grow uses one generator)
+    if (req.attempt === 0 || !this.provenance.has(key)) this.provenance.set(
+      key,
+      replayed
+        ? { ...replayed.provenance, source: 'replay' }
+        : { model: result.model, codexVersion: result.codexVersion, effort: ctx.effort ?? this.effort, source: 'live' },
+    );
   }
 
   get size(): number {
     return this.sessions.size;
   }
 
-  /** version 2 when any session carries a v2 field (spec, calls, datasets, datasetRefs); else version 1. */
+  /** How the recorded sessions were obtained here: 'live', 'replay', 'mixed', or null when there are none. */
+  get sources(): 'live' | 'replay' | 'mixed' | null {
+    const kinds = new Set([...this.provenance.values()].map((p) => p.source));
+    if (kinds.size === 0) return null;
+    return kinds.size > 1 ? 'mixed' : [...kinds][0]!;
+  }
+
+  /**
+   * The top-level model/codexVersion/effort are those of the first session; a session generated by anything else
+   * carries its own (v2 fields), so a mixed export never credits one model with another's candidates.
+   * version 2 when any session carries a v2 field (spec, calls, datasets, datasetRefs, own provenance); else 1.
+   */
   toRecording(meta: { id: string; title: string }): Recording | null {
-    if (this.sessions.size === 0 || !this.first) return null;
-    const sessions = [...this.sessions.values()].map((s) => structuredClone(s));
-    const v2 = sessions.some((s) => s.spec !== undefined || s.calls !== undefined || s.datasets !== undefined || s.datasetRefs !== undefined);
+    if (this.sessions.size === 0) return null;
+    const keys = [...this.sessions.keys()];
+    const top = this.provenance.get(keys[0]!)!;
+    const sessions = keys.map((k) => {
+      const s = structuredClone(this.sessions.get(k)!);
+      const p = this.provenance.get(k)!;
+      if (p.model !== top.model || p.codexVersion !== top.codexVersion || p.effort !== top.effort) {
+        s.model = p.model;
+        s.codexVersion = p.codexVersion;
+        s.effort = p.effort;
+      }
+      return s;
+    });
+    const v2 = sessions.some((s) => V2_FIELDS.some((f) => s[f] !== undefined));
     return {
       format: 'undefined-recording',
       version: v2 ? 2 : 1,
       id: meta.id,
       title: meta.title,
       recordedAt: this.now().toISOString(),
-      model: this.first.model,
-      codexVersion: this.first.codexVersion,
-      effort: this.effort,
+      model: top.model,
+      codexVersion: top.codexVersion,
+      effort: top.effort,
       sessions,
     };
   }

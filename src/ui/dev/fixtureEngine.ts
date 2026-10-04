@@ -6,12 +6,14 @@
 import { signal } from '@preact/signals';
 import type { AttemptView, DatasetRef, Engine, EngineState, FunctionSpec, GateResult, RestartId, SpecPatch } from '../../types';
 import { buildData, datasetPreview, PINNED_INFO } from '../../core/engine';
-import { addedChecks, dataDrawerOpen, lowerTab } from '../uiState';
+import { addedChecks, dataDrawerOpen, lowerTab, pendingRecording, sessionLogOpen, shareOpen } from '../uiState';
+import { parseRecordingText } from '../../share/source';
 import { suggestProperties } from '../../suggest/suggest';
 import { appendProperty } from '../../suggest/apply';
 import { addedCheckReason } from '../../shared/evidence';
 import {
   EXAMPLES,
+  FIXTURE_PREVIEW,
   MEDIAN_BAD,
   MEDIAN_GOOD,
   SCENARIOS,
@@ -49,6 +51,10 @@ export function createFixtureEngine(scenario: string): Engine {
   if (ui?.drawer) dataDrawerOpen.value = true;
   if (ui?.tab) lowerTab.value = ui.tab;
   if (ui?.added) addedChecks.value = ui.added();
+  if (ui?.share) shareOpen.value = true;
+  if (ui?.sessionLog) sessionLogOpen.value = true;
+  if (ui?.pending) pendingRecording.value = ui.pending();
+  let logEntries = state.value.sessionLog?.count ?? 0;
 
   const update = (recipe: (s: EngineState) => void): void => {
     const next = structuredClone(state.value);
@@ -243,8 +249,63 @@ export function createFixtureEngine(scenario: string): Engine {
         notice('error', `Import failed: ${(e as Error).message}`);
       }
     },
+    // fixture: a small recording once median is committed (so the Share dialog can be exercised)
     exportRecording() {
-      return null;
+      const median = state.value.program.functions.median;
+      if (!median?.artifact) return null;
+      return {
+        format: 'undefined-recording',
+        version: 2,
+        id: 'median-fixture',
+        title: 'Live session: median',
+        recordedAt: new Date().toISOString(),
+        model: 'gpt-6-luna',
+        codexVersion: '0.157.2',
+        effort: 'medium',
+        sessions: [
+          {
+            fn: 'median',
+            specHash: median.specHash,
+            testsHash: median.testsHash,
+            label: 'median',
+            spec: median.spec,
+            calls: ['median([3, 1, 4, 2])'],
+            attempts: median.artifact.candidates.map((c) => ({ prompt: c.prompt ?? '', body: c.body, notes: c.notes, durationMs: c.generationMs, progress: [] })),
+          },
+        ],
+      };
+    },
+    // fixture: real parsing/validation; the preview is the scripted one for anything valid
+    async previewRecording(input) {
+      if (input.text === undefined) return { ok: false, error: `fixture: links are not fetched (${input.url ?? 'no url'})`, hint: 'Drop the file instead.' };
+      const p = parseRecordingText(input.text);
+      if (!p.ok && input.text !== '{}') return { ok: false, error: p.error };
+      return { ...FIXTURE_PREVIEW, source: input.source ?? 'a file' };
+    },
+    async loadRecording(input) {
+      update((s) => {
+        delete s.recordingOffer;
+        s.loadedRecording = { title: FIXTURE_PREVIEW.title, source: input.source ?? 'a file', calls: FIXTURE_PREVIEW.calls, dismissed: false };
+        s.replInput = FIXTURE_PREVIEW.calls[0]!;
+        s.hints.opener = false;
+        pushRevision(s, 'import', `Loaded recording: ${FIXTURE_PREVIEW.title}`);
+      });
+    },
+    dismissRecordingBanner() {
+      update((s) => void (s.loadedRecording && (s.loadedRecording.dismissed = true)));
+    },
+    dismissRecordingOffer() {
+      update((s) => void delete s.recordingOffer);
+    },
+    async setSessionLogEnabled(on) {
+      update((s) => void (s.sessionLog = { enabled: on, count: logEntries, status: 'indexeddb' }));
+    },
+    async exportSessionLog() {
+      return JSON.stringify({ format: 'undefined-session-log', version: 1, exportedAt: new Date().toISOString(), entries: [] }, null, 2);
+    },
+    async clearSessionLog() {
+      logEntries = 0;
+      update((s) => void (s.sessionLog = { enabled: s.sessionLog?.enabled ?? false, count: 0, status: 'indexeddb' }));
     },
     async resetImage() {
       epoch++;

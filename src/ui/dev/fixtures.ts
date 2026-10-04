@@ -16,6 +16,7 @@ import type {
   GateResult,
   GenerationView,
   ProgressLine,
+  RecordingPreview,
   ReplEntry,
   RestartOption,
   Revision,
@@ -1099,6 +1100,35 @@ export const SCENARIOS: Record<string, () => EngineState> = {
     return s;
   },
 
+  // the Share dialog open after the opening commit (the fixture engine exports a small recording)
+  'share-dialog': committedState,
+
+  // "Load this recording?" for a dropped recording (the confirmation shown before anything is loaded)
+  'load-recording': () => {
+    const s = baseState();
+    s.mode = 'replay';
+    s.service = { state: 'down' };
+    return s;
+  },
+
+  // the session log dialog, log on, a few entries kept
+  'session-log': () => {
+    const s = committedState();
+    s.sessionLog = { enabled: true, count: 14, status: 'indexeddb' };
+    return s;
+  },
+
+  // a recording was loaded: the banner under the header and its first call typed in
+  'recording-loaded': () => {
+    const s = baseState();
+    s.loadedRecording = { title: FIXTURE_PREVIEW.title, source: 'gist.githubusercontent.com', calls: FIXTURE_PREVIEW.calls, dismissed: false };
+    s.replInput = FIXTURE_PREVIEW.calls[0]!;
+    s.hints = { opener: false, takeaway: false };
+    s.revisions = [R1, revRow({ id: 2, kind: 'import', title: `Loaded recording: ${FIXTURE_PREVIEW.title}`, detail: 'from gist.githubusercontent.com · 1 spec (median)' }, 2, 0)];
+    s.headRevision = 2;
+    return s;
+  },
+
   'many-revisions': () => {
     const s = committedState();
     const rows: RevRow[] = [R1, R2];
@@ -1122,12 +1152,41 @@ export const SCENARIOS: Record<string, () => EngineState> = {
   },
 };
 
-/** Scenarios that open UI-only state (the data drawer, the Repo tab) when the fixture engine starts. */
+/** A recording preview as the engine builds it (the shipped median recording, loaded into a fresh program). */
+export const FIXTURE_PREVIEW: Extract<RecordingPreview, { ok: true }> = {
+  ok: true,
+  title: 'median — a shared session',
+  source: 'undefined-session.json',
+  summary: '1 function (median), 2 calls, recorded with gpt-6-luna via Codex 0.159.2 on 2026-10-04; the gates will run live in your browser.',
+  functions: [{ name: 'median', tests: 5, properties: 2, status: 'same' }],
+  calls: ['median([3, 1, 4, 2])', 'median([5, 5, 1])'],
+  datasets: [],
+  model: 'gpt-6-luna',
+  codexVersion: '0.159.2',
+  effort: 'low',
+  recordedAt: '2026-10-04T15:16:35.783Z',
+  canSeed: true,
+  replayable: 1,
+  skipped: [],
+  warning: 'This recording includes test code written by someone else. It runs in the sandbox like any spec you write.',
+};
+
+/** Scenarios that open UI-only state (the data drawer, the Repo tab, a dialog) when the fixture engine starts. */
 export const SCENARIO_UI: Record<
   string,
-  { drawer?: boolean; tab?: 'revisions' | 'repo'; added?: () => Array<{ fn: string; id: string; title: string; why: string }> }
+  {
+    drawer?: boolean;
+    tab?: 'revisions' | 'repo';
+    added?: () => Array<{ fn: string; id: string; title: string; why: string }>;
+    share?: boolean;
+    sessionLog?: boolean;
+    pending?: () => { input: { text?: string; url?: string; source: string }; preview: RecordingPreview };
+  }
 > = {
   'data-drawer-open': { drawer: true },
+  'share-dialog': { share: true },
+  'session-log': { sessionLog: true },
+  'load-recording': { pending: () => ({ input: { text: '{}', source: FIXTURE_PREVIEW.source }, preview: FIXTURE_PREVIEW }) },
   pinned: { tab: 'repo' },
   'committed-evidence': { tab: 'repo' },
   'recheck-failed': {

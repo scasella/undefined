@@ -41,6 +41,7 @@ import type {
   PinArg,
   Program,
   Recording,
+  RecordingPreview,
   ReplEntry,
   RestartId,
   RestartOption,
@@ -69,7 +70,10 @@ import { tablePreview } from '../sandbox/replCore';
 import { parseCsv } from '../data/csv';
 import { parseJsonData } from '../data/json';
 import { coerceCsvRows } from '../data/infer';
-import { buildDataset, canonicalJson } from '../data/dataset';
+import { buildDataset, canonicalJson, DATASET_LIMITS, utf8Length, validateVariableName } from '../data/dataset';
+import { CORS_HINT, fetchRecording, parseRecordingText, recordingParamFromLocation, seedFromRecording, type FetchResult } from '../share/source';
+import { createSessionLog, SESSION_LOG_FLAG, type SessionLog, type SessionLogEntry } from '../sessionlog/log';
+import { testNamesOf } from '../shared/specInfo';
 import { describeSend, sampleForModel } from '../data/sample';
 import {
   GenerationFailure,
@@ -77,6 +81,7 @@ import {
   loadBundledRecordings,
   probeService,
   realSleep,
+  recordedAttempt,
   recordedPrompt,
   RecordingSink,
   ReplayGenerator,
@@ -163,6 +168,12 @@ export interface EngineDeps {
    * `timeBoxMs` (default 6000). Optional so older callers and tests keep the defaults.
    */
   mutation?: { idleMs?: number; quietMs?: number; timeBoxMs?: number };
+  /** The local session log (default: createSessionLog(), IndexedDB with a memory fallback). Optional. */
+  createSessionLog?(): SessionLog;
+  /** fetch used ONLY for a recording URL the user supplied (menu field or `?recording=`). Optional. */
+  fetchRecording?: typeof fetch;
+  /** The page address, read once at boot for `?recording=<url>`. Optional; null outside a browser. */
+  location?(): { search: string; hash: string } | null;
 }
 
 export const DEFAULT_PACING: Pacing = { typeCharMs: 6, gateDwellMs: 450, replayMaxMs: 5000 };
@@ -325,6 +336,14 @@ function defaultDeps(): EngineDeps {
       if (filename !== 'orders.csv') return null;
       const m = await import('../data/orders');
       return m.BUNDLED_ORDERS_CSV();
+    },
+    location: () => {
+      try {
+        const loc = (globalThis as { location?: { search?: unknown; hash?: unknown } }).location;
+        return loc && typeof loc.search === 'string' && typeof loc.hash === 'string' ? { search: loc.search, hash: loc.hash } : null;
+      } catch {
+        return null;
+      }
     },
   };
 }
@@ -607,6 +626,40 @@ interface Grown {
 
 type GrowResult = { kind: 'committed'; revision: number; grown: Grown } | { kind: 'failed' } | { kind: 'aborted' };
 
+// ───────────────────────── shared recordings ─────────────────────────
+
+/** Said before anything from someone else's recording is loaded. */
+export const RECORDING_WARNING = 'This recording includes test code written by someone else. It runs in the sandbox like any spec you write.';
+/** Recorded calls kept from one recording (each is pre-typed, one at a time; never run without Enter). */
+const MAX_RECORDED_CALLS = 200;
+
+/** Where a recording came from, for the banner: the URL's host, else what the caller said, else "a file". */
+export function recordingSourceName(input: { url?: string; source?: string }): string {
+  if (input.source && input.source.trim() !== '') return input.source.trim().slice(0, 120);
+  if (input.url) {
+    try {
+      return new URL(input.url).host || 'a link';
+    } catch {
+      return 'a link';
+    }
+  }
+  return 'a file';
+}
+
+/** A recording checked against this program: what loading it would add, bind and replay. */
+interface PreparedRecording {
+  recording: Recording;
+  title: string;
+  source: string;
+  specs: FunctionSpec[];
+  /** Verified dataset rows (hash = sha256 of their canonical JSON), by hash. */
+  content: Record<Hash, Json>;
+  /** Bindings to make (each over verified rows, rebuilt from them). */
+  refs: DatasetRef[];
+  calls: string[];
+  preview: Extract<RecordingPreview, { ok: true }>;
+}
+
 // ───────────────────────── engine ─────────────────────────
 
 export type EngineHandle = Engine & {
@@ -617,6 +670,12 @@ export type EngineHandle = Engine & {
 export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle {
   const deps: EngineDeps = { ...defaultDeps(), ...overrides };
   const pacing = deps.pacing;
+  let slog: SessionLog;
+  try {
+    slog = deps.createSessionLog ? deps.createSessionLog() : createSessionLog();
+  } catch {
+    slog = createSessionLog({ storage: { getItem: () => null, setItem: () => undefined } });
+  }
 
   const state = signal<EngineState>({
     ready: false,
@@ -635,6 +694,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     busy: false,
     examples: [],
     pacing,
+    sessionLog: { enabled: slog.isEnabled(), count: 0, status: slog.status() },
   });
 
   let history: Revision[] = [];
@@ -645,6 +705,11 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
   let runtime: RuntimeLike | null = null;
   let generator: Generator | null = null;
   let recordings: Recording[] = [];
+  /** Recordings the user loaded, newest first: their sessions replay by hash ahead of the live service. */
+  let loaded: Recording[] = [];
+  let loadedReplay: ReplayGenerator | null = null;
+  /** The last recording fetched from a URL: loading it re-uses this instead of fetching twice. */
+  let fetched: { url: string; result: Extract<FetchResult, { ok: true }> } | null = null;
   const sink = new RecordingSink();
   const sinkFns = new Set<string>();
   const contexts = new Map<string, RestartContext>();
@@ -685,7 +750,10 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     set({ repl: [...state.value.repl, ...entries] });
   };
   const id = (p: string): string => deps.newId(p);
-  const notice = (tone: 'info' | 'error', text: string): void => set({ notice: { tone, text } });
+  const notice = (tone: 'info' | 'error', text: string): void => {
+    set({ notice: { tone, text } });
+    if (tone === 'error') log({ kind: 'error', summary: text });
+  };
   const headRev = (): Revision => history.find((r) => r.id === head) ?? history[history.length - 1]!;
   const rowsOf = (revs: Revision[]): EngineState['revisions'] =>
     revs.map(({ program, env: _env, ...rest }) => ({ ...rest, ...summarize(program) }));
@@ -730,7 +798,8 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     await deps.store.saveDatasets?.(kept);
   }
 
-  const errorEntry = (name: string, message: string, restarts?: RestartOption[], ctx?: RestartContext): string => {
+  const errorEntry = (name: string, message: string, restarts?: RestartOption[], ctx?: RestartContext, quiet = false): string => {
+    if (!quiet) log({ kind: 'error', summary: `${name}: ${message}`, ...(ctx ? { fn: ctx.fn } : {}) });
     const entryId = id('er');
     const e: ReplEntry = { kind: 'error', id: entryId, name, message };
     if (restarts && restarts.length > 0) e.restarts = restarts;
@@ -740,6 +809,18 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
   };
   const info = (text: string, tone: 'muted' | 'accent' | 'warn' = 'muted'): void => {
     pushRepl({ kind: 'info', id: id('if'), text, tone });
+  };
+
+  // ── the local session log (opt-in; never prompts, never dataset rows) ──
+
+  const refreshLogState = async (): Promise<void> => {
+    const count = await slog.count();
+    if (!disposed) set({ sessionLog: { enabled: slog.isEnabled(), count, status: slog.status() } });
+  };
+  /** Append to the session log; a no-op while it is off. The count in state follows once the entry is stored. */
+  const log = (e: Omit<SessionLogEntry, 't' | 'session'>): void => {
+    if (!slog.isEnabled()) return;
+    void slog.append(e).then(refreshLogState, () => undefined);
   };
 
   const setGen = (fnOrPatch: Partial<GenerationView> | ((g: GenerationView) => GenerationView)): void => {
@@ -898,6 +979,8 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     if (sig?.aborted) throw new Aborted();
   };
 
+  const allRecordings = (): Recording[] => [...loaded, ...recordings];
+
   const initialExample = (): EngineExample | undefined => examples.find((e) => e.id === initialId) ?? examples[0];
 
   async function seedProgram(): Promise<Revision> {
@@ -991,6 +1074,35 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       hints: { opener: !flags.openerDismissed, takeaway: flags.takeawayShown },
       ready: true,
     });
+
+    // The session log's count: only touch its storage when it is on or was used before (no database otherwise).
+    if (slog.isEnabled() || sessionLogWasUsed()) void refreshLogState();
+    // `?recording=<url>`: fetch and validate it now (in the background), but only OFFER it; the user decides.
+    let loc: { search: string; hash: string } | null = null;
+    try {
+      loc = deps.location?.() ?? null;
+    } catch {
+      loc = null;
+    }
+    const offerUrl = loc ? recordingParamFromLocation(loc.search, loc.hash) : null;
+    if (offerUrl) void offerRecording(offerUrl, myEpoch);
+  }
+
+  function sessionLogWasUsed(): boolean {
+    try {
+      return (globalThis as { localStorage?: Storage }).localStorage?.getItem(SESSION_LOG_FLAG) != null;
+    } catch {
+      return false;
+    }
+  }
+
+  async function offerRecording(url: string, myEpoch: number): Promise<void> {
+    const source = recordingSourceName({ url });
+    const got = await previewRecording({ url, source });
+    if (disposed || myEpoch !== epoch) return;
+    // a link that fails to load always says how to share one that works (CORS is the usual cause)
+    const preview: RecordingPreview = got.ok || got.hint ? got : { ...got, hint: CORS_HINT };
+    set({ recordingOffer: { url, source, preview } });
   }
 
   // ───────────────────────── submit ─────────────────────────
@@ -1005,6 +1117,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     busyStart();
     set({ replInput: '' });
     deps.inputMemory.save(text);
+    log({ kind: 'input', input: text, summary: 'REPL input' });
     return exclusive(null, async () => {
       pushRepl({ kind: 'input', id: id('in'), text });
       if (!flags.openerDismissed) {
@@ -1020,9 +1133,19 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         if (myEpoch === epoch) {
           await refreshEnv();
           busyEnd();
+          pretypeNextRecordedCall(text);
         }
       }
     });
+  }
+
+  /** After a recorded call ran, type the recording's next call in (only into an empty input; never run). */
+  function pretypeNextRecordedCall(ran: string): void {
+    const lr = state.value.loadedRecording;
+    if (!lr || state.value.replInput !== '') return;
+    const at = lr.calls.indexOf(ran);
+    const next = at >= 0 ? lr.calls[at + 1] : undefined;
+    if (next !== undefined) set({ replInput: next });
   }
 
   /**
@@ -1049,7 +1172,8 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         errorEntry('ReferenceError', `${outcome.name} is not defined (stopped after growing ${MAX_GROWTHS_PER_SUBMIT} functions for one input)`);
         return;
       }
-      errorEntry('ReferenceError', `${outcome.name} is not defined`);
+      errorEntry('ReferenceError', `${outcome.name} is not defined`, undefined, undefined, true);
+      log({ kind: 'outcome', fn: outcome.name, summary: `undefined-call: ${outcome.name} is not defined; growing it` });
       if (outcome.argsTrimmed === 'array-callback') info(ARRAY_CALLBACK_INFO);
       info('Generating…', 'accent');
       const rec = state.value.program.functions[outcome.name];
@@ -1152,6 +1276,21 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
 
   function reportOutcome(outcome: Exclude<EvalOutcome, { kind: 'undefined-call' }>, input: string, grownNow: Grown[], revision?: number): void {
     const grew = grownNow.length > 0;
+    // the kind of outcome only: never the value
+    log({
+      kind: 'outcome',
+      ...(outcome.kind === 'fault' ? { fn: outcome.fn } : outcome.kind === 'timeout' && outcome.fn ? { fn: outcome.fn } : {}),
+      summary:
+        outcome.kind === 'value'
+          ? grew
+            ? 'value (after growing a function)'
+            : 'value'
+          : outcome.kind === 'error'
+            ? `error: ${outcome.errorName}`
+            : outcome.kind === 'fault'
+              ? `fault: ${outcome.fn} threw ${outcome.errorName}`
+              : 'timeout',
+    });
     switch (outcome.kind) {
       case 'value': {
         // 'cached artifact · certified rN' only when the called function's artifact is live (its hashes match the
@@ -1257,7 +1396,9 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
   async function growInner(req: GrowRequest, input: string, sig: AbortSignal): Promise<GrowResult> {
     const { fn, spec } = req;
     const { specHash, testsHash } = await hashesFor(spec);
-    const mode = generator?.mode ?? state.value.mode;
+    // A loaded recording that holds this exact spec text replays it, even when the live service is up.
+    const gen: Generator | null = loadedReplay?.has(fn, specHash, testsHash) ? loadedReplay : generator;
+    const mode = gen?.mode ?? state.value.mode;
     let maxAttempts = Math.max(1, spec.maxAttempts);
     const view: GenerationView = {
       id: id('g'),
@@ -1317,8 +1458,8 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       let result: GenerateResult;
       const t0 = deps.now();
       try {
-        if (!generator) throw new GenerationFailure({ code: 'service_unreachable', message: 'No generator is available' });
-        result = await generator.generate(
+        if (!gen) throw new GenerationFailure({ code: 'service_unreachable', message: 'No generator is available' });
+        result = await gen.generate(
           genReq,
           (p) => setGen((g) => ({ ...g, progress: [...g.progress, p] })),
           sig,
@@ -1344,13 +1485,23 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       const generationMs = result.durationMs || Math.max(0, deps.now() - t0);
       model = result.model;
       codexVersion = result.codexVersion;
-      if (state.value.mode === 'live' && result.source === 'live') {
-        sink.add(genReq, result, `${fn} — ${spec.doc.trim().slice(0, 40) || 'inferred from a call'}`, { spec, call: input, ...recordingData(req.dataArgs) });
+      // Everything generated this session can be shared: live candidates as generated, replayed ones verbatim from
+      // their recording (with the model that really wrote them; nothing replayed is ever marked live).
+      const shareCtx = { spec, call: input, ...recordingData(req.dataArgs) };
+      if (result.source === 'live' && mode === 'live') {
+        const effort = state.value.service.effort;
+        sink.add(genReq, result, `${fn} — ${spec.doc.trim().slice(0, 40) || 'inferred from a call'}`, { ...shareCtx, ...(effort ? { effort } : {}) });
         sinkFns.add(fn);
+      } else if (result.source === 'replay') {
+        const from = recordedAttempt(allRecordings(), genReq);
+        if (from) {
+          sink.add(genReq, result, from.label, { ...shareCtx, replayed: { attempt: from.attempt, provenance: from.provenance } });
+          sinkFns.add(fn);
+        }
       }
       // "What the model saw": the prompt really sent. A replayed candidate was generated from the prompt stored in
       // the recording, which can differ from the one this build would send today.
-      const sentPrompt = result.source === 'replay' ? (recordedPrompt(recordings, genReq) ?? genReq.prompt) : genReq.prompt;
+      const sentPrompt = result.source === 'replay' ? (recordedPrompt(allRecordings(), genReq) ?? genReq.prompt) : genReq.prompt;
 
       // typewriter
       const body = result.body;
@@ -1385,11 +1536,13 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         candidates.push(candidate);
         setAttempt(index, { status: 'aborted', shown: body, gates, candidate });
         setGen({ phase: 'failed', declined });
+        log({ kind: 'decline', fn, summary: declined.message, detail: { reason: declined.reason, attempt: attemptNo, source: result.source } });
         errorEntry(
           'Declined',
           declineMessage(fn, declined),
           declined.reason === 'needs-spec' ? [RESTART.writeSpec, RESTART.dismiss] : [RESTART.dismiss],
           growCtx,
+          true, // already in the session log as a 'decline'
         );
         return { kind: 'failed' };
       }
@@ -1432,6 +1585,14 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         candidate,
       });
 
+      if (failing) {
+        log({
+          kind: 'gate',
+          fn,
+          summary: failing.headline ?? `rejected by ${failing.gate}`,
+          detail: { gate: failing.gate, attempt: attemptNo, source: result.source, ...(gated.specError ? { specError: true } : {}) },
+        });
+      }
       if (gated.specError) {
         setGen({ phase: 'failed' });
         errorEntry(
@@ -1450,6 +1611,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         const evidence = evidenceOf(gated.gates, ungated ? skippedReport(NO_TESTS_REASON, deps.now()) : undefined);
         const revision = await commit(req, body, gated.compile, specHash, testsHash, model, codexVersion, candidates, maxAttempts, evidence);
         if (!ungated) enqueueMutation(fn);
+        log({ kind: 'commit', fn, summary: `${fn} committed as r${revision}`, detail: { revision, attempt: attemptNo, candidates: candidates.length, source: result.source } });
         setGen({ phase: 'committed', revision });
         return { kind: 'committed', revision, grown: { fn, ungated: isUngated(spec), notes: result.notes } };
       }
@@ -1815,6 +1977,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       ...(changes.length ? { detail: changes.join(' · ') } : {}),
     });
     await commitRevision(rev);
+    log({ kind: opts.kind === 'example' ? 'note' : 'spec-edit', fn: name, summary: title, detail: { revision: rev.id } });
     if (before && !opts.quiet) {
       const tail = invalidates
         ? 'artifact invalidated; the next call regenerates'
@@ -1941,6 +2104,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       await refreshEnv();
       const restored = Object.keys(rev.env).filter((k) => !lost.includes(k)).length;
       info(`Rolled back to r${target} — restored ${plural(Object.keys(fns).length, 'function')} and ${plural(restored, 'variable')}`);
+      log({ kind: 'rollback', summary: `rolled back to r${target} as r${rev.id}`, detail: { target, revision: rev.id } });
       reportLost(lost);
     } catch (e) {
       notice('error', `Rollback failed: ${errorText(e)}`);
@@ -2048,6 +2212,8 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       await persistDatasets();
       await refreshEnv();
       info(`\`${ref.name}\` is bound: \`${ref.typeDecl}\` (${plural(ref.rowCount, 'row')})`);
+      // name, row and column counts only: never the rows
+      log({ kind: 'dataset', summary: `loaded dataset ${ref.name}`, detail: { name: ref.name, rows: ref.rowCount, columns: ref.columns.length } });
       return true;
     } catch (e) {
       notice('error', `Could not load the data: ${errorText(e)}`);
@@ -2084,6 +2250,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         await persistDatasets();
         await refreshEnv();
         info(`\`${name}\` is no longer bound (earlier revisions keep it: roll back to get it again)`);
+        log({ kind: 'dataset', summary: `removed dataset ${name}`, detail: { name, rows: ref.rowCount, columns: ref.columns.length } });
       } catch (e) {
         notice('error', `Removing the data failed: ${errorText(e)}`);
       }
@@ -2155,6 +2322,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         await persistDatasets();
         markPinned((e) => e.id === entryId || (e.pinnable !== undefined && e.pinnable.fn === fn && samePin({ label: e.pinnable.call, args: e.pinnable.args, expected: e.pinnable.expected }, candidate)), true);
         info(PINNED_INFO, 'accent');
+        log({ kind: 'pin', fn, summary: `pinned ${call}`, detail: { revision: rev.id } });
       } catch (e) {
         notice('error', `Pinning failed: ${errorText(e)}`);
       }
@@ -2186,6 +2354,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         await persistDatasets();
         markPinned((e) => e.pinnable !== undefined && e.pinnable.fn === fn && samePin({ label: e.pinnable.call, args: e.pinnable.args, expected: e.pinnable.expected }, pin), false);
         info(`Removed the pinned test ${pin.label} from ${fn}.`);
+        log({ kind: 'pin', fn, summary: `unpinned ${pin.label}`, detail: { revision: rev.id } });
       } catch (e) {
         notice('error', `Removing the pin failed: ${errorText(e)}`);
       }
@@ -2527,6 +2696,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
           },
         });
         info(RECHECK_FAILED_INFO, 'warn');
+        log({ kind: 'gate', fn, summary: failing.headline ?? `re-check rejected by ${failing.gate}`, detail: { gate: failing.gate, recheck: true } });
       } catch (e) {
         notice('error', `Adding the check failed: ${errorText(e)}`);
       }
@@ -2571,6 +2741,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     // still live in the runtime: no restart; redefined only if the recompiled js differs
     if (restamped.js !== artifact.js) await runtime?.define(fn, restamped.js, next.budgetMs);
     info(`${fn}: ${reason}. The committed function passes it: re-certified at r${rev.id}, nothing regenerated.`, 'accent');
+    log({ kind: 'spec-edit', fn, summary: rev.title, detail: { revision: rev.id } });
     enqueueMutation(fn);
   }
 
@@ -2648,6 +2819,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       await persistFlags();
       await refreshEnv();
       info(`Imported image: ${plural(image.revisions.length, 'revision')}, head r${image.head} restored as r${rev.id}`);
+      log({ kind: 'note', summary: `imported an image (${plural(image.revisions.length, 'revision')})`, detail: { revision: rev.id } });
       reportLost(lost);
       notice(fresh.dropped.length > 0 ? 'error' : 'info', `Imported image: ${recompileSummary(fresh)}.`);
     } catch (e) {
@@ -2659,7 +2831,303 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
   function exportRecording(): Recording | null {
     const stamp = new Date(deps.now()).toISOString().replace(/[-:]/g, '').replace(/\..*$/, '');
     const fns = [...sinkFns];
-    return sink.toRecording({ id: `${fns.join('-') || 'session'}-${stamp}`, title: `Live session: ${fns.join(', ')}` });
+    const how = sink.sources;
+    const title =
+      how === 'live' ? `Live session: ${fns.join(', ')}` : how === 'replay' ? `Replayed session: ${fns.join(', ')}` : `Session: ${fns.join(', ')} (live and replayed)`;
+    return sink.toRecording({ id: `${fns.join('-') || 'session'}-${stamp}`, title });
+  }
+
+  // ───────────────────────── shared recordings ─────────────────────────
+
+  type Prepared = { ok: true; prepared: PreparedRecording } | { ok: false; error: string; hint?: string };
+
+  /** The recording itself: parsed from text, or fetched from the URL the user gave (once; Load re-uses it). */
+  async function obtainRecording(input: { text?: string; url?: string }): Promise<FetchResult> {
+    if (typeof input.text === 'string') return parseRecordingText(input.text);
+    const url = typeof input.url === 'string' ? input.url.trim() : '';
+    if (url !== '') {
+      if (fetched && fetched.url === url) return fetched.result;
+      const r = await fetchRecording(url, deps.fetchRecording ? { fetchImpl: deps.fetchRecording } : {});
+      if (r.ok) fetched = { url, result: r };
+      return r;
+    }
+    return { ok: false, error: 'Nothing to load: choose a recording file, or paste the link to one.' };
+  }
+
+  /** null when `encoded` really is rows of hash `hash` within the dataset limits; otherwise why not. */
+  async function checkRows(hash: Hash, encoded: Json): Promise<string | null> {
+    const canonical = canonicalJson(encoded);
+    if (utf8Length(canonical) > DATASET_LIMITS.maxBytes) return `dataset ${short(hash)}: larger than the ${DATASET_LIMITS.maxBytes.toLocaleString('en-US')}-byte limit`;
+    if ((await sha256Hex(canonical)) !== hash) return `dataset ${short(hash)}: its rows do not match their hash`;
+    const rows = decodeRows(encoded);
+    if (!Array.isArray(decodeValueSafe(encoded))) return `dataset ${short(hash)}: not a list of rows`;
+    if (rows.length > DATASET_LIMITS.maxRows) return `dataset ${short(hash)}: more than ${DATASET_LIMITS.maxRows.toLocaleString('en-US')} rows`;
+    if (!rows.every((r) => typeof r === 'object' && r !== null && !Array.isArray(r))) return `dataset ${short(hash)}: its rows are not all objects`;
+    return null;
+  }
+
+  const decodeValueSafe = (encoded: Json): unknown => {
+    try {
+      return decodeValue(encoded);
+    } catch {
+      return undefined;
+    }
+  };
+
+  /** Pins equal (as canonical JSON). */
+  const samePins = (a: FunctionSpec, b: FunctionSpec): boolean =>
+    canonicalJson((a.pins ?? []) as unknown as Json) === canonicalJson((b.pins ?? []) as unknown as Json);
+
+  /**
+   * Check a recording against this program without changing anything: every session's spec must hash to what its
+   * candidates were recorded under and have a name that can be grown; every dataset's rows must hash to their
+   * content address and fit the limits, and are re-typed from the rows themselves. Never throws.
+   */
+  async function prepareRecording(input: { text?: string; url?: string; source?: string }): Promise<Prepared> {
+    try {
+      const got = await obtainRecording(input);
+      if (!got.ok) return got.hint ? { ok: false, error: got.error, hint: got.hint } : { ok: false, error: got.error };
+      const rec = got.recording;
+      const source = recordingSourceName(input);
+      const base = headRev().program;
+      const skipped: string[] = [];
+
+      const sessions: Recording['sessions'] = [];
+      for (const session of rec.sessions) {
+        if (session.spec) {
+          const reason = notGrowableReason(session.spec.name);
+          if (reason) {
+            skipped.push(`${session.fn}: ${reason}`);
+            continue;
+          }
+          const h = await hashesFor(session.spec);
+          if (h.specHash !== session.specHash || h.testsHash !== session.testsHash) {
+            skipped.push(`${session.fn} ("${session.label.slice(0, 60)}"): its spec does not match the hashes its candidates were recorded under`);
+            continue;
+          }
+        }
+        sessions.push(session);
+      }
+      const recording: Recording = { ...rec, sessions };
+      const seed = seedFromRecording(recording);
+
+      const verified: Record<Hash, Json> = {};
+      for (const [hash, encoded] of Object.entries(seed.datasets)) {
+        const problem = await checkRows(hash, encoded);
+        if (problem) skipped.push(problem);
+        else verified[hash] = encoded;
+      }
+      const fnNames = new Set([...Object.keys(base.functions), ...seed.specs.map((sp) => sp.name)]);
+      const refs: DatasetRef[] = [];
+      for (const ref of seed.datasetRefs) {
+        const encoded = verified[ref.hash];
+        if (encoded === undefined) continue; // already reported
+        const bad = validateVariableName(ref.name);
+        if (bad) {
+          skipped.push(`dataset ${ref.name}: ${bad}`);
+          continue;
+        }
+        if (fnNames.has(ref.name)) {
+          skipped.push(`dataset ${ref.name}: a function has that name`);
+          continue;
+        }
+        const built = await buildDataset(ref.name, decodeRows(encoded) as Array<Record<string, unknown>>, {
+          source: ref.source,
+          typeName: ref.typeName,
+          ...(ref.filename !== undefined ? { filename: ref.filename } : {}),
+        });
+        if ('error' in built) {
+          skipped.push(`dataset ${ref.name}: ${built.message}`);
+          continue;
+        }
+        if (built.ref.hash !== ref.hash) {
+          skipped.push(`dataset ${ref.name}: its rows do not round-trip to their hash`);
+          continue;
+        }
+        refs.push(built.ref);
+      }
+
+      const functions: Extract<RecordingPreview, { ok: true }>['functions'] = [];
+      const specs: FunctionSpec[] = [];
+      // the session each loaded spec comes from: the first one with a spec, as seedFromRecording picks
+      const hashesOf = new Map<string, Recording['sessions'][number]>();
+      for (const x of recording.sessions) if (x.spec && !hashesOf.has(x.fn)) hashesOf.set(x.fn, x);
+      for (const spec of seed.specs) {
+        const names = testNamesOf(spec);
+        const mine = base.functions[spec.name];
+        const claimed = hashesOf.get(spec.name)!;
+        const status =
+          !mine ? 'new' : mine.specHash === claimed.specHash && mine.testsHash === claimed.testsHash && samePins(mine.spec, spec) ? 'same' : 'replaces';
+        functions.push({ name: spec.name, tests: names.tests.length, properties: names.properties.length, status });
+        specs.push(spec);
+      }
+      for (const session of recording.sessions) {
+        if (functions.some((f) => f.name === session.fn)) continue;
+        const mine = base.functions[session.fn];
+        const names = mine ? testNamesOf(mine.spec) : { tests: [], properties: [] };
+        functions.push({ name: session.fn, tests: names.tests.length, properties: names.properties.length, status: 'replay-only' });
+      }
+
+      // Sessions that can replay here: their spec comes with them, or the program already holds that exact spec.
+      const matches = (session: Recording['sessions'][number]): boolean => {
+        const mine = base.functions[session.fn];
+        return !!mine && mine.specHash === session.specHash && mine.testsHash === session.testsHash;
+      };
+      const replayable = recording.sessions.filter((x) => x.spec !== undefined || matches(x)).length;
+      let calls = seed.calls.slice(0, MAX_RECORDED_CALLS);
+      if (calls.length === 0) {
+        // an older recording lists no calls: offer the example call of a function it can replay, when there is one
+        const fn = recording.sessions.find((x) => x.spec !== undefined || matches(x))?.fn;
+        const ex = fn ? examples.find((e) => e.fn === fn) : undefined;
+        if (ex) calls = [ex.call];
+      }
+      let blocked: string | undefined;
+      if (replayable === 0) {
+        blocked = seed.canSeed || recording.sessions.length === 0
+          ? `Nothing in this recording can be loaded${skipped.length ? `: ${skipped.join('; ')}` : '.'}`
+          : 'This is an older recording: it does not carry its specs, and none of its functions match a spec in your program, so it has nothing to replay here. Load the matching example first (if it is one), or ask for a recording saved by a newer version.';
+      }
+      const title = rec.title.trim() || rec.id.trim() || 'untitled recording';
+      const preview: Extract<RecordingPreview, { ok: true }> = {
+        ok: true,
+        title,
+        source,
+        summary: seed.summary,
+        functions,
+        calls,
+        datasets: refs.map((r) => ({ name: r.name, rows: r.rowCount, columns: r.columns.length })),
+        model: rec.model,
+        codexVersion: rec.codexVersion,
+        effort: rec.effort,
+        recordedAt: rec.recordedAt,
+        canSeed: seed.canSeed,
+        replayable,
+        skipped,
+        warning: RECORDING_WARNING,
+        ...(blocked ? { blocked } : {}),
+      };
+      return { ok: true, prepared: { recording, title, source, specs, content: verified, refs, calls, preview } };
+    } catch (e) {
+      return { ok: false, error: `The recording could not be checked (${errorText(e)}).` };
+    }
+  }
+
+  async function previewRecording(input: { text?: string; url?: string; source?: string }): Promise<RecordingPreview> {
+    const p = await prepareRecording(input);
+    return p.ok ? p.prepared.preview : p;
+  }
+
+  function loadRecording(input: { text?: string; url?: string; source?: string }): Promise<void> {
+    return exclusive('load the recording', async () => {
+      const p = await prepareRecording(input);
+      if (!p.ok) {
+        notice('error', `Could not load the recording: ${p.error}${p.hint ? ` ${p.hint}` : ''}`);
+        return;
+      }
+      const r = p.prepared;
+      if (r.preview.blocked) {
+        notice('error', r.preview.blocked);
+        return;
+      }
+      const base = headRev().program;
+      const changedFns = r.specs.filter((sp) => r.preview.functions.find((f) => f.name === sp.name)?.status !== 'same');
+      const changedRefs = r.refs.filter((ref) => base.datasets?.[ref.name]?.hash !== ref.hash);
+      let revisionId: number | null = null;
+      if (changedFns.length > 0 || changedRefs.length > 0) {
+        const previousContent = new Map(content);
+        try {
+          let program = base;
+          for (const spec of changedFns) {
+            program = await withSpec(program, spec);
+            const before = base.functions[spec.name];
+            const after = program.functions[spec.name]!;
+            // An artifact that becomes live again under the loaded text is recompiled from its body, never trusted.
+            if (after.artifact && isLive(after) && !(before && isLive(before) && before.artifact === after.artifact)) {
+              const c = await deps.compile(after.spec, after.artifact.body).catch(() => null);
+              program =
+                c && c.gate.status !== 'fail' && c.js !== null
+                  ? withArtifact(program, spec.name, { ...after.artifact, js: c.js, returnType: c.returnType, source: c.source })
+                  : { ...program, functions: { ...program.functions, [spec.name]: { ...after, artifact: null } } };
+            }
+          }
+          for (const ref of changedRefs) program = withDataset(program, ref);
+          for (const [h, enc] of Object.entries(r.content)) addContent(h, enc);
+          // rows first, then the revision that refers to them
+          await deps.store.saveDatasets?.({ ...referencedContent(), ...r.content });
+          const fnsBefore = jsFunctions(base);
+          const fnsAfter = jsFunctions(program);
+          for (const name of Object.keys(fnsBefore)) if (!(name in fnsAfter)) await runtime!.undefine(name);
+          for (const [name, f] of Object.entries(fnsAfter)) if (fnsBefore[name]?.js !== f.js) await runtime!.define(name, f.js, f.budgetMs);
+          for (const ref of changedRefs) await runtime!.bindDataset(ref.name, ref.hash, decodeRows(r.content[ref.hash]!), ref.typeName);
+          const env = await snapshotEnv();
+          const parts = [
+            changedFns.length > 0 ? `${plural(changedFns.length, 'spec')} (${changedFns.map((x) => x.name).join(', ')})` : null,
+            changedRefs.length > 0 ? `${plural(changedRefs.length, 'dataset')} (${changedRefs.map((x) => x.name).join(', ')})` : null,
+          ].filter((x): x is string => x !== null);
+          const rev = newRevision(history, {
+            kind: 'import',
+            title: `Loaded recording: ${r.title}`,
+            detail: `from ${r.source} · ${parts.join(' · ')} · ${r.recording.model || 'unknown model'}${r.recording.codexVersion ? ` via Codex ${r.recording.codexVersion}` : ''}`,
+            program,
+            env,
+            at: deps.now(),
+          });
+          await commitRevision(rev);
+          revisionId = rev.id;
+          await persistDatasets();
+          await refreshEnv();
+        } catch (e) {
+          content.clear();
+          for (const [h, c] of previousContent) content.set(h, c);
+          notice('error', `Could not load the recording: ${errorText(e)}`);
+          if (runtime) await resetRuntime(jsFunctions(headRev().program), headRev().env).catch(() => undefined);
+          return;
+        }
+      }
+      // Its candidates replay by hash from now on, ahead of the live service (this page load only).
+      loaded = [r.recording, ...loaded];
+      loadedReplay = new ReplayGenerator(loaded, { maxMs: pacing.replayMaxMs, sleep: deps.sleep });
+      const { recordingOffer: _offer, ...rest } = state.value;
+      state.value = {
+        ...rest,
+        loadedRecording: { title: r.title, source: r.source, calls: r.calls, dismissed: false },
+        replInput: r.calls[0] ?? rest.replInput,
+        hints: { ...rest.hints, opener: false },
+      };
+      info(
+        `Loaded "${r.title}" from ${r.source}${revisionId !== null ? ` as r${revisionId}` : ' (its specs were already in the program)'}: ${plural(r.preview.replayable, 'recorded session')} will replay${r.calls.length > 0 ? `, ${plural(r.calls.length, 'call')} to run` : ''}. Press Enter to run them one by one; the gates run live in your browser.`,
+        'accent',
+      );
+      log({ kind: 'note', summary: `loaded a recording: ${r.title}`, detail: { source: r.source, sessions: r.recording.sessions.length, calls: r.calls.length, ...(revisionId !== null ? { revision: revisionId } : {}) } });
+    });
+  }
+
+  function dismissRecordingBanner(): void {
+    const lr = state.value.loadedRecording;
+    if (lr && !lr.dismissed) set({ loadedRecording: { ...lr, dismissed: true } });
+  }
+
+  function dismissRecordingOffer(): void {
+    if (!state.value.recordingOffer) return;
+    const { recordingOffer: _gone, ...rest } = state.value;
+    state.value = rest;
+  }
+
+  // ───────────────────────── session log ─────────────────────────
+
+  async function setSessionLogEnabled(on: boolean): Promise<void> {
+    try {
+      if (!on) log({ kind: 'note', summary: 'session log turned off' });
+      await slog.setEnabled(on);
+      if (on) log({ kind: 'note', summary: 'session log turned on' });
+    } finally {
+      await refreshLogState();
+    }
+  }
+
+  async function clearSessionLog(): Promise<void> {
+    await slog.clear();
+    await refreshLogState();
   }
 
   function resetImage(): Promise<void> {
@@ -2684,7 +3152,11 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         content.clear();
         await deps.store.saveDatasets?.({});
         await runtime?.reset({}, {}, {});
+        loaded = [];
+        loadedReplay = null;
         publishHistory();
+        const { loadedRecording: _lr, recordingOffer: _ro, ...kept } = state.value;
+        state.value = kept;
         set({
           repl: [],
           replInput: initialExample()?.call ?? '',
@@ -2744,6 +3216,13 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     removePin,
     runMutation: runMutationPublic,
     addSuggestedProperty,
+    previewRecording,
+    loadRecording,
+    dismissRecordingBanner,
+    dismissRecordingOffer,
+    setSessionLogEnabled,
+    exportSessionLog: () => slog.exportJson(),
+    clearSessionLog,
     dispose,
   };
 }

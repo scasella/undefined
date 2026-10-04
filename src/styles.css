@@ -2417,3 +2417,198 @@ textarea.mono {
     margin-left: 0;
   }
 }
+
+/* ─────────── sharing: share / load / confirm / session log dialogs, drop target, recording banner ─────────── */
+
+.sheet {
+  max-height: min(88vh, 900px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.sheet-head h2 {
+  margin: 0;
+}
+.sheet p {
+  margin: 6px 0;
+  overflow-wrap: anywhere;
+}
+.share-steps {
+  margin: 8px 0 0;
+  padding-left: 22px;
+}
+.share-steps > li + li {
+  margin-top: 12px;
+}
+.share-steps > li::marker {
+  font-family: var(--mono);
+  color: var(--muted);
+}
+.share-steps h3 {
+  margin-top: 4px;
+}
+.share-what {
+  color: var(--muted);
+}
+.share-nothing {
+  padding: 8px 10px;
+  border: 1px dashed var(--line-2);
+  border-radius: var(--radius);
+  color: var(--muted);
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+.field input {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  background: var(--inset);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius);
+  font-size: 13px;
+}
+.url-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.linkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 6px 6px 6px 10px;
+  background: var(--inset);
+  border: 1px solid var(--pass);
+  border-radius: var(--radius);
+}
+.linkbox code {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+.confirm-title {
+  font-size: 15px;
+  font-weight: 700;
+}
+.confirm-list {
+  margin: 2px 0;
+  padding-left: 18px;
+}
+.confirm-list li {
+  overflow-wrap: anywhere;
+}
+.confirm-call {
+  white-space: pre-wrap;
+}
+.warn-line {
+  color: var(--run);
+}
+.confirm-warning {
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--run) 55%, var(--line-2));
+  background: var(--run-dim);
+  border-radius: var(--radius);
+  font-size: 13px;
+}
+.slog-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+}
+.slog-count {
+  color: var(--muted);
+}
+.banner-recording {
+  border-color: color-mix(in srgb, var(--pass) 40%, var(--line));
+  background: color-mix(in srgb, var(--pass) 7%, transparent);
+}
+.banner-recording .banner-icon {
+  color: var(--pass);
+}
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  pointer-events: none;
+}
+.drop-overlay-box {
+  max-width: 520px;
+  width: 100%;
+  padding: 36px 20px;
+  text-align: center;
+  border: 2px dashed var(--pass);
+  border-radius: 6px;
+  background: var(--panel);
+}
+.drop-overlay-box p {
+  margin: 4px 0;
+}
+.drop-overlay-box .mono {
+  font-size: 16px;
+  color: var(--pass);
+}
+
+/* phones: every sharing dialog is a full-screen sheet with 44px touch targets */
+@media (max-width: 699px) {
+  .sheet {
+    width: 100vw;
+    max-width: 100vw;
+    height: 100%;
+    max-height: 100%;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    padding: 12px 16px 24px;
+  }
+  .sheet .btn,
+  .sheet .field input,
+  .sheet input[type='checkbox'] + span {
+    min-height: 44px;
+  }
+  .sheet .btn {
+    justify-content: center;
+  }
+  .sheet .sheet-close {
+    min-width: 44px;
+  }
+  .sheet input[type='checkbox'] {
+    width: 22px;
+    height: 22px;
+  }
+  .slog-toggle span {
+    display: inline-flex;
+    align-items: center;
+  }
+  .url-form {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .linkbox {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .banner-recording .banner-close {
+    min-width: 44px;
+    min-height: 44px;
+    justify-content: center;
+  }
+}
