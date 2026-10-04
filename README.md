@@ -39,7 +39,7 @@ npm run typecheck
 
 - **Call anything.** Type `slugify("Hello World")` with no setup: the signature is inferred from your real arguments, only
   *Compile* and *Invariants* gate it, and the UI says so ("no tests yet, add one to make the gate stricter").
-- **Three one-click examples** (specs tuned so a rejection happens naturally, see below): `median`, `slugify`, `fibonacci`.
+- **Four one-click examples** (the first three are specs where a rejection happens naturally, see below; the fourth, `orders`, is the data scratchpad with no spec at all): `median`, `slugify`, `fibonacci`, `topCustomersByRevenue(rows)`.
   Each has a **Break it** button that edits the spec: the artifact's hashes no longer match, it is marked invalid, and the
   next call regenerates it.
 - **Revisions.** Every accepted change is a numbered revision of the whole program *and its live state* (REPL variables).
@@ -201,17 +201,19 @@ The model sees the signature, the doc, the *names* of your checks, and the time 
 properties (tests are the contract, not a hint sheet). The "What the model saw" panel under every candidate shows the exact
 prompt, and what was withheld.
 
-| example | the one sentence a skeptic needs | what rejects it | measured: first attempt → retry |
+| example | the one sentence a skeptic needs | what rejects it | measured over 8 full sessions: first candidate rejected → committed within 3 attempts |
 |---|---|---|---|
-| `median` | A median of nothing has no right answer: throwing, `NaN`, `0` and `undefined` are all defensible and the doc ("Returns the median of a list of numbers.") never says which, so when the tests say `NaN` the contract is speaking, not the model failing. | Properties (fast-check generates `[]` and shrinks to it): `median([]) threw Error…, expected NaN` | 8/8 rejected → 8/8 passed |
-| `slugify` | Whether an apostrophe splits a word, what `&` becomes and how `ß` is spelled are conventions the doc ("Turns a title into a URL slug.") never states; our tests state ours, and each of those rejections is labelled "the spec didn't say". | Tests: `slugify("Don't Stop") returned "don-t-stop", expected "dont-stop"` (or `Straße`/`stra-e`) | 8/8 rejected → 7/8 passed |
-| `fibonacci` | The doc states the range (n up to 1,000,000) and the prompt states the 1.5 s limit; the model wrote an O(n) loop it never timed (about 4 s at that n), so the fault is the candidate's and nothing was withheld. | Invariants (bounded): `fibonacci(1000000) did not return within 1500 ms` | 8/8 rejected → 8/8 passed |
+| `median` | A median of nothing has no right answer: throwing, `NaN`, `0` and `undefined` are all defensible and the doc ("Returns the median of a list of numbers.") never says which, so when the tests say `NaN` the contract is speaking, not the model failing. | Properties (fast-check generates `[]` and shrinks to it): `median([]) threw Error…, expected NaN` | 8/8 → 8/8 |
+| `slugify` | Whether an apostrophe splits a word, what `&` becomes and how `ß` is spelled are conventions the doc ("Turns a title into a URL slug.") never states; our tests state ours, and each of those rejections is labelled "the spec didn't say". | Tests: `slugify("Don't Stop") returned "don-t-stop", expected "dont-stop"` (or `Straße`/`stra-e`) | 6/8 → 7/8 (2 sessions passed first time; 1 ran out of attempts) |
+| `fibonacci` | The doc states the range (n up to 1,000,000) and the prompt states the 1.5 s limit; the model wrote an O(n) loop it never timed (about 4 s at that n), so the fault is the candidate's and nothing was withheld. | Invariants (bounded): `fibonacci(1000000) did not return within 1500 ms` | 6/8 → 7/8 (2 sessions passed first time with fast doubling; 1 ran out of attempts) |
+| `topCustomersByRevenue(rows)` | There is no spec and no test, so nothing can reject it: the claims are only that it compiles, is pure and replays on the real rows. The model's own note states its assumptions (here: revenue after discount, refunded orders counted) and the result is yours to judge; pin it to make it a test, or use *Break it* to say refunded orders don't count. | none (spec-less: Compile and Invariants only) | 8/8 committed on the first candidate |
 
-Measured 2026-10-04 with `gpt-6-luna`, effort `low`, Codex CLI 0.159.2, 8 samples each, through the real compile and
-execution gates (`scripts/tune.tune.ts`). They are one day's rates for one model, not a guarantee: a live run can pass first
-time. The shipped recordings are real sessions captured by `npm run record`, which keeps a session only if its first
-candidate was rejected and prints how many tries that took (median 1, slugify 1, fibonacci 2: the first fibonacci session
-exhausted its retry budget and was discarded).
+Measured 2026-10-04 with `gpt-6-luna`, effort `low`, Codex CLI 0.159.2, as 8 complete sessions per example through the real
+app (`node scripts/sessions.mjs`: real Worker watchdog, the real 3-attempt budget). These are one day's rates for one model,
+not a guarantee. They are lower than my earlier single-retry sampling (8/8 for all three), which is why I quote
+session-level numbers: the model sometimes passes first time (2 of 8 slugify and fibonacci sessions) and sometimes runs out
+of attempts (1 of 8 each). The shipped recordings are real sessions captured by `npm run record`, which keeps a session only
+if its first candidate was rejected and prints how many tries that took (median 1, slugify 1, fibonacci 2).
 
 Models also fail in ways nobody tuned: in one live `slugify` run the first candidate came back with a literal `\n` in place
 of a newline and the compiler rejected it ("Invalid character"), which is exactly the kind of thing the compile gate is for.
