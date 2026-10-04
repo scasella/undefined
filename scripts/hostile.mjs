@@ -5,7 +5,7 @@ import { startServer, launch, openApp, runCall } from './lib/drive.mjs';
 const calls = JSON.parse(readFileSync(new URL('./hostile-calls.json', import.meta.url)));
 const from = Number(process.argv[2] ?? 0);
 const to = Number(process.argv[3] ?? calls.length);
-const out = existsSync('.tmp/hostile-raw.json') ? JSON.parse(readFileSync('.tmp/hostile-raw.json')) : {};
+const out = existsSync((process.env.RAW ?? '.tmp/hostile-raw.json')) ? JSON.parse(readFileSync((process.env.RAW ?? '.tmp/hostile-raw.json'))) : {};
 const srv = await startServer({ mode: 'dev', port: 5192 });
 const b = await launch();
 try {
@@ -25,7 +25,7 @@ try {
     }
     r.cat = c.cat; r.call = c.call; r.ms = Date.now() - t0;
     out[i] = r;
-    writeFileSync('.tmp/hostile-raw.json', JSON.stringify(out, null, 1));
+    writeFileSync((process.env.RAW ?? '.tmp/hostile-raw.json'), JSON.stringify(out, null, 1));
     const g = r.generation;
     console.log(i, c.call.slice(0, 48).padEnd(48), g ? g.phase + ' ' + g.attempts.map((a) => a.rejectedBy ?? a.status).join(',') : '-', '|', JSON.stringify(r.repl?.at(-1)?.value ?? r.error).slice(0, 60));
   }
