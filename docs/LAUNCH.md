@@ -63,13 +63,16 @@ merged: killed, stopped by the time limit, survived (may be equivalent), did not
 |---|---|---|
 | `median` (shipped good body 1) | Node, real gates (`src/core/engine.evidence.test.ts`) | 11 of 12 killed; the survivor is `0 → -1` on the empty-list guard, which changes nothing observable (an equivalent mutant: the empty list still yields NaN) |
 | `median` (good body 2) | same | 11 of 12 killed, same survivor |
-| `median` (the body recorded for replay) | browser, real watchdog | 12 of 12 killed |
-| `slugify` (regex chain) | Node and browser | 1 of 1 (the body has a single mutation site) |
+| `median` (the body in the shipped recording) | browser, production build in replay mode, real watchdog, measured 2026-10-04 after the final re-record (`node scripts/mutation-check.mjs`) | 12 of 12 killed |
+| `slugify` (regex chain; also the shipped recording's body) | Node and browser | 1 of 1 (the body has a single mutation site) |
 | `slugify` (loop version) | Node | 12 of 12 killed |
 | `fibonacci` (fast doubling) | Node | 12 of 12 killed |
-| `fibonacci` (the recorded body) | browser, real watchdog | 8 of 12 killed, 2 more stopped by the time limit, 2 survived |
+| `fibonacci` (the body in the shipped recording) | same | 11 of 12 caught: 9 by a test or rule, 2 more by the time limit; 1 survived (it may behave exactly like the original) |
 | `topCustomersByRevenue` | n/a | skipped: no tests, nothing could kill a mutant |
 | any function with no tests at all | all five bodies tested | 0 killed (and the app says so) |
+
+The browser rows are what a visitor of the static site sees; they are re-measured whenever the recordings change (an earlier
+recording's fibonacci body read 8 of 12 caught + 2 survived, so these numbers belong to *these* bodies, not to the example).
 
 A weak median spec (one single-value test, no properties) kills 8 of 12 and lets 4 through, which is the point of the
 number: it separates a test suite that checks something from one that merely exists.

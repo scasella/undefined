@@ -187,8 +187,10 @@ Node, where there is no watchdog):
 | fibonacci | goodBodies[0] | killed 12 of 12 |
 | orders | (spec-less) | no tests yet: nothing could kill a mutant |
 
-In the browser, with the recorded replay bodies and the real watchdog, the measured results were: median 12 of 12,
-slugify 1 of 1, and fibonacci 8 of 12 killed, 2 more stopped by the time limit, 2 survived.
+In the browser, replaying the shipped recordings from the production build with the real watchdog (`node
+scripts/mutation-check.mjs`, measured after the final re-record), the app itself reads: median 12 of 12, slugify 1 of 1,
+and fibonacci 11 of 12 (two of them stopped by the time limit; one survived). These belong to the recorded bodies and change
+when the recordings are re-made.
 
 ## The examples: who held the contract (read this)
 
