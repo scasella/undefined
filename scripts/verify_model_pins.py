@@ -1,6 +1,7 @@
 """Verify only publisher metadata. Never fetch model weight payloads."""
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 import sys
 from urllib.parse import quote
@@ -25,6 +26,7 @@ def main() -> int:
         evidence = {key: payload.get(key) for key in ("id", "sha", "gated", "pipeline_tag", "library_name")}
         evidence["source_url"] = url
         evidence["verified_on"] = pins["verified_on"]
+        evidence["retrieved_at_utc"] = datetime.now(timezone.utc).isoformat()
         (directory / f"{name}.json").write_text(json.dumps(evidence, indent=2) + "\n")
         print(f"Verified {model['repo']}@{model['revision']}")
     return 0
