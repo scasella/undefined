@@ -247,6 +247,10 @@ select {
 .st-aborted {
   color: var(--skip);
 }
+.st-declined {
+  color: var(--info);
+  border-color: color-mix(in srgb, var(--info) 45%, transparent);
+}
 .kind-commit {
   color: var(--pass);
 }
@@ -646,6 +650,12 @@ select {
 .r-error .restarts {
   margin-top: 6px;
 }
+.r-error.is-declined {
+  border-left-color: var(--info);
+}
+.r-error.is-declined .err-name {
+  color: var(--info);
+}
 .r-error.is-resolved {
   opacity: 0.6;
   border-left-color: var(--line-2);
@@ -655,6 +665,30 @@ select {
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
+}
+/* under a result whose function was grown with no tests/properties: what was (not) checked, and the model's note.
+   The block is a column so an action row (e.g. "Pin as test") can follow the two lines. */
+.r-unchecked {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--muted);
+  max-width: 78ch;
+}
+.r-unchecked p {
+  margin: 0;
+}
+.r-model-note-text {
+  font-family: var(--sans);
+}
+code.tick {
+  padding: 0 3px;
+  border-radius: 2px;
+  background: var(--inset);
+  border: 1px solid var(--line);
+  font-size: 0.95em;
 }
 .r-info {
   padding-left: 16px;
@@ -1140,6 +1174,42 @@ select {
   font-size: clamp(17px, 0.85rem + 0.75vw, 24px);
   letter-spacing: -0.02em;
 }
+/* the model declined (cannot be pure / needs a spec): not a gate rejection, so no red and no verdict glow */
+.headline-declined {
+  border: 1px solid color-mix(in srgb, var(--info) 50%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--info) 9%, transparent), transparent 85%);
+}
+.headline-declined .headline-gate {
+  color: var(--info);
+}
+.headline-declined .headline-text {
+  color: var(--text);
+  font-size: clamp(18px, 0.9rem + 0.8vw, 26px);
+  letter-spacing: -0.02em;
+}
+.decline-quote {
+  margin: 10px 0 0;
+  padding: 2px 0 2px 10px;
+  border-left: 2px solid color-mix(in srgb, var(--info) 60%, transparent);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.decline-tag {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--info);
+  margin-right: 4px;
+}
+.decline-next {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  max-width: 70ch;
+}
+.g-notrun .gate-word {
+  font-style: italic;
+}
 .fix {
   margin-top: 10px;
   display: flex;
@@ -1302,6 +1372,10 @@ select {
 }
 .cand-aborted {
   color: var(--skip);
+}
+.cand-declined {
+  color: var(--info);
+  border-color: color-mix(in srgb, var(--info) 45%, transparent);
 }
 .cand.is-active {
   box-shadow: inset 3px 0 0 currentColor;

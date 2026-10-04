@@ -3,7 +3,8 @@ import type { Engine, EngineState, GenerationView, ReplEntry, RestartId } from '
 import { fmtElapsed, fmtMs } from '../format';
 import { inputHistory } from '../select';
 import { useElapsed } from '../uiState';
-import { PanelHead } from './common';
+import { UNCHECKED_TEXT } from '../explain';
+import { PanelHead, Ticks } from './common';
 
 function Entry({ e, engine, live }: { e: ReplEntry; engine: Engine; live: boolean }) {
   switch (e.kind) {
@@ -25,15 +26,28 @@ function Entry({ e, engine, live }: { e: ReplEntry; engine: Engine; live: boolea
             {e.detail && <span class="muted">{e.detail}</span>}
             <span class="muted mono">{fmtMs(e.ms)}</span>
           </span>
+          {e.note !== undefined && (
+            // set only when this call grew a function with no tests and no properties: an accept, not an endorsement
+            <div class="r-unchecked">
+              <p class="r-unchecked-line">{UNCHECKED_TEXT}</p>
+              {e.note !== '' && (
+                <p class="r-model-note">
+                  Model's note: <span class="r-model-note-text">{e.note}</span>
+                </p>
+              )}
+              {/* action row slot (e.g. "Pin as test"): <div class="r-actions">…</div> */}
+            </div>
+          )}
         </li>
       );
     case 'error': {
       // 'edit-spec' needs no UI glue here: the engine sets state.focusSpec and App opens the spec from that
       const invoke = (id: RestartId) => void engine.invokeRestart(e.id, id);
+      // a decline is not a failure of the program: the model said it would only be faking it
       return (
-        <li class={`r-error${e.resolved ? ' is-resolved' : ''}`}>
+        <li class={`r-error${e.name === 'Declined' ? ' is-declined' : ''}${e.resolved ? ' is-resolved' : ''}`}>
           <p>
-            <span class="err-name">{e.name}</span>: {e.message}
+            <span class="err-name">{e.name}</span>: <Ticks text={e.message} />
           </p>
           {e.restarts && e.restarts.length > 0 && (
             <div class="restarts" role="group" aria-label="Restarts">
@@ -66,7 +80,11 @@ function Entry({ e, engine, live }: { e: ReplEntry; engine: Engine; live: boolea
           </li>
         );
       }
-      return <li class={`r-info tone-${e.tone ?? 'muted'}${inFlight ? ' is-live' : ''}`}>{e.text}</li>;
+      return (
+        <li class={`r-info tone-${e.tone ?? 'muted'}${inFlight ? ' is-live' : ''}`}>
+          <Ticks text={e.text} />
+        </li>
+      );
     }
     case 'takeaway':
       return <li class="r-takeaway">{e.text}</li>;

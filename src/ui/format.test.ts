@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fmtElapsed, fmtMs, isValidFnName, paramsText, parseParams, relativeTime, repoUrlFromPages, shortHash, stripRejected } from './format';
+import { fmtElapsed, fmtMs, isValidFnName, paramsText, parseParams, relativeTime, repoUrlFromPages, shortHash, splitTicks, stripRejected } from './format';
 
 describe('relativeTime', () => {
   const now = 1_000_000_000;
@@ -77,5 +77,37 @@ describe('repoUrlFromPages', () => {
     expect(repoUrlFromPages('https://ada.github.io/')).toBe('https://github.com/ada/ada.github.io.git');
     expect(repoUrlFromPages('http://localhost:5173/')).toBeNull();
     expect(repoUrlFromPages('not a url')).toBeNull();
+  });
+});
+
+describe('splitTicks', () => {
+  it('splits paired backticks into code runs', () => {
+    expect(splitTicks('The model declined to write `now`: it reads the clock.')).toEqual([
+      { code: false, text: 'The model declined to write ' },
+      { code: true, text: 'now' },
+      { code: false, text: ': it reads the clock.' },
+    ]);
+    expect(splitTicks('`a` and `b`')).toEqual([
+      { code: true, text: 'a' },
+      { code: false, text: ' and ' },
+      { code: true, text: 'b' },
+    ]);
+  });
+  it('leaves text with no or unpaired backticks alone', () => {
+    expect(splitTicks('plain')).toEqual([{ code: false, text: 'plain' }]);
+    expect(splitTicks('a `b')).toEqual([{ code: false, text: 'a `b' }]);
+    expect(splitTicks('x ` y ` z `')).toEqual([{ code: false, text: 'x ` y ` z `' }]);
+  });
+});
+
+describe('parseParams accepts the parameter text a call-inferred spec carries', () => {
+  it('function-valued parameters', () => {
+    expect(parseParams('arg0: (...args: any[]) => any, arg1: number')).toEqual({
+      ok: true,
+      params: [
+        { name: 'arg0', type: '(...args: any[]) => any' },
+        { name: 'arg1', type: 'number' },
+      ],
+    });
   });
 });

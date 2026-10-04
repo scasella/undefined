@@ -33,7 +33,7 @@ export function RetryStrip({ gen }: { gen: GenerationView | null }) {
                 <li key={a.attempt}>
                   <button
                     type="button"
-                    class={`cand cand-${a.status}${active ? ' is-active' : ''}`}
+                    class={`cand cand-${a.status}${a.candidate?.declined ? ' cand-declined' : ''}${active ? ' is-active' : ''}`}
                     aria-pressed={active}
                     title="Show this candidate's code and gate results"
                     onClick={() => {
@@ -45,7 +45,7 @@ export function RetryStrip({ gen }: { gen: GenerationView | null }) {
                     }}
                   >
                     <span class="cand-icon" aria-hidden="true">
-                      {ICON[a.status]}
+                      {a.candidate?.declined ? '⊘' : ICON[a.status]}
                     </span>
                     <span class="cand-text">{chipText(a)}</span>
                   </button>

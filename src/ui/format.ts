@@ -94,3 +94,13 @@ export function repoUrlFromPages(href: string): string | null {
     return null;
   }
 }
+
+/**
+ * `text` split into plain and inline-code runs on backticks (`now` → code). Only when the backticks pair up; an odd
+ * count (e.g. an error message quoting a template literal) is returned as one plain run.
+ */
+export function splitTicks(text: string): Array<{ code: boolean; text: string }> {
+  const parts = text.split('`');
+  if (parts.length < 3 || parts.length % 2 === 0) return [{ code: false, text }];
+  return parts.map((t, i) => ({ code: i % 2 === 1, text: t })).filter((p) => p.text !== '' || p.code);
+}

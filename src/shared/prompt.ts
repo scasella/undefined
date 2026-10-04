@@ -1,4 +1,4 @@
-import type { Diagnostic, FunctionSpec, GateId, GateResult } from '../types';
+import type { Declined, Diagnostic, FunctionSpec, GateId, GateResult } from '../types';
 import { testNamesOf } from './specInfo';
 
 /**
@@ -62,7 +62,7 @@ export function buildPrompt(input: PromptInput): string {
       `- Pure and deterministic: read only the parameters and standard ES2022 built-ins. No global state, no I/O, no Date or Date.now(), no Math.random(), no performance, no crypto.`,
       `- Must not mutate its arguments.`,
       `- Each call must return within ${spec.budgetMs} ms.`,
-      `- Throw an Error only where the contract says the input is invalid.`,
+      `- Throw an Error only where the contract says the input is invalid (or as the whole body, in the two cases under HONESTY below).`,
     ].join('\n'),
   );
 
@@ -83,6 +83,8 @@ export function buildPrompt(input: PromptInput): string {
     sections.push(['TRIGGERING CALL', `The program called ${spec.name} with no arguments.`].join('\n'));
   }
 
+  sections.push(honestySection(spec));
+
   if (input.runtimeFault) sections.push(runtimeFaultSection(input.runtimeFault));
   if (input.history.length > 0) sections.push(historySection(input.history));
 
@@ -95,6 +97,54 @@ export function buildPrompt(input: PromptInput): string {
   );
 
   return sections.join('\n\n') + '\n';
+}
+
+// ───────────────────────── declining honestly ─────────────────────────
+
+/** Sentinel prefixes of a decline body (see honestySection / parseDecline). */
+export const CANNOT_BE_PURE = 'CANNOT_BE_PURE';
+export const NEEDS_SPEC = 'NEEDS_SPEC';
+
+/**
+ * When the model should decline instead of faking (a constant, an echo, a no-op) and the exact body that says so.
+ * Content only: the {body, notes} output contract is unchanged; a decline is an ordinary body the engine recognises.
+ */
+export function honestySection(spec: FunctionSpec): string {
+  return [
+    'HONESTY (when not to write the function)',
+    `- Every generated function is a pure function of its arguments. If ${spec.name} cannot honestly be written that way (its name or contract needs randomness, the current time, the network, files, the console, or state that persists between calls such as counters, caches or ids), do NOT fake it with a constant, an echo of the input or a no-op. The body must be exactly:`,
+    `  throw new Error("${CANNOT_BE_PURE}: <one sentence: what it would need>");`,
+    `- If the name and the argument types do not say what the function should do, AND the contract above is empty or does not say, do not invent behaviour. The body must be exactly:`,
+    `  throw new Error("${NEEDS_SPEC}: <one sentence: the single question you need answered>");`,
+    '- Use these sparingly. When a reasonable programmer reading only the name and the argument types would write the same function, write it (e.g. flatten, groupBy, sortDescending, titleCase, isPalindrome, hello() returning a greeting, add).',
+  ].join('\n');
+}
+
+/**
+ * A candidate body that is exactly a decline sentinel, else null. The WHOLE body must be the one throw statement
+ * (whitespace, '/"/` quotes, a trailing semicolon and one pair of surrounding braces are tolerated); a body that merely
+ * mentions a sentinel (a comment, a string elsewhere) is an ordinary candidate.
+ */
+export function parseDecline(body: string): Declined | null {
+  const m = DECLINE_RE.exec(body);
+  if (!m) return null;
+  const [, open, quote, tag, raw, close] = m;
+  if (!!open !== !!close) return null;
+  if (quote === '`' && raw!.includes('${')) return null;
+  const message = unescapeJs(raw!).replace(/\s+/g, ' ').trim();
+  return { reason: tag === CANNOT_BE_PURE ? 'cannot-be-pure' : 'needs-spec', message: message || '(no reason given)' };
+}
+
+const DECLINE_RE = new RegExp(
+  String.raw`^\s*(\{\s*)?throw\s+(?:new\s+)?Error\s*\(\s*(["'\x60])(${CANNOT_BE_PURE}|${NEEDS_SPEC})\s*:\s*((?:\\[\s\S]|(?!\2)[^\\])*)\2\s*\)\s*;?\s*(\}\s*)?$`,
+);
+
+function unescapeJs(s: string): string {
+  return s.replace(/\\(u\{[0-9a-fA-F]+\}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|[\s\S])/g, (_, e: string) => {
+    if (e[0] === 'u' && e.length > 1) return String.fromCodePoint(parseInt(e[1] === '{' ? e.slice(2, -1) : e.slice(1), 16));
+    if (e[0] === 'x' && e.length === 3) return String.fromCharCode(parseInt(e.slice(1), 16));
+    return ({ n: ' ', t: ' ', r: '', '0': '' } as Record<string, string>)[e] ?? e;
+  });
 }
 
 function checksSection(spec: FunctionSpec): string {

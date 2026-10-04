@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Diagnostic, FunctionSpec, GateResult } from '../types';
 import { buildPrompt } from '../shared/prompt';
-import { modelSawSummary, promptFeatures, whoDecided } from './explain';
+import { declineCopy, modelSawSummary, promptFeatures, UNCHECKED_TEXT, whoDecided } from './explain';
 
 const fail = (gate: GateResult['gate'], diagnostics: Diagnostic[], extra: Partial<GateResult> = {}): GateResult => ({
   gate,
@@ -164,5 +164,20 @@ describe('modelSawSummary', () => {
     const old = buildPrompt({ spec: SPEC, history: [] }).replace(/^- Each call must return within \d+ ms\.\n/m, '');
     expect(promptFeatures(old).budget).toBe(false);
     expect(modelSawSummary(SPEC, old).sent).toBe('Sent: the signature, your doc, the names of 2 tests and 1 property.');
+  });
+});
+
+describe('decline and spec-less copy', () => {
+  it('declineCopy: a plain headline and a next step per reason, never a rejection', () => {
+    const pure = declineCopy({ reason: 'cannot-be-pure', message: 'needs the clock' });
+    expect(pure.title).toBe('The model declined to fake this.');
+    expect(pure.next).toContain('Pass what it needs in as an argument');
+    const spec = declineCopy({ reason: 'needs-spec', message: 'what should it remove?' });
+    expect(spec.title).toBe('The model needs a spec for this.');
+    expect(spec.next).toContain('Write a spec');
+    for (const c of [pure, spec]) expect(`${c.title} ${c.next}`).not.toMatch(/reject/i);
+  });
+  it('UNCHECKED_TEXT says what was and was not checked', () => {
+    expect(UNCHECKED_TEXT).toBe('Only compiled and checked for purity — nothing checked that this is what you meant.');
   });
 });

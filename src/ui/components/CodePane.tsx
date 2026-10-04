@@ -38,7 +38,9 @@ export function CodePane({ state }: { state: EngineState }) {
               </span>
             </>
           ) : (
-            <span class={`chip st-${attempt.status}`}>{STATUS_TEXT[attempt.status]}</span>
+            <span class={`chip st-${attempt.status}${attempt.candidate?.declined ? ' st-declined' : ''}`}>
+              {attempt.candidate?.declined ? 'declined' : STATUS_TEXT[attempt.status]}
+            </span>
           )}
           {committed && <GeneratedBadge />}
         </PanelHead>

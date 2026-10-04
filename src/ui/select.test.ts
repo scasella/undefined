@@ -13,6 +13,7 @@ import {
   functionStatusText,
   inputHistory,
   latestCommitted,
+  newSpecPrefill,
   resolveAttempt,
   signatureOf,
   specPatch,
@@ -132,5 +133,33 @@ describe('compileMarks', () => {
 describe('inputHistory', () => {
   it('lists inputs in order', () => {
     expect(inputHistory(SCENARIOS.cached().repl)).toEqual(['median([3, 1, 4, 2])', 'median([3, 1, 4, 2])', 'xs = [10, 2, 38, 23]', 'median(xs)']);
+  });
+});
+
+describe('declines in the selectors', () => {
+  it('chipText says "declined — <message>" for a declined candidate', () => {
+    const g = SCENARIOS['declined-pure']().generation!;
+    expect(chipText(g.attempts[0]!)).toBe(`#1 declined — ${g.declined!.message}`);
+    const spec = SCENARIOS['declined-spec']().generation!;
+    expect(chipText(spec.attempts[0]!)).toMatch(/^#1 declined — What should clean do/);
+    // an attempt aborted for another reason (no candidate) is unchanged
+    expect(chipText({ attempt: 2, status: 'aborted', shown: '', gates: [] })).toBe('#2 aborted');
+  });
+
+  it('newSpecPrefill: parameters from the failed generation, the model question as the doc placeholder', () => {
+    const gen = SCENARIOS['declined-spec']().generation!;
+    expect(newSpecPrefill(gen, 'clean')).toEqual({ params: 'arg0: string', docPlaceholder: gen.declined!.message });
+    expect(newSpecPrefill(gen, 'median')).toBeNull();
+    expect(newSpecPrefill(null, 'clean')).toBeNull();
+    // cannot-be-pure: parameters only (there is no question to ask)
+    expect(newSpecPrefill(SCENARIOS['declined-pure']().generation!, 'now')).toEqual({ params: '' });
+    // nested parentheses in parameter types (function arguments) survive
+    const compose = {
+      ...gen,
+      fn: 'compose',
+      signature: 'function compose(arg0: (...args: any[]) => any, arg1: { f: (x: number) => number })',
+      declined: undefined,
+    };
+    expect(newSpecPrefill(compose, 'compose')).toEqual({ params: 'arg0: (...args: any[]) => any, arg1: { f: (x: number) => number }' });
   });
 });

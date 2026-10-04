@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import ts from 'typescript';
 import fc from 'fast-check';
-import { inferType } from './inferType';
+import { FUNCTION_ARG_TYPE, inferArgType, inferType } from './inferType';
 
 /** The inferred text ends up as a parameter annotation, so it must parse as a TS type. */
 function assertValidType(t: string): void {
@@ -63,6 +63,27 @@ describe('inferType', () => {
     const cyc: unknown[] = [];
     cyc.push(cyc);
     expect(() => inferType(cyc)).toThrow('cyclic arguments are not supported');
+  });
+
+  it('inferArgType accepts a top-level function argument as an explicit-any function type', () => {
+    expect(inferArgType((x: number) => x + 1)).toBe(FUNCTION_ARG_TYPE);
+    expect(inferArgType(Math.max)).toBe('(...args: any[]) => any');
+    expect(inferArgType(class {})).toBe(FUNCTION_ARG_TYPE);
+    assertValidType(FUNCTION_ARG_TYPE);
+    // strict TypeScript accepts it as a parameter type and lets the body call it
+    const out = ts.transpileModule(`function compose(arg0: ${FUNCTION_ARG_TYPE}, arg1: ${FUNCTION_ARG_TYPE}) { return (x: number) => arg1(arg0(x)); }`, {
+      reportDiagnostics: true,
+      compilerOptions: { strict: true },
+    });
+    expect(out.diagnostics ?? []).toEqual([]);
+  });
+
+  it('inferArgType is inferType for everything else, and keeps throwing where inferType throws', () => {
+    for (const [, value, expected] of cases) expect(inferArgType(value)).toBe(expected);
+    expect(() => inferArgType([() => 1])).toThrow('function arguments are not supported');
+    expect(() => inferArgType({ f: () => 1 })).toThrow('function arguments are not supported');
+    expect(() => inferArgType(Symbol())).toThrow('symbol arguments are not supported');
+    expect(() => inferType(() => 1)).toThrow('function arguments are not supported'); // inferType itself is unchanged
   });
 
   it('always yields parseable type text for JSON-like values (property)', () => {

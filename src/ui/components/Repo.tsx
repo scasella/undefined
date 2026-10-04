@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import type { Artifact, Engine, EngineState, ExampleInfo, FunctionRecord, FunctionSpec } from '../../types';
+import type { Artifact, Engine, EngineState, ExampleInfo, FunctionRecord, FunctionSpec, GenerationView } from '../../types';
 import { isValidFnName, paramsText, parseParams, shortHash } from '../format';
-import { draftOf, functionStatus, functionStatusText, signatureOf, specPatch } from '../select';
+import { draftOf, functionStatus, functionStatusText, newSpecPrefill, signatureOf, specPatch } from '../select';
 import { focusFn } from '../uiState';
 import { CodeView } from './CodeView';
 import { GeneratedBadge, StatusIcon } from './common';
@@ -273,21 +273,28 @@ function FunctionCard({
   );
 }
 
-function NewSpecForm({ engine, existing, busy }: { engine: Engine; existing: string[]; busy: boolean }) {
+const DOC_PLACEHOLDER = 'What it must do. The model reads this.';
+
+function NewSpecForm({ engine, existing, busy, gen }: { engine: Engine; existing: string[]; busy: boolean; gen: GenerationView | null }) {
   const [name, setName] = useState('');
   const [params, setParams] = useState('');
   const [returns, setReturns] = useState('');
   const [doc, setDoc] = useState('');
+  const [docPlaceholder, setDocPlaceholder] = useState(DOC_PLACEHOLDER);
   const [error, setError] = useState<string | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const docRef = useRef<HTMLTextAreaElement>(null);
   const focus = focusFn.value;
-  // "Edit the spec" for a function that has no spec yet (e.g. a call-inferred one whose growth failed):
-  // start a new spec under that name
+  // "Edit the spec" / "Write a spec" for a function that has no spec yet (a call-inferred one whose growth failed or
+  // was declined): start a new spec under that name, with the parameters inferred from the call and, when the model
+  // declined for lack of a spec, its question as the doc placeholder
   useEffect(() => {
     if (!focus || existing.includes(focus.fn)) return;
     focusFn.value = null;
     setName(focus.fn);
+    const pre = newSpecPrefill(gen, focus.fn);
+    if (pre) setParams(pre.params);
+    setDocPlaceholder(pre?.docPlaceholder ?? DOC_PLACEHOLDER);
     afterLayout(() => {
       formRef.current?.scrollIntoView({ block: 'start' });
       docRef.current?.focus({ preventScroll: true });
@@ -296,7 +303,7 @@ function NewSpecForm({ engine, existing, busy }: { engine: Engine; existing: str
 
   const submit = (ev: Event) => {
     ev.preventDefault();
-    if (!isValidFnName(name)) return setError('Name must be a JavaScript identifier, e.g. slugify.');
+    if (!isValidFnName(name)) return setError('Function names here must be ASCII letters, digits, _ or $ (not starting with a digit), e.g. slugify.');
     const parsed = parseParams(params);
     if (!parsed.ok) return setError(parsed.error);
     if (!doc.trim()) return setError('Describe the contract in the doc: the model reads it.');
@@ -317,6 +324,7 @@ function NewSpecForm({ engine, existing, busy }: { engine: Engine; existing: str
     setParams('');
     setReturns('');
     setDoc('');
+    setDocPlaceholder(DOC_PLACEHOLDER);
   };
 
   const parsed = parseParams(params);
@@ -345,7 +353,7 @@ function NewSpecForm({ engine, existing, busy }: { engine: Engine; existing: str
       </div>
       <label>
         doc
-        <textarea ref={docRef} rows={2} value={doc} placeholder="What it must do. The model reads this." onInput={(e) => setDoc(e.currentTarget.value)} />
+        <textarea ref={docRef} rows={2} value={doc} placeholder={docPlaceholder} onInput={(e) => setDoc(e.currentTarget.value)} />
       </label>
       {name && isValidFnName(name) && parsed.ok && (
         <p class="muted small mono">
@@ -375,7 +383,7 @@ export function Repo({ state, engine }: { state: EngineState; engine: Engine }) 
           example={rec.spec.exampleId ? state.examples.find((e) => e.id === rec.spec.exampleId) : undefined}
         />
       ))}
-      <NewSpecForm engine={engine} existing={recs.map((r) => r.spec.name)} busy={state.busy} />
+      <NewSpecForm engine={engine} existing={recs.map((r) => r.spec.name)} busy={state.busy} gen={state.generation} />
     </div>
   );
 }

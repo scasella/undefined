@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FunctionSpec, GateResult } from '../types';
-import { buildPrompt, declarationLine, formatDiagnosticsForModel } from './prompt';
+import { buildPrompt, declarationLine, formatDiagnosticsForModel, honestySection, parseDecline } from './prompt';
 
 const median: FunctionSpec = {
   name: 'median',
@@ -157,6 +157,92 @@ describe('buildPrompt', () => {
     expect(q).toContain('error: TypeError: cannot read property');
     expect(q).toContain('```ts\nreturn numbers[0].valueOf();\n```');
     expect(q).toContain('handles this call');
+  });
+});
+
+describe('buildPrompt: the HONESTY section (declining instead of faking)', () => {
+  const callSpec: FunctionSpec = { ...median, name: 'shuffle', returns: null, doc: '', tests: '', properties: '', origin: 'call' };
+
+  it('is present, delimited, after the contract and the triggering call, before the final reminder', () => {
+    const q = buildPrompt({ spec: callSpec, callArgTypes: ['number[]'], history: [] });
+    const at = q.indexOf('HONESTY (when not to write the function)');
+    expect(at).toBeGreaterThan(q.indexOf('CONTRACT'));
+    expect(at).toBeGreaterThan(q.indexOf('TRIGGERING CALL'));
+    expect(at).toBeLessThan(q.indexOf('FINAL REMINDER'));
+    expect(q).toContain(honestySection(callSpec));
+    // both sentinels, verbatim, as the whole body
+    expect(q).toContain('throw new Error("CANNOT_BE_PURE: <one sentence: what it would need>");');
+    expect(q).toContain('throw new Error("NEEDS_SPEC: <one sentence: the single question you need answered>");');
+    // what counts as impure, and the guard against over-declining
+    for (const w of ['randomness', 'the current time', 'the network', 'files', 'the console', 'counters, caches or ids']) expect(q).toContain(w);
+    expect(q).toContain('Use these sparingly');
+    for (const w of ['flatten', 'groupBy', 'sortDescending', 'titleCase', 'isPalindrome', 'hello()', 'add']) expect(q).toContain(w);
+    expect(q).toContain('If shuffle cannot honestly be written');
+  });
+
+  it('keeps the existing rules (with the carve-out) and the output contract unchanged', () => {
+    const q = buildPrompt({ spec: median, history: [] });
+    expect(q).toContain('Throw an Error only where the contract says the input is invalid (or as the whole body, in the two cases under HONESTY below).');
+    expect(q).toContain('Pure and deterministic');
+    expect(q).toContain('Return ONLY the JSON object {"body": string, "notes": string}');
+  });
+
+  it('is in every prompt (retries and runtime faults too) and never leaks test bodies or coaching', () => {
+    const prompts = [
+      buildPrompt({ spec: median, history: [] }),
+      buildPrompt({ spec: median, history: [{ attempt: 1, body: 'return 0;', gates: [], headline: 'Rejected: x' }] }),
+      buildPrompt({ spec: median, history: [], runtimeFault: { call: 'median([])', errorName: 'E', message: 'm', previousBody: 'return 1;' } }),
+    ];
+    for (const q of prompts) {
+      expect(q).toContain('HONESTY (when not to write the function)');
+      expect(q).not.toContain('eq(median');
+      expect(q).not.toContain('REFERENCE_SECRET');
+      expect(q).not.toContain('SECRET_DISABLED');
+      expect(q).not.toContain('fc.array');
+      expect(q).not.toMatch(/prefer iterative|avoid exponential|copy before|algorithm|Fisher|Euclid|sort the/i);
+    }
+  });
+});
+
+describe('parseDecline', () => {
+  it('recognises both sentinels in every tolerated spelling', () => {
+    const variants = [
+      'throw new Error("CANNOT_BE_PURE: it needs a source of randomness, e.g. a seed argument.");',
+      "throw new Error('CANNOT_BE_PURE: it needs a source of randomness, e.g. a seed argument.')",
+      'throw new Error(`CANNOT_BE_PURE: it needs a source of randomness, e.g. a seed argument.`);',
+      '  \n throw   new Error( "CANNOT_BE_PURE:it needs a source of randomness, e.g. a seed argument." ) ;\n',
+      '{ throw new Error("CANNOT_BE_PURE: it needs a source of randomness, e.g. a seed argument."); }',
+      'throw Error("CANNOT_BE_PURE: it needs a source of randomness, e.g. a seed argument.");',
+    ];
+    for (const v of variants) {
+      expect(parseDecline(v)).toEqual({ reason: 'cannot-be-pure', message: 'it needs a source of randomness, e.g. a seed argument.' });
+    }
+    expect(parseDecline('throw new Error("NEEDS_SPEC: What should clean remove: whitespace, punctuation, or both?");')).toEqual({
+      reason: 'needs-spec',
+      message: 'What should clean remove: whitespace, punctuation, or both?',
+    });
+    expect(parseDecline(`throw new Error('NEEDS_SPEC: Should it keep the user\\'s "quotes"?');`)).toEqual({
+      reason: 'needs-spec',
+      message: `Should it keep the user's "quotes"?`,
+    });
+    expect(parseDecline('throw new Error("NEEDS_SPEC: ");')).toEqual({ reason: 'needs-spec', message: '(no reason given)' });
+  });
+
+  it('matches the WHOLE body only: a mention of a sentinel elsewhere is an ordinary candidate', () => {
+    const notDeclines = [
+      '// NEEDS_SPEC: what should this do?\nreturn arg0;',
+      'if (arg0 < 0) throw new Error("NEEDS_SPEC: negative?");\nreturn arg0;',
+      'throw new Error("NEEDS_SPEC: x");\nreturn 1;',
+      'return "CANNOT_BE_PURE: no";',
+      'throw new Error("CANNOT_BE_PURE " + arg0);',
+      'throw new Error("cannot_be_pure: lower case");',
+      'throw new RangeError("NEEDS_SPEC: wrong error class");',
+      '{ throw new Error("NEEDS_SPEC: unbalanced brace");',
+      'throw new Error(`NEEDS_SPEC: ${arg0}`);',
+      'throw new Error("NEEDS_SPEC: a" + "b");',
+      '',
+    ];
+    for (const b of notDeclines) expect(parseDecline(b), b).toBeNull();
   });
 });
 

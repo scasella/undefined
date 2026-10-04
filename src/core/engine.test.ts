@@ -22,9 +22,16 @@ import { Runtime, type RuntimeWorkerLike } from '../sandbox/runtime';
 import { createDispatcher, type RuntimeMessage, type RuntimeRequest } from '../sandbox/replCore';
 import type { ExecGateInput } from '../sandbox/gateRunner';
 import { encodeValue } from '../shared/serialize';
+import { NEVER_CALLED_NOTE } from '../sandbox/gateExecutor';
+import { FUNCTION_ARG_TYPE } from '../shared/inferType';
 import {
+  ARRAY_CALLBACK_INFO,
   createEngine,
   decodeCallArgs,
+  DECLINED_GATE_NOTE,
+  declineMessage,
+  FUNCTION_ARG_NOTE,
+  notGrowableReason,
   LOST_PREFIX,
   RECURSION_HINT,
   TAKEAWAY_TEXT,
@@ -34,6 +41,9 @@ import {
   type RuntimeLike,
 } from './engine';
 import { GenerationFailure, validateRecording } from './generator';
+import { specFromCall } from '../gates/source';
+
+const specFromCallFor = (name: string, argTypes: string[]): FunctionSpec => specFromCall(name, argTypes);
 import { hashesFor } from '../shared/hash';
 import { isLive, isStale } from './program';
 import { _useBackend, memoryBackend } from './store';
@@ -85,15 +95,18 @@ const EXAMPLE: EngineExample = {
 
 // ───────────────────────── harness ─────────────────────────
 
+/** A scripted candidate: a body (notes 'scripted'), a body with the model's notes, or a generation failure. */
+type ScriptItem = string | { body: string; notes: string } | GenerateError;
+
 /** The model stand-in: hands out scripted bodies (or failures) per function, in order. */
 class ScriptedGenerator implements Generator {
   readonly requests: GenerateRequest[] = [];
   constructor(
     readonly mode: 'live' | 'replay',
-    private readonly script: Record<string, Array<string | GenerateError>>,
+    private readonly script: Record<string, ScriptItem[]>,
   ) {}
 
-  push(fn: string, ...items: Array<string | GenerateError>): void {
+  push(fn: string, ...items: ScriptItem[]): void {
     (this.script[fn] ??= []).push(...items);
   }
 
@@ -101,10 +114,11 @@ class ScriptedGenerator implements Generator {
     this.requests.push(req);
     const next = this.script[req.fn]?.shift();
     if (next === undefined) throw new GenerationFailure({ code: 'recording_exhausted', message: `script for ${req.fn} is exhausted` });
-    if (typeof next !== 'string') throw new GenerationFailure(next);
+    if (typeof next !== 'string' && !('body' in next)) throw new GenerationFailure(next);
+    const { body, notes } = typeof next === 'string' ? { body: next, notes: 'scripted' } : next;
     const line: ProgressLine = { t: 1, text: 'drafting function body', channel: 'event' };
     onProgress(line);
-    return { body: next, notes: 'scripted', model: 'test-model', codexVersion: '0.0.1', durationMs: 3, source: this.mode, progress: [line] };
+    return { body, notes, model: 'test-model', codexVersion: '0.0.1', durationMs: 3, source: this.mode, progress: [line] };
   }
 }
 
@@ -168,7 +182,7 @@ const engines: EngineHandle[] = [];
 
 function setup(
   opts: {
-    script?: Record<string, Array<string | GenerateError>>;
+    script?: Record<string, ScriptItem[]>;
     service?: ServiceStatus;
     deps?: Partial<EngineDeps>;
   } = {},
@@ -424,20 +438,61 @@ describe('engine: growth paths', () => {
     expect(s().program.functions.median!.artifact).toBeNull();
   }, 30_000);
 
-  it('refuses to grow masked globals and reserved names', async () => {
+  it('refuses to grow masked globals and reserved names, saying why in one sentence and what to do instead', async () => {
     const { engine, gen, s, run } = setup();
     await engine.init();
     let out = await run('fetch("https://example.com")');
     expect(strip(out)).toEqual([
       { kind: 'input', text: 'fetch("https://example.com")' },
-      { kind: 'error', name: 'ReferenceError', message: expect.stringMatching(/^fetch is not defined \(fetch is a masked global/) },
+      {
+        kind: 'error',
+        name: 'ReferenceError',
+        message:
+          'fetch is not defined. `fetch` is the name of a host global (network, timers, clock, randomness or the environment) that generated code is not allowed to touch; pick another name, e.g. fetchData.',
+      },
     ]);
-    out = await run('constructor(1)');
-    expect(out[1]).toMatchObject({ kind: 'error', message: expect.stringContaining('reserved name') });
-    out = await run('eval("1")');
-    expect(out[1]).toMatchObject({ kind: 'error', message: expect.stringContaining('masked global') });
+    // the exact refusals from the hostile-call list
+    const expected: Record<string, string> = {
+      'process([1, 2, 3])':
+        'process is not defined. `process` is the name of a host global (network, timers, clock, randomness or the environment) that generated code is not allowed to touch; pick another name, e.g. processData.',
+      'eval("1")': 'eval is not defined. `eval` turns strings into code, which generated code is not allowed to do; pick another name, e.g. evaluate.',
+      'constructor(1)':
+        'constructor is not defined. `constructor` is a name every JavaScript object already has, so it cannot name a function in this program (functions are looked up by name); pick another name, e.g. construct.',
+      'toString()':
+        'toString is not defined. `toString` is a name every JavaScript object already has, so it cannot name a function in this program (functions are looked up by name); pick another name, e.g. toText.',
+      'größe(3)':
+        'größe is not defined. `größe` cannot be generated: function names here must be ASCII letters, digits, _ or $ (and not start with a digit).',
+    };
+    for (const [input, message] of Object.entries(expected)) {
+      out = await run(input);
+      expect(strip(out), input).toEqual([
+        { kind: 'input', text: input },
+        { kind: 'error', name: 'ReferenceError', message },
+      ]);
+      // one sentence for the reason, ending with a concrete alternative (or the rule)
+      expect(message.split('. ').length, input).toBeLessThanOrEqual(3);
+    }
     expect(gen.requests).toHaveLength(0);
     expect(s().generation).toBeNull();
+  }, 30_000);
+
+  it('notGrowableReason covers every category and allows ordinary names', () => {
+    expect(notGrowableReason('median')).toBeNull();
+    expect(notGrowableReason('processData')).toBeNull();
+    expect(notGrowableReason('Function')).toContain('turns strings into code');
+    expect(notGrowableReason('setTimeout')).toContain('host global');
+    expect(notGrowableReason('class')).toBe('`class` is a JavaScript keyword or built-in value, so it cannot name a function; pick another name, e.g. classify.');
+    expect(notGrowableReason('NaN')).toContain('pick another name, e.g. myNaN');
+    expect(notGrowableReason('hasOwnProperty')).toContain('every JavaScript object already has');
+    expect(notGrowableReason('café')).toContain('ASCII letters, digits, _ or $');
+  });
+
+  it('upsertSpec refuses such a name with the same sentence', async () => {
+    const { engine, s } = setup();
+    await engine.init();
+    await engine.upsertSpec({ ...MEDIAN_SPEC, name: 'toString', origin: 'user' });
+    expect(s().notice).toEqual({ tone: 'error', text: notGrowableReason('toString') });
+    expect(Object.hasOwn(s().program.functions, 'toString')).toBe(false);
   }, 30_000);
 
   it('TS7023 (recursion without a declared return type) is not charged and the hint reaches the next prompt', async () => {
@@ -1065,5 +1120,346 @@ describe('engine: REPL variables the runtime could not restore are reported', ()
       { kind: 'info', text: `${LOST_PREFIX}h, k`, tone: 'warn' },
     ]);
     expect(lastError(s()).message).not.toMatch(/restored$/);
+  }, 30_000);
+});
+
+// ───────────────────────── hostile, spec-less calls (findings A–E) ─────────────────────────
+
+const declineBody = (tag: 'CANNOT_BE_PURE' | 'NEEDS_SPEC', msg: string): string => `throw new Error("${tag}: ${msg}");`;
+
+describe('engine: the model declines instead of faking (A)', () => {
+  it('cannot-be-pure: no gate runs, the verdict is aborted, nothing is retried or committed, the REPL says why', async () => {
+    const { engine, gen, s, run } = setup({
+      script: { now: [{ body: declineBody('CANNOT_BE_PURE', 'it needs to read the current time'), notes: 'needs the clock' }, 'return 0;'] },
+    });
+    await engine.init();
+    const before = { revisions: s().revisions, program: s().program };
+    const out = await run('now()');
+    expect(gen.requests).toHaveLength(1); // a decline is final: not retried
+    expect(gen.requests[0]!.prompt).toContain('HONESTY (when not to write the function)');
+    const g = s().generation!;
+    expect(g.phase).toBe('failed');
+    expect(g.declined).toEqual({ reason: 'cannot-be-pure', message: 'it needs to read the current time' });
+    expect(g.error).toBeUndefined();
+    expect(g.attempts).toHaveLength(1);
+    const a = g.attempts[0]!;
+    expect(a.status).toBe('aborted');
+    expect(a.shown).toBe(declineBody('CANNOT_BE_PURE', 'it needs to read the current time'));
+    expect(a.gates.map((x) => [x.gate, x.status, x.summary, x.note])).toEqual(
+      ['compile', 'tests', 'properties', 'invariants'].map((gate) => [gate, 'skipped', 'not run', DECLINED_GATE_NOTE]),
+    );
+    expect(a.candidate).toMatchObject({ verdict: 'aborted', declined: g.declined, notes: 'needs the clock', attempt: 1 });
+    expect(a.candidate!.rejectedBy).toBeUndefined();
+    expect(a.candidate!.headline).toBeUndefined();
+    // the program and the history are untouched
+    expect(s().revisions).toEqual(before.revisions);
+    expect(s().program).toEqual(before.program);
+    expect(strip(out)).toEqual([
+      { kind: 'input', text: 'now()' },
+      { kind: 'error', name: 'ReferenceError', message: 'now is not defined' },
+      { kind: 'info', text: 'Generating…', tone: 'accent' },
+      {
+        kind: 'error',
+        name: 'Declined',
+        message:
+          'The model declined to write `now`: it needs to read the current time. Generated functions are pure — no clock, randomness, network, files or hidden state — so it would only be faking it. Pass what it needs in as an argument (for example a seed or a timestamp).',
+        restarts: [{ id: 'dismiss', label: 'Dismiss', description: 'Leave the program as it is.' }],
+      },
+    ]);
+    expect(s().busy).toBe(false);
+  }, 30_000);
+
+  it('needs-spec: restarts are "Write a spec" + dismiss; Write a spec focuses the (spec-less) function', async () => {
+    const { engine, gen, s, run } = setup({
+      script: { clean: [declineBody('NEEDS_SPEC', 'What should clean remove from the string: whitespace, punctuation, or both?')] },
+    });
+    await engine.init();
+    const out = await run('clean("  Hello,   World  ")');
+    const err = out[out.length - 1] as Extract<ReplEntry, { kind: 'error' }>;
+    expect(err.name).toBe('Declined');
+    expect(err.message).toBe(
+      "The model couldn't tell what `clean` should do: What should clean remove from the string: whitespace, punctuation, or both? Add a one-line spec and call it again.",
+    );
+    expect(err.restarts!.map((r) => [r.id, r.label])).toEqual([
+      ['edit-spec', 'Write a spec'],
+      ['dismiss', 'Dismiss'],
+    ]);
+    expect(s().generation!.declined!.reason).toBe('needs-spec');
+    expect(s().generation!.signature).toBe('function clean(arg0: string)');
+    expect(s().program.functions.clean).toBeUndefined();
+    expect(gen.requests).toHaveLength(1);
+    await engine.invokeRestart(err.id, 'edit-spec');
+    expect(s().focusSpec).toEqual({ fn: 'clean', nonce: 1 });
+    expect(s().repl.find((e) => e.id === err.id)).toMatchObject({ resolved: true });
+  }, 30_000);
+
+  it('accepts every quoting of the sentinel the model may use', async () => {
+    const bodies = {
+      a: "throw new Error('CANNOT_BE_PURE: needs randomness, e.g. a seed argument')",
+      b: 'throw new Error(`CANNOT_BE_PURE: needs randomness, e.g. a seed argument`);',
+      c: '{\n  throw new Error("CANNOT_BE_PURE: needs randomness, e.g. a seed argument");\n}',
+      d: '\n\n  throw new Error( "CANNOT_BE_PURE:needs randomness, e.g. a seed argument" )  \n',
+    };
+    const { engine, s, run } = setup({ script: Object.fromEntries(Object.entries(bodies).map(([k, v]) => [k, [v]])) });
+    await engine.init();
+    for (const fn of Object.keys(bodies)) {
+      await run(`${fn}(3)`);
+      expect(s().generation!.declined, fn).toEqual({ reason: 'cannot-be-pure', message: 'needs randomness, e.g. a seed argument' });
+      expect(lastError(s()).name).toBe('Declined');
+    }
+    expect(s().revisions).toHaveLength(1);
+  }, 30_000);
+
+  it('a body that merely mentions NEEDS_SPEC (comment, conditional throw) is an ordinary candidate and is gated', async () => {
+    const { engine, s, run } = setup({
+      script: {
+        ident: ['// NEEDS_SPEC: what should this do?\nreturn arg0;'],
+        guard: ['if (arg0 < 0) throw new Error("NEEDS_SPEC: negative?");\nreturn arg0 * 2;'],
+      },
+    });
+    await engine.init();
+    let out = await run('ident(4)');
+    expect(s().generation!.declined).toBeUndefined();
+    expect(s().generation!.phase).toBe('committed');
+    expect(s().generation!.attempts[0]!.gates[0]!.status).toBe('pass');
+    expect(out[out.length - 1]).toMatchObject({ kind: 'output', value: '4', label: 'generated' });
+    out = await run('guard(4)');
+    expect(s().generation!.phase).toBe('committed');
+    expect(out[out.length - 1]).toMatchObject({ kind: 'output', value: '8' });
+  }, 30_000);
+
+  it('a decline after rejected candidates ends the grow: no further attempt, revisions unchanged', async () => {
+    const { engine, gen, s, run } = setup({
+      script: { median: [MEDIAN_BAD, declineBody('NEEDS_SPEC', 'What is the median of an even-length list?'), MEDIAN_GOOD] },
+    });
+    await engine.init();
+    await run('median([3, 1, 4, 2])');
+    expect(gen.requests).toHaveLength(2);
+    const g = s().generation!;
+    expect(g.attempts.map((a) => a.status)).toEqual(['rejected', 'aborted']);
+    expect(g.attempts[1]!.candidate!.declined).toEqual({ reason: 'needs-spec', message: 'What is the median of an even-length list?' });
+    expect(g.phase).toBe('failed');
+    // the spec has tests and properties: the decline is shown as is, never counted as accepted
+    expect(g.ungated).toBe(false);
+    expect(s().program.functions.median!.artifact).toBeNull();
+    expect(s().revisions).toHaveLength(1);
+    expect(lastError(s()).name).toBe('Declined');
+  }, 30_000);
+
+  it('a decline mid-chain stops the chain: the outer function is never generated', async () => {
+    const { engine, gen, s, run } = setup({ script: { dbl: [declineBody('NEEDS_SPEC', 'Double what?')], inc: ['return arg0 + 1;'] } });
+    await engine.init();
+    await run('inc(dbl(2))');
+    expect(gen.requests.map((r) => r.fn)).toEqual(['dbl']);
+    expect(s().revisions).toHaveLength(1);
+  }, 30_000);
+
+  it('declines replay from a recording like any candidate', async () => {
+    const spec = specFromCallFor('shuffle', ['number[]']);
+    const { specHash, testsHash } = await hashesFor(spec);
+    const body = declineBody('CANNOT_BE_PURE', 'shuffling needs a source of randomness; pass a seed');
+    const recording: Recording = {
+      format: 'undefined-recording',
+      version: 1,
+      id: 'r',
+      title: 'r',
+      recordedAt: '2026-10-01T00:00:00.000Z',
+      model: 'm',
+      codexVersion: '0',
+      effort: 'low',
+      sessions: [{ fn: 'shuffle', specHash, testsHash, label: 'shuffle', attempts: [{ prompt: 'P', body, notes: 'n', durationMs: 0, progress: [] }] }],
+    };
+    const { ReplayGenerator } = await import('./generator');
+    const { engine, s, run } = setup({
+      service: { state: 'down' },
+      deps: { loadRecordings: async () => [recording], createReplayGenerator: (recs) => new ReplayGenerator(recs, { maxMs: 0 }) },
+    });
+    await engine.init();
+    expect(s().mode).toBe('replay');
+    await run('shuffle([1, 2, 3, 4, 5])');
+    const c = s().generation!.attempts[0]!.candidate!;
+    expect(c).toMatchObject({ source: 'replay', verdict: 'aborted', prompt: 'P' });
+    expect(c.declined).toEqual({ reason: 'cannot-be-pure', message: 'shuffling needs a source of randomness; pass a seed' });
+    expect(lastError(s()).name).toBe('Declined');
+    expect(s().revisions).toHaveLength(1);
+  }, 30_000);
+
+  it('a live decline is recorded, so it can be replayed', async () => {
+    const { engine, run } = setup({ script: { uuid: [declineBody('CANNOT_BE_PURE', 'a fresh id needs randomness or a counter')] } });
+    await engine.init();
+    await run('uuid()');
+    const rec = engine.exportRecording()!;
+    expect(rec.sessions[0]!.attempts[0]!.body).toBe(declineBody('CANNOT_BE_PURE', 'a fresh id needs randomness or a counter'));
+  }, 30_000);
+
+  it('declineMessage ends the model sentence once, whatever punctuation it used', () => {
+    expect(declineMessage('f', { reason: 'cannot-be-pure', message: 'needs the clock.' })).toMatch(/^The model declined to write `f`: needs the clock\. Generated/);
+    expect(declineMessage('f', { reason: 'needs-spec', message: 'Sort by what' })).toBe(
+      "The model couldn't tell what `f` should do: Sort by what. Add a one-line spec and call it again.",
+    );
+  });
+
+  // The stranger-style calls from the hostile run whose stubs were committed with a green tick. With the model
+  // declining (scripted here), none of them may reach the program.
+  it.each([
+    ['shuffle([1, 2, 3, 4, 5])', 'CANNOT_BE_PURE'],
+    ['randomInt(1, 10)', 'CANNOT_BE_PURE'],
+    ['now()', 'CANNOT_BE_PURE'],
+    ['uuid()', 'CANNOT_BE_PURE'],
+    ['counter()', 'CANNOT_BE_PURE'],
+    ['nextId()', 'CANNOT_BE_PURE'],
+    ['fetchUser(42)', 'CANNOT_BE_PURE'],
+    ['sleep(100)', 'CANNOT_BE_PURE'],
+    ['getWeather("Paris")', 'CANNOT_BE_PURE'],
+    ['loadConfig("app.json")', 'CANNOT_BE_PURE'],
+    ['readFile("notes.txt")', 'CANNOT_BE_PURE'],
+    ['httpGet("https://example.com")', 'CANNOT_BE_PURE'],
+    ['saveToDisk({ a: 1 })', 'CANNOT_BE_PURE'],
+    ['printReport([1, 2, 3])', 'CANNOT_BE_PURE'],
+    ['getCookie("session")', 'CANNOT_BE_PURE'],
+    ['clean("  Hello,   World  ")', 'NEEDS_SPEC'],
+    ['handle({ type: "click", x: 3 })', 'NEEDS_SPEC'],
+    ['transform({ a: 1, b: 2 })', 'NEEDS_SPEC'],
+    ['data([1, 2])', 'NEEDS_SPEC'],
+  ] as const)('%s: a decline (%s) leaves the program unchanged', async (call, tag) => {
+    const fn = call.slice(0, call.indexOf('('));
+    const { engine, gen, s, run } = setup({ script: { [fn]: [declineBody(tag, 'the one sentence')] } });
+    await engine.init();
+    const out = await run(call);
+    expect(gen.requests).toHaveLength(1);
+    expect(gen.requests[0]!.prompt).toContain('HONESTY');
+    expect(s().generation!.declined!.reason).toBe(tag === 'NEEDS_SPEC' ? 'needs-spec' : 'cannot-be-pure');
+    expect(s().program.functions[fn]).toBeUndefined();
+    expect(s().revisions).toHaveLength(1);
+    expect(out.some((e) => e.kind === 'output')).toBe(false);
+    expect(out[out.length - 1]).toMatchObject({ kind: 'error', name: 'Declined' });
+  }, 30_000);
+
+  // ...while the ones a reasonable programmer would write from the name alone are still written and committed.
+  it.each([
+    ['flatten([[1, [2]], [3]])', 'return (arg0 as unknown[]).flat(Infinity) as number[];', '[1, 2, 3]'],
+    ['sortDescending([3, 1, 2])', 'return arg0.slice().sort((a, b) => b - a);', '[3, 2, 1]'],
+    ['isPalindrome("abba")', 'return arg0 === [...arg0].reverse().join("");', 'true'],
+    ['hello()', 'return "Hello, world!";', '"Hello, world!"'],
+    ['add(1, 2)', 'return arg0 + arg1;', '3'],
+  ] as const)('%s is written and committed', async (call, body, value) => {
+    const fn = call.slice(0, call.indexOf('('));
+    const { engine, s, run } = setup({ script: { [fn]: [body] } });
+    await engine.init();
+    const out = await run(call);
+    expect(s().generation!.phase).toBe('committed');
+    expect(out[out.length - 1]).toMatchObject({ kind: 'output', value, label: 'generated' });
+  }, 30_000);
+});
+
+describe('engine: an undefined function used as an Array callback (B)', () => {
+  it('[1, 2, 3].map(double) grows double(arg0: number) from the value only and gives [2, 4, 6]', async () => {
+    const { engine, gen, s, run } = setup({ script: { double: [{ body: 'return arg0 * arg1;', notes: 'wrong' }, 'return arg0 * 2;'] } });
+    await engine.init();
+    const out = await run('[1, 2, 3].map(double)');
+    expect(strip(out).slice(0, 4)).toEqual([
+      { kind: 'input', text: '[1, 2, 3].map(double)' },
+      { kind: 'error', name: 'ReferenceError', message: 'double is not defined' },
+      { kind: 'info', text: ARRAY_CALLBACK_INFO, tone: 'muted' },
+      { kind: 'info', text: 'Generating…', tone: 'accent' },
+    ]);
+    expect(ARRAY_CALLBACK_INFO).toBe('(called by an Array method with (value, index, array); using the value only)');
+    // the 3-parameter body of the hostile run cannot even compile against the one-parameter spec
+    expect(s().generation!.signature).toBe('function double(arg0: number)');
+    expect(s().generation!.call).toBe('double(1)');
+    expect(gen.requests[0]!.prompt).toContain('with 1 argument(s) of these types (values are not shown): (number)');
+    expect(s().generation!.attempts[0]!.candidate!.rejectedBy).toBe('compile');
+    expect(out[out.length - 1]).toMatchObject({ kind: 'output', value: '[2, 4, 6]', label: 'generated' });
+  }, 30_000);
+
+  it('a real 3-argument call is not trimmed', async () => {
+    const { engine, s, run } = setup({ script: { pick: ['return arg2[arg1] === arg0;'] } });
+    await engine.init();
+    const out = await run('pick(2, 1, [1, 2, 3])');
+    expect(out.some((e) => e.kind === 'info' && e.text === ARRAY_CALLBACK_INFO)).toBe(false);
+    expect(s().generation!.signature).toBe('function pick(arg0: number, arg1: number, arg2: number[])');
+    expect(out[out.length - 1]).toMatchObject({ kind: 'output', value: 'true' });
+  }, 30_000);
+});
+
+describe('engine: function-valued arguments (C)', () => {
+  it('compose(x => x + 1, x => x * 2) grows with any-function parameters; Invariants says why it was not exercised', async () => {
+    const gateInputs: ExecGateInput[] = [];
+    const { engine, gen, s, run } = setup({
+      script: { compose: ['return (x: number) => arg1(arg0(x));'] },
+      deps: {
+        execGates: (input, onGate) => {
+          gateInputs.push(input);
+          return Promise.resolve(executeGates(input, { phase() {}, enter() {}, leave() {}, ...(onGate ? { gate: onGate } : {}) }));
+        },
+      },
+    });
+    await engine.init();
+    const out = await run('compose(x => x + 1, x => x * 2)');
+    expect(s().generation!.signature).toBe(`function compose(arg0: ${FUNCTION_ARG_TYPE}, arg1: ${FUNCTION_ARG_TYPE})`);
+    expect(gen.requests[0]!.prompt).toContain(`(${FUNCTION_ARG_TYPE}, ${FUNCTION_ARG_TYPE})`);
+    expect('callArgs' in gateInputs[0]!).toBe(false); // a function cannot be frozen and replayed
+    const inv = s().generation!.attempts[0]!.gates[3]!;
+    expect(inv).toMatchObject({ status: 'skipped', note: `${NEVER_CALLED_NOTE}: ${FUNCTION_ARG_NOTE}` });
+    expect(FUNCTION_ARG_NOTE).toBe("an argument was a function, which can't be replayed");
+    expect(s().generation!.phase).toBe('committed');
+    expect(out[out.length - 1]).toMatchObject({ kind: 'output', label: 'generated' });
+    // the real functions are passed through at runtime
+    const again = await run('compose(x => x + 1, x => x * 2)(5)');
+    expect(again.find((e) => e.kind === 'output')).toMatchObject({ kind: 'output', value: '12', label: 'cached artifact' });
+  }, 30_000);
+
+  it('the Invariants note is unchanged for a call without function arguments', async () => {
+    const { engine, s, run } = setup({
+      script: { first: ['return arg0;'] },
+      deps: {
+        createRuntime: () =>
+          wrapRuntime(realRuntime(), (rt) => ({
+            evaluate: async (input) => {
+              const o = await rt.evaluate(input);
+              return o.kind === 'undefined-call' ? { ...o, args: [{ $t: 'unserializable', show: 'x' }] } : o;
+            },
+          })),
+      },
+    });
+    await engine.init();
+    await run('first(1)');
+    expect(s().generation!.attempts[0]!.gates[3]!.note).toBe(NEVER_CALLED_NOTE);
+  }, 30_000);
+});
+
+describe('engine: a spec-less accept is not an endorsement (E)', () => {
+  it("a function grown with no tests and no properties carries the model's note on its result line", async () => {
+    const notes = 'Uppercases the first ASCII letter at each word boundary and leaves other characters unchanged.';
+    const { engine, run } = setup({
+      script: { titleCase: [{ body: 'return arg0.replace(/\\b([A-Za-z])/g, (c) => c.toUpperCase());', notes }] },
+    });
+    await engine.init();
+    const out = await run('titleCase("élan vital")');
+    const last = out[out.length - 1] as Extract<ReplEntry, { kind: 'output' }>;
+    expect(last).toMatchObject({ kind: 'output', label: 'generated', note: notes });
+    // a later cached call is not a growth: no note
+    const again = await run('titleCase("ab")');
+    expect(again.find((e) => e.kind === 'output')).toMatchObject({ value: '"Ab"', label: 'cached artifact' });
+    expect(again.find((e) => e.kind === 'output')).not.toHaveProperty('note');
+  }, 30_000);
+
+  it("note is '' when the model wrote no notes (the unchecked line still shows); joined per function when chained", async () => {
+    const { engine, run } = setup({
+      script: { dbl: [{ body: 'return arg0 * 2;', notes: '' }], inc: [{ body: 'return arg0 + 1;', notes: 'adds one' }], neg: [{ body: 'return -arg0;', notes: '  ' }] },
+    });
+    await engine.init();
+    let out = await run('neg(2)');
+    expect(out[out.length - 1]).toMatchObject({ kind: 'output', value: '-2', note: '' });
+    out = await run('inc(dbl(2))');
+    expect(out[out.length - 1]).toMatchObject({ kind: 'output', value: '5', note: 'inc: adds one' });
+  }, 30_000);
+
+  it('a function grown under a spec with tests or properties has no note', async () => {
+    const { engine, run } = setup({ script: { median: [{ body: MEDIAN_GOOD, notes: 'sort a copy' }] } });
+    await engine.init();
+    const out = await run('median([1, 2])');
+    expect(out[out.length - 1]).toMatchObject({ kind: 'output', value: '1.5', label: 'generated' });
+    expect(out[out.length - 1]).not.toHaveProperty('note');
   }, 30_000);
 });

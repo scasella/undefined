@@ -6,6 +6,7 @@ import { SCENARIO_NAMES, SCENARIOS } from './fixtures';
 const REQUIRED = [
   'opening', 'generating', 'rejected-properties', 'committed', 'cached', 'compile-rejected', 'invariant-timeout',
   'no-tests', 'budget-exhausted', 'rejected-silent', 'service-error', 'fault-restart', 'replay-banner', 'repo-stale', 'many-revisions',
+  'declined-pure', 'declined-spec', 'spec-less-accept',
 ];
 
 function checkInvariants(s: EngineState): void {
@@ -34,6 +35,26 @@ describe('fixture scenarios', () => {
     const props = g.attempts[0].gates.find((x) => x.gate === 'properties')!;
     expect(props.diagnostics[0]).toMatchObject({ kind: 'property', shrinks: 14 });
     expect(g.attempts[1].status).toBe('generating');
+  });
+
+  it('declined-pure / declined-spec: one aborted candidate carrying the decline, no gate run, program unchanged', () => {
+    for (const [name, fn, reason] of [
+      ['declined-pure', 'now', 'cannot-be-pure'],
+      ['declined-spec', 'clean', 'needs-spec'],
+    ] as const) {
+      const s = SCENARIOS[name]();
+      const g = s.generation!;
+      expect(g).toMatchObject({ fn, phase: 'failed', ungated: true });
+      expect(g.declined!.reason).toBe(reason);
+      expect(g.attempts).toHaveLength(1);
+      expect(g.attempts[0]).toMatchObject({ status: 'aborted' });
+      expect(g.attempts[0]!.candidate!.declined).toEqual(g.declined);
+      expect(g.attempts[0]!.candidate!.prompt).toContain('HONESTY (when not to write the function)');
+      expect(g.attempts[0]!.gates.every((x) => x.status === 'skipped' && x.summary === 'not run')).toBe(true);
+      expect(s.program.functions[fn]).toBeUndefined();
+      const err = s.repl[s.repl.length - 1]!;
+      expect(err).toMatchObject({ kind: 'error', name: 'Declined' });
+    }
   });
 
   it('returns fresh state objects per call', () => {

@@ -16,6 +16,7 @@ import type {
   Artifact,
   AttemptView,
   Candidate,
+  Declined,
   Engine,
   EngineState,
   EvalOutcome,
@@ -46,7 +47,8 @@ import { runExecutionGates, type ExecGateInput } from '../sandbox/gateRunner';
 import { MASKED_NAMES } from '../sandbox/mask';
 import { Runtime } from '../sandbox/runtime';
 import { gateSeed, hashesFor } from '../shared/hash';
-import { buildPrompt, declarationLine, type PromptInput } from '../shared/prompt';
+import { buildPrompt, declarationLine, parseDecline, type PromptInput } from '../shared/prompt';
+import { FUNCTION_ARG_TYPE } from '../shared/inferType';
 import { decodeEnv } from '../shared/serialize';
 import {
   GenerationFailure,
@@ -136,13 +138,39 @@ export const TAKEAWAY_TEXT = "You didn't write this. The model wrote it. Your te
 export const RECURSION_HINT =
   'No return type is declared, so a directly recursive body cannot be typed (TS7023). Avoid direct recursion (use a loop), or give any recursive helper inside the body an explicit return type annotation.';
 
-const RESTART: Record<'retryFault' | 'retryGrow' | 'rollback' | 'editSpec' | 'dismiss', RestartOption> = {
+const RESTART: Record<'retryFault' | 'retryGrow' | 'rollback' | 'editSpec' | 'writeSpec' | 'dismiss', RestartOption> = {
   retryFault: { id: 'retry', label: 'Retry with the error fed back', description: 'Ask the model again, showing it this error.' },
   retryGrow: { id: 'retry', label: 'Retry', description: 'Run the grow loop again with a fresh budget.' },
   rollback: { id: 'rollback', label: 'Roll back', description: 'Restore the revision before this function was committed.' },
   editSpec: { id: 'edit-spec', label: 'Edit the spec', description: 'Open the spec in the repo tab.' },
+  writeSpec: {
+    id: 'edit-spec',
+    label: 'Write a spec',
+    description: "Open this function's spec in the repo tab (parameters filled in from the call) and say what it should do.",
+  },
   dismiss: { id: 'dismiss', label: 'Dismiss', description: 'Leave the program as it is.' },
 };
+
+/** Note on every gate of a declined candidate: nothing was run. */
+export const DECLINED_GATE_NOTE = 'the model declined';
+/** REPL line when the undefined function was called by an Array method with (value, index, array). */
+export const ARRAY_CALLBACK_INFO = '(called by an Array method with (value, index, array); using the value only)';
+/** Prefix of gateExecutor's NEVER_CALLED_NOTE (not imported: that module pulls fast-check into the main bundle). */
+const NEVER_CALLED_PREFIX = 'the candidate was never called';
+export const FUNCTION_ARG_NOTE = "an argument was a function, which can't be replayed";
+
+function endSentence(s: string): string {
+  const t = s.trim();
+  return /[.!?…]$/.test(t) ? t : `${t}.`;
+}
+
+/** The REPL message for a decline: what the model said, why, and what to do next, in plain language. */
+export function declineMessage(fn: string, d: Declined): string {
+  if (d.reason === 'cannot-be-pure') {
+    return `The model declined to write \`${fn}\`: ${endSentence(d.message)} Generated functions are pure — no clock, randomness, network, files or hidden state — so it would only be faking it. Pass what it needs in as an argument (for example a seed or a timestamp).`;
+  }
+  return `The model couldn't tell what \`${fn}\` should do: ${endSentence(d.message)} Add a one-line spec and call it again.`;
+}
 
 const RESERVED = new Set(
   (
@@ -151,12 +179,53 @@ const RESERVED = new Set(
     'implements interface package private protected public await arguments undefined NaN Infinity'
   ).split(' '),
 );
-const NOT_GROWABLE = new Set<string>([...MASKED_NAMES, 'eval', 'Function']);
+const CODE_FROM_STRINGS = new Set(['eval', 'Function']);
+const MASKED = new Set<string>(MASKED_NAMES);
+const NAME_SUGGESTION: Record<string, string> = {
+  process: 'processData',
+  fetch: 'fetchData',
+  eval: 'evaluate',
+  Function: 'makeFunction',
+  constructor: 'construct',
+  toString: 'toText',
+  valueOf: 'valueFrom',
+  hasOwnProperty: 'hasKey',
+  isPrototypeOf: 'isAncestor',
+  toLocaleString: 'toLocalText',
+  propertyIsEnumerable: 'isListedKey',
+  default: 'byDefault',
+  delete: 'remove',
+  new: 'create',
+  class: 'classify',
+  function: 'fn',
+  undefined: 'missing',
+};
 
-function notGrowableReason(name: string): string | null {
-  if (NOT_GROWABLE.has(name)) return `${name} is a masked global: programs cannot use it, so it is not generated either`;
-  if (RESERVED.has(name) || name in Object.prototype) return `${name} is a reserved name, so it is not generated`;
-  if (!/^[A-Za-z_$][\w$]*$/.test(name)) return `${name} is not a valid function name`;
+function suggestName(name: string): string {
+  return NAME_SUGGESTION[name] ?? `my${name.charAt(0).toUpperCase()}${name.slice(1)}`;
+}
+
+/**
+ * Why `name` is never generated, as one plain sentence that says what to do instead; null when it can be.
+ * Used for the REPL error (after "<name> is not defined.") and for a spec saved under such a name.
+ */
+export function notGrowableReason(name: string): string | null {
+  if (!/^[A-Za-z_$][\w$]*$/.test(name)) {
+    return `\`${name}\` cannot be generated: function names here must be ASCII letters, digits, _ or $ (and not start with a digit).`;
+  }
+  const instead = `pick another name, e.g. ${suggestName(name)}`;
+  if (CODE_FROM_STRINGS.has(name)) {
+    return `\`${name}\` turns strings into code, which generated code is not allowed to do; ${instead}.`;
+  }
+  if (MASKED.has(name)) {
+    return `\`${name}\` is the name of a host global (network, timers, clock, randomness or the environment) that generated code is not allowed to touch; ${instead}.`;
+  }
+  if (RESERVED.has(name)) {
+    return `\`${name}\` is a JavaScript keyword or built-in value, so it cannot name a function; ${instead}.`;
+  }
+  if (name in Object.prototype) {
+    return `\`${name}\` is a name every JavaScript object already has, so it cannot name a function in this program (functions are looked up by name); ${instead}.`;
+  }
   return null;
 }
 
@@ -281,6 +350,8 @@ interface RestartContext {
   callArgTypes?: string[];
   /** Decoded real arguments of the triggering call (Invariants probe), when available. */
   callArgs?: unknown[];
+  /** An argument of the triggering call was a function (so the call cannot be replayed by the gates). */
+  functionArgs?: boolean;
   fault?: { errorName: string; message: string; previousBody: string };
   /** Revision the faulting artifact was committed in. */
   artifactRevision?: number;
@@ -293,10 +364,20 @@ interface GrowRequest {
   callArgTypes?: string[];
   /** Real argument values of the triggering call, replayed by the Invariants gate. */
   callArgs?: unknown[];
+  /** An argument of the triggering call was a function: callArgs is absent, and the Invariants note says why. */
+  functionArgs?: boolean;
   runtimeFault?: PromptInput['runtimeFault'];
 }
 
-type GrowResult = { kind: 'committed'; revision: number } | { kind: 'failed' } | { kind: 'aborted' };
+/** A function grown during one REPL input (for the "nothing checked that this is what you meant" note). */
+interface Grown {
+  fn: string;
+  /** The spec had neither tests nor properties. */
+  ungated: boolean;
+  notes: string;
+}
+
+type GrowResult = { kind: 'committed'; revision: number; grown: Grown } | { kind: 'failed' } | { kind: 'aborted' };
 
 // ───────────────────────── engine ─────────────────────────
 
@@ -642,7 +723,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         void persistFlags();
       }
       try {
-        await runInput(text, false, myEpoch);
+        await runInput(text, myEpoch);
       } catch (e) {
         if (!(e instanceof Aborted) && myEpoch === epoch) errorEntry('InternalError', errorText(e));
       } finally {
@@ -654,21 +735,24 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     });
   }
 
-  /** Evaluate `input`, growing undefined functions (up to MAX_GROWTHS_PER_SUBMIT) and re-evaluating. */
-  async function runInput(input: string, grewAlready: boolean, myEpoch: number, lastRevision?: number): Promise<void> {
-    let grew = grewAlready;
-    let revision = lastRevision;
+  /**
+   * Evaluate `input`, growing undefined functions (up to MAX_GROWTHS_PER_SUBMIT) and re-evaluating. `already` carries
+   * what an earlier grow for this same input (a retry) produced.
+   */
+  async function runInput(input: string, myEpoch: number, already?: { revision: number; grown: Grown }): Promise<void> {
+    let revision = already?.revision;
+    const grown: Grown[] = already ? [already.grown] : [];
     let growths = 0;
     for (;;) {
       const outcome = await runtime!.evaluate(input);
       if (myEpoch !== epoch) return;
       if (outcome.kind !== 'undefined-call') {
-        reportOutcome(outcome, input, grew, revision);
+        reportOutcome(outcome, input, grown, revision);
         return;
       }
       const reason = notGrowableReason(outcome.name);
       if (reason) {
-        errorEntry('ReferenceError', `${outcome.name} is not defined (${reason})`);
+        errorEntry('ReferenceError', `${outcome.name} is not defined. ${reason}`);
         return;
       }
       if (growths >= MAX_GROWTHS_PER_SUBMIT) {
@@ -676,12 +760,14 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         return;
       }
       errorEntry('ReferenceError', `${outcome.name} is not defined`);
+      if (outcome.argsTrimmed === 'array-callback') info(ARRAY_CALLBACK_INFO);
       info('Generating…', 'accent');
       const rec = state.value.program.functions[outcome.name];
       const spec = rec?.spec ?? specFromCall(outcome.name, outcome.argTypes);
       // `args` may be missing (older runtimes): then the Invariants gate has only the arguments sampled in the
       // Tests/Properties phases.
       const callArgs = decodeCallArgs((outcome as { args?: unknown }).args);
+      const functionArgs = outcome.argTypes.includes(FUNCTION_ARG_TYPE);
       const result = await grow(
         {
           fn: outcome.name,
@@ -689,18 +775,32 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
           spec,
           ...(spec.origin === 'call' ? { callArgTypes: outcome.argTypes } : {}),
           ...(callArgs ? { callArgs } : {}),
+          ...(functionArgs ? { functionArgs } : {}),
         },
         input,
         myEpoch,
       );
       if (result.kind !== 'committed') return;
-      grew = true;
       revision = result.revision;
+      grown.push(result.grown);
       growths++;
     }
   }
 
-  function reportOutcome(outcome: Exclude<EvalOutcome, { kind: 'undefined-call' }>, input: string, grew: boolean, revision?: number): void {
+  /**
+   * `note` on a result line marks a call that grew a function nobody checked against an intent (no tests, no
+   * properties): the UI prints UNCHECKED_TEXT, then "Model's note: …" when the note is non-empty. Absent otherwise.
+   */
+  function uncheckedNote(grown: Grown[]): string | undefined {
+    const ungated = grown.filter((g) => g.ungated);
+    if (ungated.length === 0) return undefined;
+    const notes = ungated.map((g) => ({ fn: g.fn, notes: g.notes.replace(/\s*\n\s*/g, ' ').trim() })).filter((g) => g.notes !== '');
+    if (notes.length === 0) return '';
+    return ungated.length === 1 ? notes[0]!.notes : notes.map((g) => `${g.fn}: ${g.notes}`).join(' · ');
+  }
+
+  function reportOutcome(outcome: Exclude<EvalOutcome, { kind: 'undefined-call' }>, input: string, grownNow: Grown[], revision?: number): void {
+    const grew = grownNow.length > 0;
     switch (outcome.kind) {
       case 'value': {
         // 'cached artifact · certified rN' only when the called function's artifact is live (its hashes match the
@@ -716,6 +816,8 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         };
         if (grew && revision !== undefined) entry.detail = `revision ${revision}`;
         if (cached) entry.detail = `certified r${calledRec.artifact!.revision}`;
+        const note = uncheckedNote(grownNow);
+        if (note !== undefined) entry.note = note;
         pushRepl(entry);
         if (cached && !flags.takeawayShown) {
           flags = { ...flags, takeawayShown: true };
@@ -828,6 +930,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       spec,
       ...(req.callArgTypes ? { callArgTypes: req.callArgTypes } : {}),
       ...(req.callArgs ? { callArgs: req.callArgs } : {}),
+      ...(req.functionArgs ? { functionArgs: true } : {}),
     };
     if (req.runtimeFault) {
       growCtx.fault = { errorName: req.runtimeFault.errorName, message: req.runtimeFault.message, previousBody: req.runtimeFault.previousBody };
@@ -894,6 +997,42 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       await typeOut(index, body, sig);
       setAttempt(index, { shown: body });
 
+      // A decline ("I cannot honestly write this") is final for this call: no gate runs, nothing is retried or
+      // committed. It is not a rejection: no gate judged anything.
+      const declined = parseDecline(body);
+      if (declined) {
+        const gates: GateResult[] = GATE_ORDER.map((gate) => ({
+          gate,
+          status: 'skipped',
+          ms: 0,
+          summary: 'not run',
+          note: DECLINED_GATE_NOTE,
+          diagnostics: [],
+        }));
+        const candidate: Candidate = {
+          id: id('c'),
+          attempt: attemptNo,
+          body,
+          notes: result.notes,
+          source: result.source,
+          generationMs,
+          gates,
+          verdict: 'aborted',
+          prompt: sentPrompt,
+          declined,
+        };
+        candidates.push(candidate);
+        setAttempt(index, { status: 'aborted', shown: body, gates, candidate });
+        setGen({ phase: 'failed', declined });
+        errorEntry(
+          'Declined',
+          declineMessage(fn, declined),
+          declined.reason === 'needs-spec' ? [RESTART.writeSpec, RESTART.dismiss] : [RESTART.dismiss],
+          growCtx,
+        );
+        return { kind: 'failed' };
+      }
+
       // gates
       setGen({ phase: 'gating' });
       const gated = await runGates(index, spec, body, specHash, testsHash, sig, req.callArgs);
@@ -904,6 +1043,11 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         gated.gates[0]!.status === 'fail' &&
         gated.gates[0]!.diagnostics.some((d) => d.kind === 'compile' && (d.code === 7023 || d.code === 7024));
       if (recursion) gated.gates[0] = { ...gated.gates[0]!, note: RECURSION_HINT };
+      // A function argument cannot be frozen and replayed, so the call never reached the Invariants gate: say why.
+      const inv = gated.gates[3]!;
+      if (req.functionArgs && inv.status === 'skipped' && inv.note?.startsWith(NEVER_CALLED_PREFIX)) {
+        gated.gates[3] = { ...inv, note: `${inv.note}: ${FUNCTION_ARG_NOTE}` };
+      }
       const failing = gated.gates.find((g) => g.status === 'fail');
       const verdict: Candidate['verdict'] = gated.specError ? 'aborted' : failing ? 'rejected' : 'accepted';
       const candidate: Candidate = {
@@ -941,7 +1085,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       if (verdict === 'accepted') {
         const revision = await commit(req, body, gated.compile, specHash, testsHash, model, codexVersion, candidates, maxAttempts);
         setGen({ phase: 'committed', revision });
-        return { kind: 'committed', revision };
+        return { kind: 'committed', revision, grown: { fn, ungated: !spec.tests.trim() && !spec.properties.trim(), notes: result.notes } };
       }
 
       // rejected
@@ -1381,12 +1525,13 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         const growReq: GrowRequest = { fn: ctx.fn, call: ctx.call, spec };
         if (spec.origin === 'call' && ctx.callArgTypes) growReq.callArgTypes = ctx.callArgTypes;
         if (ctx.callArgs) growReq.callArgs = ctx.callArgs;
+        if (ctx.functionArgs) growReq.functionArgs = true;
         // A fault/timeout retry feeds the error back; so does re-running a grow that was itself such a retry.
         if (ctx.fault) {
           growReq.runtimeFault = { call: ctx.call, errorName: ctx.fault.errorName, message: ctx.fault.message, previousBody: ctx.fault.previousBody };
         }
         const result = await grow(growReq, ctx.input, myEpoch);
-        if (result.kind === 'committed' && myEpoch === epoch) await runInput(ctx.input, true, myEpoch, result.revision);
+        if (result.kind === 'committed' && myEpoch === epoch) await runInput(ctx.input, myEpoch, result);
       } catch (e) {
         if (!(e instanceof Aborted) && myEpoch === epoch) errorEntry('InternalError', errorText(e));
       } finally {

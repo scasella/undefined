@@ -6,6 +6,7 @@ import type {
   Artifact,
   AttemptView,
   Candidate,
+  Declined,
   EngineState,
   ExampleInfo,
   FunctionRecord,
@@ -439,6 +440,80 @@ function committedState(): EngineState {
 
 const TAKEAWAY = "You didn't write this. The model wrote it. Your tests hold the contract, and your toolchain enforced it.";
 
+/** A spec inferred from a call, as gates/source.ts specFromCall builds it (params arg0.., no return type, no doc). */
+function specFromCallLike(name: string, argTypes: string[]): FunctionSpec {
+  return {
+    name,
+    params: argTypes.map((type, i) => ({ name: `arg${i}`, type })),
+    returns: null,
+    doc: '',
+    tests: '',
+    properties: '',
+    budgetMs: 1500,
+    maxAttempts: 3,
+    origin: 'call',
+  };
+}
+
+/** A spec-less call the model declined: one candidate, no gate run, program unchanged, the REPL says why. */
+function declinedState(call: string, fn: string, argTypes: string[], declined: Declined): EngineState {
+  const s = baseState();
+  s.hints.opener = false;
+  s.replInput = '';
+  const spec = specFromCallLike(fn, argTypes);
+  const tag = declined.reason === 'cannot-be-pure' ? 'CANNOT_BE_PURE' : 'NEEDS_SPEC';
+  const body = `throw new Error("${tag}: ${declined.message}");`;
+  const gates: GateResult[] = (['compile', 'tests', 'properties', 'invariants'] as GateId[]).map((g) => ({
+    gate: g,
+    status: 'skipped',
+    ms: 0,
+    summary: 'not run',
+    note: 'the model declined',
+    diagnostics: [],
+  }));
+  const c: Candidate = {
+    id: `c1-${fn}`,
+    attempt: 1,
+    body,
+    notes: declined.message,
+    source: 'live',
+    generationMs: 5400,
+    gates,
+    verdict: 'aborted',
+    prompt: buildPrompt({ spec, callArgTypes: argTypes, history: [] }),
+    declined,
+  };
+  const message =
+    declined.reason === 'cannot-be-pure'
+      ? `The model declined to write \`${fn}\`: ${declined.message} Generated functions are pure — no clock, randomness, network, files or hidden state — so it would only be faking it. Pass what it needs in as an argument (for example a seed or a timestamp).`
+      : `The model couldn't tell what \`${fn}\` should do: ${declined.message} Add a one-line spec and call it again.`;
+  s.repl = [
+    ...openingTranscript(call, fn),
+    {
+      kind: 'error',
+      id: eid('er'),
+      name: 'Declined',
+      message,
+      restarts:
+        declined.reason === 'needs-spec'
+          ? [
+              { id: 'edit-spec', label: 'Write a spec', description: "Open this function's spec in the repo tab (parameters filled in from the call) and say what it should do." },
+              { id: 'dismiss', label: 'Dismiss', description: 'Leave the program as it is.' },
+            ]
+          : [{ id: 'dismiss', label: 'Dismiss', description: 'Leave the program as it is.' }],
+    },
+  ];
+  s.generation = {
+    ...medianGeneration([{ attempt: 1, status: 'aborted', shown: body, gates, candidate: c }], { phase: 'failed', attempt: 1, declined }),
+    id: `g-${fn}`,
+    fn,
+    signature: declarationLine(spec),
+    call,
+    ungated: true,
+  };
+  return s;
+}
+
 // ───────── scenarios ─────────
 
 export const SCENARIOS: Record<string, () => EngineState> = {
@@ -666,6 +741,50 @@ export const SCENARIOS: Record<string, () => EngineState> = {
         restarts: RESTARTS,
       },
     ];
+    return s;
+  },
+
+  // the model declined instead of faking: now() would need the clock
+  'declined-pure': () =>
+    declinedState('now()', 'now', [], {
+      reason: 'cannot-be-pure',
+      message: 'Returning the current time requires reading the clock; pass the timestamp in as an argument instead.',
+    }),
+
+  // the model declined to invent behaviour: clean() says nothing about what it should remove
+  'declined-spec': () =>
+    declinedState('clean("  Hello,   World  ")', 'clean', ['string'], {
+      reason: 'needs-spec',
+      message: 'What should clean do to the string: trim it, collapse inner whitespace, remove punctuation, or something else?',
+    }),
+
+  // a function grown with no tests and no properties: accepted, but the result line says nothing checked the intent
+  'spec-less-accept': () => {
+    const s = baseState();
+    s.hints.opener = false;
+    s.replInput = '';
+    const spec = specFromCallLike('titleCase', ['string']);
+    const body = 'return arg0.replace(/\\b([A-Za-z])/g, (letter) => letter.toUpperCase());';
+    const notes = 'Uppercases the first ASCII letter at each word boundary and leaves other characters unchanged.';
+    const gates = [
+      gate('compile', 'pass', 'compiled, strict', { ms: 171 }),
+      gate('tests', 'skipped', 'no tests yet', { note: 'no tests yet — add one to make the gate stricter' }),
+      gate('properties', 'skipped', 'no properties yet', { note: 'no properties yet — add one to make the gate stricter' }),
+      gate('invariants', 'pass', '1 sampled call replayed twice on frozen arguments', { ms: 9 }),
+    ];
+    const call = 'titleCase("élan vital of the ünderground")';
+    s.repl = [
+      ...openingTranscript(call, 'titleCase'),
+      { kind: 'output', id: eid('out'), value: '"éLan Vital Of The üNderground"', ms: 0.3, label: 'generated', detail: 'revision 2', note: notes },
+    ];
+    s.generation = {
+      ...medianGeneration([doneAttempt(1, body, gates, notes, { spec })], { phase: 'committed', attempt: 1, revision: 2 }),
+      id: 'g-title',
+      fn: 'titleCase',
+      signature: declarationLine(spec),
+      call,
+      ungated: true,
+    };
     return s;
   },
 

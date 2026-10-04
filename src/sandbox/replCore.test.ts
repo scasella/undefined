@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createDispatcher, ReplCore, type RuntimeMessage } from './replCore';
+import { createDispatcher, isArrayCallbackCall, ReplCore, type RuntimeMessage } from './replCore';
+import { FUNCTION_ARG_TYPE } from '../shared/inferType';
 
 const MEDIAN = `function median(numbers) {
   if (numbers.length === 0) throw new RangeError("median of empty array");
@@ -174,13 +175,33 @@ describe('ReplCore — undefined names', () => {
     expect(core.evaluate('bar(foo)')).toMatchObject({ kind: 'error', errorName: 'ReferenceError', message: 'foo is not defined' });
   });
 
-  it('reports an argument whose type cannot be inferred as an error', () => {
+  it('reports an argument whose type cannot be inferred as an error (nested functions, symbols, class instances)', () => {
     const core = coreWith({});
-    expect(core.evaluate('apply(x => x, 1)')).toEqual({
+    expect(core.evaluate('apply([x => x], 1)')).toEqual({
       kind: 'error',
       errorName: 'TypeError',
       message: 'cannot infer a type for argument 1: function arguments are not supported',
     });
+    expect(core.evaluate('apply(1, Symbol())')).toMatchObject({ kind: 'error', message: 'cannot infer a type for argument 2: symbol arguments are not supported' });
+    expect(core.evaluate('apply(new Uint8Array(2))')).toMatchObject({ kind: 'error', errorName: 'TypeError' });
+  });
+
+  it('accepts function-valued arguments: typed as an any-function, encoded as the unserializable placeholder', () => {
+    const core = coreWith({});
+    const out = core.evaluate('compose(x => x + 1, x => x * 2)');
+    expect(out).toMatchObject({ kind: 'undefined-call', name: 'compose', argTypes: [FUNCTION_ARG_TYPE, FUNCTION_ARG_TYPE] });
+    if (out.kind !== 'undefined-call') throw new Error('expected an undefined call');
+    expect(out.args).toEqual([
+      { $t: 'unserializable', show: expect.any(String) },
+      { $t: 'unserializable', show: expect.any(String) },
+    ]);
+    expect(out.argsTrimmed).toBeUndefined();
+    expect(core.evaluate('applyTwice(x => x + 1, 3)')).toMatchObject({ argTypes: [FUNCTION_ARG_TYPE, 'number'] });
+  });
+
+  it('passes the real function through once the function exists', () => {
+    const core = coreWith({ compose: 'function compose(f, g) { return (x) => g(f(x)); }' });
+    expect(core.evaluate('compose(x => x + 1, x => x * 2)(5)')).toMatchObject({ kind: 'value', shown: '12' });
   });
 
   it('hides masked globals and eval/Function from the REPL without exposing the real global object', () => {
@@ -198,6 +219,28 @@ describe('ReplCore — errors and faults', () => {
   it('maps a syntax error to an error outcome', () => {
     const core = coreWith();
     expect(core.evaluate('median([1, 2')).toMatchObject({ kind: 'error', errorName: 'SyntaxError' });
+  });
+
+  it('a syntax error names the real problem, never the harness wrapper', () => {
+    const core = coreWith();
+    const msg = (input: string): string => {
+      const out = core.evaluate(input);
+      if (out.kind !== 'error' || out.errorName !== 'SyntaxError') throw new Error(`expected a SyntaxError for ${input}: ${JSON.stringify(out)}`);
+      return out.message;
+    };
+    // `median([1, 2` used to read "Unexpected token ')'": a ')' the user never typed
+    expect(msg('median([1, 2')).toBe('unexpected end of input: a `[` is never closed (missing `]`)');
+    expect(msg('median([1, 2]')).toBe('unexpected end of input: a `(` is never closed (missing `)`)');
+    expect(msg('f({ a: 1')).toBe('unexpected end of input: a `{` is never closed (missing `}`)');
+    expect(msg('f("abc')).toBe('unexpected end of input: the string starting with " is not closed');
+    expect(msg('1 +')).toBe('unexpected end of input');
+    expect(msg('x = 1; y = 2')).toBe('a REPL line must be one expression or one binding (x = …); this parses only as statements');
+    for (const input of ['median([1, 2', 'median(]', '1 +', 'f(1,,)', 'x = 1; y = 2', ')']) {
+      const m = msg(input);
+      expect(m, input).not.toMatch(/\bwith\b|__scope|use strict/);
+      expect(m, input).not.toBe("Unexpected token ')'");
+    }
+    expect(msg('median(]')).toMatch(/unexpected token/i);
   });
 
   it('maps an error thrown by REPL code (not a committed function) to an error outcome', () => {
@@ -292,6 +335,71 @@ describe('createDispatcher', () => {
       { type: 'reply', id: 2, ok: true, result: expect.objectContaining({ kind: 'value', shown: '42', calls: ['double'] }), env: { x: 42 } },
       { type: 'reply', id: 3, ok: false, error: expect.stringContaining('SyntaxError') },
     ]);
+  });
+});
+
+describe('ReplCore — an undefined function used as an Array callback', () => {
+  it('[1, 2, 3].map(double) keeps only the value: one parameter, argsTrimmed set', () => {
+    const core = coreWith({});
+    const out = core.evaluate('[1, 2, 3].map(double)');
+    expect(out).toEqual({
+      kind: 'undefined-call',
+      name: 'double',
+      argTypes: ['number'],
+      argShown: ['1'],
+      args: [1],
+      call: 'double(1)',
+      argsTrimmed: 'array-callback',
+    });
+    // once grown from that one-parameter spec, the same line gives the right answer
+    core.define('double', 'function double(arg0) { return arg0 * 2; }');
+    expect(core.evaluate('[1, 2, 3].map(double)')).toMatchObject({ kind: 'value', shown: '[2, 4, 6]' });
+  });
+
+  it('every callback-taking Array method is recognised', () => {
+    const core = coreWith({});
+    for (const m of ['map', 'filter', 'forEach', 'find', 'findIndex', 'some', 'every', 'flatMap']) {
+      expect(core.evaluate(`["a", "b"].${m}(isVowel)`), m).toMatchObject({ argTypes: ['string'], argsTrimmed: 'array-callback', call: 'isVowel("a")' });
+    }
+    expect(core.evaluate('xs = [[1], [2]]')).toMatchObject({ kind: 'value' });
+    expect(core.evaluate('xs.map(total)')).toMatchObject({ argTypes: ['number[]'], argsTrimmed: 'array-callback', call: 'total([1])' });
+    expect(core.evaluate('[NaN].map(isMissing)')).toMatchObject({ argTypes: ['number'], argsTrimmed: 'array-callback' });
+  });
+
+  it('real three-argument calls that are not callback-shaped are NOT trimmed', () => {
+    const core = coreWith({});
+    const notTrimmed = [
+      'clamp(5, 0, [5, 6])', // arr[i] is 5, but i is not where x sits... 0 → arr[0] = 5 === x: see the direct-call rule below
+      'between(2, 7, [1, 2, 3])', // i out of range
+      'between(2, 1.5, [1, 2, 3])', // i not an integer
+      'between(2, -1, [1, 2, 3])', // negative index
+      'between(9, 1, [1, 2, 3])', // arr[i] !== x
+      'between(2, 1, "123")', // not an array
+      'pick(2, 1, [1, 2, 3], 0)', // four arguments
+      'pair(2, 1)', // two arguments
+      'xs = [1, 2, 3]',
+      'xs.map((x, i, a) => scale(x, i, a))', // callback-shaped, but the user called scale directly with three arguments
+    ];
+    for (const input of notTrimmed) {
+      const out = core.evaluate(input);
+      if (out.kind === 'undefined-call') expect(out.argsTrimmed, input).toBeUndefined();
+    }
+    expect(core.evaluate('between(9, 1, [1, 2, 3])')).toMatchObject({ argTypes: ['number', 'number', 'number[]'] });
+    expect(core.evaluate('xs.map((x, i, a) => scale(x, i, a))')).toMatchObject({ argTypes: ['number', 'number', 'number[]'], call: 'scale(1, 0, [1, 2, 3])' });
+  });
+
+  it('isArrayCallbackCall: shape AND no direct call of the name in the line', () => {
+    const arr = [4, 5];
+    expect(isArrayCallbackCall('f', [4, 0, arr], '[4, 5].map(f)')).toBe(true);
+    expect(isArrayCallbackCall('f', [5, 1, arr], 'arr.filter(f)')).toBe(true);
+    expect(isArrayCallbackCall('f', [4, 0, arr], 'f(4, 0, [4, 5])')).toBe(false);
+    expect(isArrayCallbackCall('f', [4, 0, arr], 'g(1) + f (4, 0, [4, 5])')).toBe(false);
+    expect(isArrayCallbackCall('f', [4, 0, arr], 'obj.f(1) + [4].map(f)')).toBe(true); // a method named f is not f
+    expect(isArrayCallbackCall('$f', [4, 0, arr], '[4].map($f)')).toBe(true);
+    expect(isArrayCallbackCall('$f', [4, 0, arr], '$f(4, 0, [4])')).toBe(false);
+    expect(isArrayCallbackCall('f', [4, 1, arr], '[4, 5].map(f)')).toBe(false);
+    const holes = [, 1]; // eslint-disable-line no-sparse-arrays
+    expect(isArrayCallbackCall('f', [undefined, 0, holes], 'h.map(f)')).toBe(false);
   });
 });
 

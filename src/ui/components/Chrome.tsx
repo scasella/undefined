@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'preact/hooks';
 import type { Engine, EngineState } from '../../types';
 import { repoUrlFromPages } from '../format';
 import { dismissedNotice, downloadText, localNotice, noticeKey, showNotice } from '../uiState';
-import { CopyBlock } from './common';
+import { CopyBlock, Ticks } from './common';
 
 function ModeBadge({ state }: { state: EngineState }) {
   const s = state.service;
@@ -232,7 +232,9 @@ export function Toast({ state }: { state: EngineState }) {
   };
   return (
     <div class={`toast toast-${n.tone}`} role={n.tone === 'error' ? 'alert' : 'status'}>
-      <p>{n.text}</p>
+      <p>
+        <Ticks text={n.text} />
+      </p>
       <button type="button" class="btn btn-ghost btn-xs" onClick={dismiss} aria-label="Dismiss notice">
         ✕
       </button>

@@ -1,6 +1,7 @@
 import { Component, type ComponentChildren } from 'preact';
 import { useState } from 'preact/hooks';
 import { copyText } from '../uiState';
+import { splitTicks } from '../format';
 import type { GateStatus } from '../../types';
 
 export function CopyBlock({ text, label }: { text: string; label?: string }) {
@@ -100,4 +101,13 @@ export class PanelBoundary extends Component<BoundaryProps, { error: Error | nul
       </div>
     );
   }
+}
+
+/** Text whose `backticked` names render as inline code (engine messages quote names that way). */
+export function Ticks({ text }: { text: string }) {
+  return (
+    <>
+      {splitTicks(text).map((p, i) => (p.code ? <code key={i} class="tick">{p.text}</code> : p.text))}
+    </>
+  );
 }

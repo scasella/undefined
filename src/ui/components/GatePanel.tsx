@@ -4,7 +4,7 @@ import { attribution, failingGate, gateAttempt, isLatestAttempt } from '../selec
 import { selection } from '../uiState';
 import { CopyBlock, PanelHead, StatusIcon, statusWord } from './common';
 import { DiagnosticFacts, DiagnosticItem } from './Diagnostics';
-import { whoDecided } from '../explain';
+import { declineCopy, whoDecided } from '../explain';
 
 const GATE_LABEL = { compile: 'Compile', tests: 'Tests', properties: 'Properties', invariants: 'Invariants' } as const;
 const GATE_WHAT = {
@@ -14,18 +14,20 @@ const GATE_WHAT = {
   invariants: 'pure · bounded',
 } as const;
 
-function GateRow({ g }: { g: GateResult }) {
+function GateRow({ g, notRun }: { g: GateResult; notRun?: boolean }) {
   const counts = g.counts ? `${g.counts.passed}/${g.counts.total}` : null;
   // skip a note the summary already says (e.g. both "not reached")
-  const showNote = !!g.note && !(g.summary && g.summary.startsWith(g.note));
+  const showNote = !notRun && !!g.note && !(g.summary && g.summary.startsWith(g.note));
+  // a declined candidate was never judged: its rows read "not run", the decline card says why
+  const word = notRun ? 'not run' : statusWord(g.status);
   return (
-    <li class={`gate-row g-${g.status}`} aria-label={`${GATE_LABEL[g.gate]}: ${statusWord(g.status)}. ${g.summary}`}>
+    <li class={`gate-row g-${g.status}${notRun ? ' g-notrun' : ''}`} aria-label={`${GATE_LABEL[g.gate]}: ${word}.${notRun ? '' : ` ${g.summary}`}`}>
       <StatusIcon status={g.status} />
       <span class="gate-name">{GATE_LABEL[g.gate]}</span>
       <span class="gate-what">{GATE_WHAT[g.gate]}</span>
       <span class="gate-summary">
-        <span class="gate-word">{statusWord(g.status)}</span>
-        {g.summary && <span> · {g.summary}</span>}
+        <span class="gate-word">{word}</span>
+        {!notRun && g.summary && <span> · {g.summary}</span>}
         {showNote && <span class="gate-note"> — {g.note}</span>}
       </span>
       <span class="gate-ms mono">{g.status === 'pass' || g.status === 'fail' ? fmtMs(g.ms) : counts ?? ''}</span>
@@ -45,7 +47,28 @@ function rowsFor(a: AttemptView | undefined): GateResult[] {
   }));
 }
 
+/** The model said it cannot honestly write this. Not a rejection: no gate ran, nothing judged the candidate. */
+function DeclineCard({ a }: { a: AttemptView }) {
+  const d = a.candidate!.declined!;
+  const copy = declineCopy(d);
+  return (
+    <div class={`headline headline-declined decline-${d.reason}`} key={`declined:${a.attempt}`}>
+      <p class="headline-gate">
+        <span aria-hidden="true">⊘</span> NOT WRITTEN · the model declined
+        <span class="muted"> · candidate #{a.attempt}</span>
+      </p>
+      <p class="headline-text">{copy.title}</p>
+      <blockquote class="decline-quote">
+        <span class="decline-tag mono">{d.reason === 'cannot-be-pure' ? 'cannot be pure' : 'needs a spec'}</span> {d.message}
+      </blockquote>
+      <p class="decline-next">{copy.next}</p>
+      <p class="attribution">no gate ran · the program is unchanged</p>
+    </div>
+  );
+}
+
 function Headline({ gen, a }: { gen: GenerationView; a: AttemptView }) {
+  if (a.candidate?.declined) return <DeclineCard a={a} />;
   const fail = failingGate(a.gates);
   if (fail) {
     const first = fail.diagnostics[0];
@@ -89,6 +112,7 @@ export function GatePanel({ gen }: { gen: GenerationView | null }) {
   const rows = rowsFor(a);
   const failing = a ? failingGate(a.gates) : undefined;
   const diags = a ? a.gates.filter((g) => g.diagnostics.length > 0) : [];
+  const declined = !!a?.candidate?.declined;
   const diagCount = diags.reduce((n, g) => n + g.diagnostics.length, 0);
 
   return (
@@ -107,7 +131,7 @@ export function GatePanel({ gen }: { gen: GenerationView | null }) {
             {selection.value ? '' : ` while #${gen.attempts[gen.attempts.length - 1].attempt} is on its way`}
           </p>
         )}
-        {gen?.ungated && (
+        {gen?.ungated && !gen.declined && (
           <p class="ungated" role="note">
             <span aria-hidden="true">⚠</span> No tests yet — add one to make the gate stricter.
             <span class="muted"> Compile and Invariants still run.</span>
@@ -115,7 +139,7 @@ export function GatePanel({ gen }: { gen: GenerationView | null }) {
         )}
         <ol class="gate-rows">
           {rows.map((g) => (
-            <GateRow key={g.gate} g={g} />
+            <GateRow key={g.gate} g={g} notRun={declined} />
           ))}
         </ol>
 
@@ -136,7 +160,8 @@ export function GatePanel({ gen }: { gen: GenerationView | null }) {
               )}
             </div>
           ) : (
-            gen?.phase === 'failed' && (
+            gen?.phase === 'failed' &&
+            !gen.declined && (
               <p class="exhausted">
                 Budget exhausted after {gen.attempts.length} candidate{gen.attempts.length === 1 ? '' : 's'} — the
                 program is unchanged.

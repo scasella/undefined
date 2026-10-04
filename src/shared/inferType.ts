@@ -10,6 +10,21 @@ export function inferType(v: unknown): string {
   return infer(v, []);
 }
 
+/**
+ * Type text for a function passed directly as an argument of a never-seen call (`compose(x => x + 1, f)`). Explicit
+ * `any` is allowed under strict TypeScript, and nothing more precise can be known from a function value.
+ */
+export const FUNCTION_ARG_TYPE = '(...args: any[]) => any';
+
+/**
+ * inferType for one ARGUMENT of a REPL call: a top-level function value is accepted as FUNCTION_ARG_TYPE (the real
+ * function is passed through at runtime). Everything else, including a function nested inside an argument, is
+ * exactly inferType (and throws where it throws).
+ */
+export function inferArgType(v: unknown): string {
+  return typeof v === 'function' ? FUNCTION_ARG_TYPE : inferType(v);
+}
+
 function unsupported(what: string): Error {
   return new Error(`${what} arguments are not supported`);
 }

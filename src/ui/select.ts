@@ -96,7 +96,7 @@ export function chipText(a: AttemptView): string {
     case 'accepted':
       return `#${a.attempt} accepted — passed every gate`;
     case 'aborted':
-      return `#${a.attempt} aborted`;
+      return a.candidate?.declined ? `#${a.attempt} declined — ${a.candidate.declined.message}` : `#${a.attempt} aborted`;
     case 'generating':
       return `#${a.attempt} generating…`;
     case 'typing':
@@ -212,6 +212,32 @@ export function compileMarks(gates: GateResult[]): Map<number, Extract<Diagnosti
     marks.set(d.line, list);
   }
   return marks;
+}
+
+/**
+ * What the New-function-spec form starts with when "Write a spec"/"Edit the spec" points at a function that has no
+ * spec yet: the parameters of the generation that just failed for it (inferred from the call, e.g. `arg0: string`)
+ * and, when the model declined for lack of a spec, its question as the doc placeholder. null when the current
+ * generation is about another function.
+ */
+export function newSpecPrefill(gen: GenerationView | null, fn: string): { params: string; docPlaceholder?: string } | null {
+  if (!gen || gen.fn !== fn) return null;
+  const head = `function ${fn}(`;
+  if (!gen.signature.startsWith(head)) return null;
+  let depth = 1;
+  let end = -1;
+  for (let i = head.length; i < gen.signature.length; i++) {
+    const c = gen.signature[i];
+    if (c === '(') depth++;
+    else if (c === ')' && --depth === 0) {
+      end = i;
+      break;
+    }
+  }
+  if (end < 0) return null;
+  const out: { params: string; docPlaceholder?: string } = { params: gen.signature.slice(head.length, end) };
+  if (gen.declined?.reason === 'needs-spec') out.docPlaceholder = gen.declined.message;
+  return out;
 }
 
 /** REPL input history (oldest first) derived from the transcript. */

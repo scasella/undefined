@@ -23,12 +23,17 @@
  *   ReferenceError) once that function is undefined or redefined.
  * - Committed functions cannot see each other (each is compiled alone); recursion uses the inner declaration name,
  *   so only REPL-level calls go through the wrapper (and produce enter/leave events).
+ * - An undefined function passed to an Array method (`[1, 2, 3].map(double)`) is first called with (value, index,
+ *   array). When the arguments have exactly that shape and the line does not call the name directly, only the value
+ *   is kept for the inferred spec (`argsTrimmed: 'array-callback'`); the grown function ignores the extra arguments.
+ * - A function passed directly as an argument (`compose(x => x + 1, f)`) is typed `(...args: any[]) => any` and
+ *   passed through; it cannot be serialised, so the gates cannot replay that call.
  */
 import type { EvalOutcome, Json } from '../types';
 import { evalMasked, isInvariantViolation, MASKED_NAMES, takeViolations, violationMessage } from './mask';
 import { callString, isMap, isPlainObject, isSet, show } from '../shared/show';
 import { decodeEnv, encodeEnv, encodeValue } from '../shared/serialize';
-import { inferType } from '../shared/inferType';
+import { inferArgType } from '../shared/inferType';
 
 /** Masked for candidates, but harmless and necessary for ordinary REPL arithmetic. */
 const REPL_ALLOWED = new Set(['Math', 'Date']);
@@ -137,7 +142,7 @@ export class ReplCore {
       if (bind) this.assign(bind[1]!, value);
       return { kind: 'value', shown: show(value), ms: now() - start, calls: [...this.calls] };
     } catch (e) {
-      return this.outcomeFor(e);
+      return this.outcomeFor(e, src);
     } finally {
       takeViolations();
     }
@@ -146,11 +151,17 @@ export class ReplCore {
   private run(expr: string): unknown {
     // The outer function is sloppy so `with` is legal; the inner one is strict so `this` is undefined everywhere in
     // the user's expression (a sloppy function would see the real global object as `this`).
-    // eslint-disable-next-line no-new-func
-    const fn = new Function(
-      '__scope',
-      `with (__scope) { return (function () { "use strict"; return (${expr}\n); }).call(undefined); }`,
-    ) as (scope: object) => unknown;
+    let fn: (scope: object) => unknown;
+    try {
+      // eslint-disable-next-line no-new-func
+      fn = new Function(
+        '__scope',
+        `with (__scope) { return (function () { "use strict"; return (${expr}\n); }).call(undefined); }`,
+      ) as (scope: object) => unknown;
+    } catch (e) {
+      if (e instanceof SyntaxError) throw new ReplError('SyntaxError', syntaxErrorMessage(expr, e));
+      throw e;
+    }
     return fn(this.scope);
   }
 
@@ -290,27 +301,32 @@ export class ReplCore {
     return wrapper;
   }
 
-  private outcomeFor(e: unknown): EvalOutcome {
+  private outcomeFor(e: unknown, src = ''): EvalOutcome {
     if (e instanceof UndefinedCallSignal) {
       const thunk = this.findThunk(e.args);
       if (thunk !== null) return { kind: 'error', errorName: 'ReferenceError', message: `${thunkName(thunk)} is not defined` };
+      const trimmed = isArrayCallbackCall(e.name, e.args, src);
+      const args = trimmed ? e.args.slice(0, 1) : e.args;
       const argTypes: string[] = [];
-      for (let i = 0; i < e.args.length; i++) {
-        const a = e.args[i];
+      for (let i = 0; i < args.length; i++) {
+        const a = args[i];
         try {
-          argTypes.push(inferType(a));
+          argTypes.push(inferArgType(a));
         } catch (err) {
           return { kind: 'error', errorName: 'TypeError', message: `cannot infer a type for argument ${i + 1}: ${messageOf(err)}` };
         }
       }
-      return {
+      const out: EvalOutcome = {
         kind: 'undefined-call',
         name: e.name,
         argTypes,
-        argShown: e.args.map(show),
-        args: e.args.map(encodeValue),
-        call: callString(e.name, e.args),
+        argShown: args.map(show),
+        // a function argument encodes as the `unserializable` placeholder: the engine then omits the replay
+        args: args.map(encodeValue),
+        call: callString(e.name, args),
       };
+      if (trimmed) out.argsTrimmed = 'array-callback';
+      return out;
     }
     if (e instanceof CommittedFault) {
       const err = e.error;
@@ -321,6 +337,84 @@ export class ReplCore {
     }
     return { kind: 'error', errorName: nameOf(e), message: messageOf(e) };
   }
+}
+
+/**
+ * True when `args` is exactly what Array.prototype.map/filter/forEach/find/some/every/flatMap pass a callback —
+ * (value, index, array) with `array[index]` being `value` — AND the line never calls `name` directly (a direct call
+ * with three such arguments is the user's choice, not a callback).
+ */
+export function isArrayCallbackCall(name: string, args: unknown[], src: string): boolean {
+  if (args.length !== 3) return false;
+  const [x, i, arr] = args;
+  if (typeof i !== 'number' || !Number.isInteger(i) || i < 0 || !Array.isArray(arr) || i >= arr.length) return false;
+  let atI: unknown;
+  try {
+    const d = Object.getOwnPropertyDescriptor(arr, i);
+    if (!d || !('value' in d)) return false;
+    atI = d.value;
+  } catch {
+    return false;
+  }
+  if (!Object.is(atI, x)) return false;
+  const escaped = name.replace(/[$]/g, '\\$');
+  return !new RegExp(`(?<![\\w$.])${escaped}\\s*(?:\\?\\.\\s*)?\\(`).test(src);
+}
+
+/**
+ * What a REPL line's SyntaxError should say. The harness wraps the line in `return (<line>\n)`, so V8's message for
+ * the wrapped text can point at a token the user never typed (`median([1, 2` → "Unexpected token ')'"). The bare line
+ * is re-parsed (never run) to get the real problem; if it parses as statements, it is not one expression.
+ */
+export function syntaxErrorMessage(expr: string, wrapped: SyntaxError): string {
+  const open = unclosed(expr);
+  if (open) return `unexpected end of input: ${open}`;
+  let bare: unknown = null;
+  try {
+    // parse only (the function is never called); `new Function` adds its own closing brace after the body
+    // eslint-disable-next-line no-new-func
+    new Function(`"use strict";\n${expr}\n`);
+  } catch (e) {
+    bare = e;
+  }
+  if (bare === null) {
+    return 'a REPL line must be one expression or one binding (x = …); this parses only as statements';
+  }
+  const msg = bare instanceof SyntaxError ? bare.message : wrapped.message;
+  // a token the user never typed can only come from a wrapper: the line ended too early (`1 +`)
+  const token = /^Unexpected token '([)}\]])'$/.exec(msg)?.[1];
+  if ((token && !expr.includes(token)) || /end of input/i.test(msg)) return 'unexpected end of input';
+  return msg.replace(/^./, (c) => c.toLowerCase());
+}
+
+/** The innermost bracket or quote left open at the end of `src` (simple scan: strings, templates, comments). */
+function unclosed(src: string): string | null {
+  const stack: string[] = [];
+  const close: Record<string, string> = { '(': ')', '[': ']', '{': '}' };
+  for (let k = 0; k < src.length; k++) {
+    const c = src[k]!;
+    if (c === '"' || c === "'" || c === '`') {
+      let j = k + 1;
+      while (j < src.length && src[j] !== c) j += src[j] === '\\' ? 2 : 1;
+      if (j >= src.length) return `the string starting with ${c} is not closed`;
+      k = j;
+    } else if (c === '/' && src[k + 1] === '/') {
+      const nl = src.indexOf('\n', k);
+      if (nl < 0) break;
+      k = nl;
+    } else if (c === '/' && src[k + 1] === '*') {
+      const end = src.indexOf('*/', k + 2);
+      if (end < 0) return 'a /* comment is not closed';
+      k = end + 1;
+    } else if (c in close) {
+      stack.push(c);
+    } else if (c === ')' || c === ']' || c === '}') {
+      if (!stack.length || close[stack[stack.length - 1]!] !== c) return null; // a stray closer: the parser says it best
+      stack.pop();
+    }
+  }
+  const top = stack[stack.length - 1];
+  return top ? `a \`${top}\` is never closed (missing \`${close[top]}\`)` : null;
 }
 
 const THUNK_SCAN_DEPTH = 64;

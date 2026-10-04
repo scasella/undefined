@@ -2,7 +2,7 @@
  * Plain-language text for the two honesty surfaces: who decided a rejection (the rejection card) and what the model
  * was sent (the "What the model saw" expander). Pure: built only from what the gates reported and from the prompt.
  */
-import type { Diagnostic, FunctionSpec, GateResult } from '../types';
+import type { Declined, Diagnostic, FunctionSpec, GateResult } from '../types';
 import { listTestNames } from '../shared/specInfo';
 
 /**
@@ -74,4 +74,23 @@ export function modelSawSummary(spec: Pick<FunctionSpec, 'tests' | 'properties'>
     sent: `Sent: ${parts.join(', ')}.`,
     notSent: 'Not sent: the bodies of the tests and properties, or the reference implementation.',
   };
+}
+
+/**
+ * Under the result of a call that grew a function with no tests and no properties (the engine marks it by setting
+ * the output's `note`): an accept there is not an endorsement, so the line says what was and was not checked.
+ */
+export const UNCHECKED_TEXT = 'Only compiled and checked for purity — nothing checked that this is what you meant.';
+
+/** The decline card: a plain headline and the suggested next step. Not a rejection: no gate judged anything. */
+export function declineCopy(d: Declined): { title: string; next: string } {
+  return d.reason === 'cannot-be-pure'
+    ? {
+        title: 'The model declined to fake this.',
+        next: 'Generated functions are pure: no clock, randomness, network, files or hidden state. Pass what it needs in as an argument (for example a seed or a timestamp) and call it again.',
+      }
+    : {
+        title: 'The model needs a spec for this.',
+        next: 'Write a one-line spec that answers the question (“Write a spec” in the REPL opens it with the parameters filled in), then call it again.',
+      };
 }
