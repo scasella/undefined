@@ -18,7 +18,7 @@ revision of your running program. Everything runs in your browser except the mod
 
 ## Run it
 
-**Prerequisites:** Node `^20.19 || >=22.12` (Vite 8's floor; typecheck, 532 tests and the build were run on Node 20.20, 22.23, 25.8 and 26.8; older 20.x releases fail Vite's own engine check), [Codex CLI](https://github.com/openai/codex) 0.157 or later (`npm i -g @openai/codex`), and
+**Prerequisites:** Node `^20.19 || >=22.12` (Vite 8's floor; typecheck, 1126 tests and the build were run on Node 20.20, 22.23 and 26.8; older 20.x releases fail Vite's own engine check), [Codex CLI](https://github.com/openai/codex) 0.157 or later (`npm i -g @openai/codex`), and
 `codex login` completed. No API keys, no cloud backend, nothing leaves your machine except the prompt to Codex.
 
 ```bash
@@ -44,6 +44,10 @@ npm run typecheck
 - **Four one-click examples** (the first three are specs where a rejection happens naturally, see below; the fourth, `orders`, is the data scratchpad with no spec at all): `median`, `slugify`, `fibonacci`, `topCustomersByRevenue(rows)`.
   Each has a **Break it** button that edits the spec: the artifact's hashes no longer match, it is marked invalid, and the
   next call regenerates it.
+- **It will say no.** A call that needs the clock, randomness, the network, files or hidden state cannot be a pure
+  function, and a name like `clean` or `process` says nothing about what it should do. Rather than commit a stub with a
+  green tick, the model can decline, and the REPL says why and what to do (pass the randomness in as an argument; write a
+  one-line spec). A decline commits nothing. `docs/HOSTILE.md` has the 54 stranger-style calls behind this.
 - **Revisions.** Every accepted change is a numbered revision of the whole program *and its live state* (REPL variables).
   One click rolls back; rollbacks are themselves revisions, so history is never rewritten.
 - **Hot reload.** Accepted functions are swapped into the running sandbox worker without a restart and without touching
