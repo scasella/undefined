@@ -1,0 +1,29 @@
+{
+  "name": "undefined",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A live program that grows the functions you call but haven't written. The model proposes; your toolchain decides.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@preact/signals": "^2.11.3",
+    "fast-check": "^4.10.2",
+    "preact": "^11.0.0",
+    "typescript": "^5.9.3"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.6",
+    "@types/node": "^26.6.4",
+    "vite": "^8.3.2",
+    "vitest": "^4.1.11"
+  }
+}
