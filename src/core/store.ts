@@ -272,6 +272,14 @@ export function appendRevision(rev: Revision, head: number): Promise<void> {
   return safely('appendRevision', undefined, () => current().write({ revisions: [rev], kv: { [K_HEAD]: head } }));
 }
 
+/**
+ * Re-store an existing revision (same id) without touching the head: metadata attached after the fact, such as a
+ * mutation report on an artifact's evidence. Evidence is not part of any hash, so nothing is invalidated.
+ */
+export function updateRevision(rev: Revision): Promise<void> {
+  return safely('updateRevision', undefined, () => current().write({ revisions: [rev] }));
+}
+
 export function saveFlags(flags: Persisted['flags']): Promise<void> {
   return safely('saveFlags', undefined, () => current().write({ kv: { [K_FLAGS]: flags } }));
 }

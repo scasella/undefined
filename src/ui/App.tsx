@@ -67,7 +67,7 @@ export function App({ engine, initError }: { engine: Engine; initError?: string 
           </div>
           <div class="col col-right">
             <PanelBoundary name="Gate panel">
-              <GatePanel gen={state.generation} />
+              <GatePanel gen={state.generation} state={state} engine={engine} />
             </PanelBoundary>
             <PanelBoundary name="Candidates">
               <RetryStrip gen={state.generation} />

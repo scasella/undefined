@@ -6,7 +6,10 @@
 import { signal } from '@preact/signals';
 import type { AttemptView, DatasetRef, Engine, EngineState, FunctionSpec, GateResult, RestartId, SpecPatch } from '../../types';
 import { buildData, datasetPreview, PINNED_INFO } from '../../core/engine';
-import { dataDrawerOpen, lowerTab } from '../uiState';
+import { addedChecks, dataDrawerOpen, lowerTab } from '../uiState';
+import { suggestProperties } from '../../suggest/suggest';
+import { appendProperty } from '../../suggest/apply';
+import { addedCheckReason } from '../../shared/evidence';
 import {
   EXAMPLES,
   MEDIAN_BAD,
@@ -45,6 +48,7 @@ export function createFixtureEngine(scenario: string): Engine {
   const ui = SCENARIO_UI[scenario];
   if (ui?.drawer) dataDrawerOpen.value = true;
   if (ui?.tab) lowerTab.value = ui.tab;
+  if (ui?.added) addedChecks.value = ui.added();
 
   const update = (recipe: (s: EngineState) => void): void => {
     const next = structuredClone(state.value);
@@ -286,6 +290,29 @@ export function createFixtureEngine(scenario: string): Engine {
         e.pinned = true;
         pushRevision(s, 'pin', `Pinned: ${e.pinnable.call}`, { fn: e.pinnable.fn });
         s.repl.push({ kind: 'info', id: eid('if'), text: PINNED_INFO, tone: 'accent' });
+      });
+    },
+    async runMutation(fn) {
+      update((s) => void s.repl.push({ kind: 'info', id: eid('if'), text: `fixture: mutation check of ${fn} re-run (scripted report unchanged)`, tone: 'muted' }));
+    },
+    // fixture: a passing re-check (re-certified in place); the recheck-failed scenario shows the failing one
+    async addSuggestedProperty(fn, suggestionId) {
+      update((s) => {
+        const rec = s.program.functions[fn];
+        const sug = rec ? suggestProperties(rec.spec, s.program).find((x) => x.id === suggestionId) : undefined;
+        if (!rec || !sug) return;
+        rec.spec = appendProperty(rec.spec, sug);
+        rec.testsHash = bump(rec.testsHash);
+        pushRevision(s, 'recertify', `${addedCheckReason(sug.title)}: committed function re-certified`, { fn });
+        if (rec.artifact) {
+          rec.artifact.testsHash = rec.testsHash;
+          rec.artifact.recertified = [...(rec.artifact.recertified ?? []), { at: Date.now(), revision: s.headRevision, reason: addedCheckReason(sug.title) }];
+          if (rec.artifact.evidence) {
+            const { mutation: _old, ...ev } = rec.artifact.evidence;
+            rec.artifact.evidence = { ...ev, properties: [...ev.properties, { name: sug.title, runs: 100 }] };
+          }
+        }
+        s.mutation = { fn, phase: 'waiting', done: 0, total: 0 };
       });
     },
     async removePin(fn, pinId) {

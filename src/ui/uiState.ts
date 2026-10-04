@@ -70,3 +70,9 @@ export function downloadText(filename: string, text: string, type = 'application
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+/**
+ * Suggested checks the user added this session, per function. suggestProperties stops offering a check once its
+ * marker is in the spec, so the row that says how it went ("re-certified" / "fails it") is remembered here.
+ */
+export const addedChecks = signal<Array<{ fn: string; id: string; title: string; why: string }>>([]);

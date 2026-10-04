@@ -157,7 +157,10 @@ export interface MutationReport {
 export interface MutantInfo {
   id: string;
   kind: string;
-  /** 1-based line in the artifact source body. */
+  /**
+   * 1-based line in the COMPILED JS function body (mutation/mutate.ts), not in the TypeScript the model wrote: the
+   * emitter reflows code, so show it as "compiled line N".
+   */
   line: number;
   original: string;
   mutated: string;
@@ -561,6 +564,13 @@ export interface GenerationView {
   /** Set on commit. */
   revision?: number;
   mode: 'live' | 'replay';
+  /**
+   * 'recheck': no model was asked; a COMMITTED artifact was re-run against a strengthened spec (a check added after
+   * the commit) and failed it. One attempt holding the four gate results of that re-check. Absent = 'grow'.
+   */
+  kind?: 'grow' | 'recheck';
+  /** Set when kind is 'recheck'. */
+  recheck?: { reason: string };
 }
 
 export interface ExampleInfo {
@@ -600,6 +610,11 @@ export interface EngineState {
   focusSpec?: { fn: string; nonce: number };
   /** Transient message for the UI (import failed, etc.). */
   notice?: { tone: 'info' | 'error'; text: string };
+  /**
+   * The lazy mutation check of a committed function: 'waiting' for the program to be idle, 'running' (done of total
+   * broken copies checked), 'done' (the report is on the artifact's evidence). Absent when nothing is scheduled.
+   */
+  mutation?: { fn: string; phase: 'waiting' | 'running' | 'done'; done: number; total: number };
 }
 
 /** Result of parsing pasted/dropped data before it is loaded (drives the data drawer preview). */
@@ -666,4 +681,11 @@ export interface Engine {
   /** Turn the call and result of a REPL output entry into a pinned unit test on that function. */
   pinResult(entryId: string): Promise<void>;
   removePin(fn: string, pinId: string): Promise<void>;
+  /** Run the mutation check of `fn`'s committed artifact now (the Repo tab's "Re-run" button). */
+  runMutation(fn: string): Promise<void>;
+  /**
+   * Append a suggested property (suggest/suggest.ts id) to `fn`'s spec and re-check the COMMITTED artifact against
+   * it: passing re-certifies it in place (no regeneration); failing leaves it stale and shows the counterexample.
+   */
+  addSuggestedProperty(fn: string, suggestionId: string): Promise<void>;
 }

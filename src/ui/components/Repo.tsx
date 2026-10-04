@@ -7,6 +7,7 @@ import { focusFn } from '../uiState';
 import { CodeView } from './CodeView';
 import { GeneratedBadge, StatusIcon } from './common';
 import { ModelSaw } from './ModelSaw';
+import { ArtifactEvidence } from './Evidence';
 
 const TEST_API = `// Globals in scope: the function under test by its own name, plus
 test(name: string, body: () => void, meta?: { silentOn?: string; reasonable?: string }): void
@@ -133,7 +134,7 @@ function SpecEditor({ rec, engine, busy }: { rec: FunctionRecord; engine: Engine
   );
 }
 
-function ArtifactView({ a, spec, stale }: { a: Artifact; spec: FunctionSpec; stale: boolean }) {
+function ArtifactView({ a, spec, stale, state, engine }: { a: Artifact; spec: FunctionSpec; stale: boolean; state: EngineState; engine: Engine }) {
   const rejected = a.candidates.filter((c) => c.verdict === 'rejected').length;
   return (
     <div class={`artifact${stale ? ' is-stale' : ''}`}>
@@ -164,6 +165,7 @@ function ArtifactView({ a, spec, stale }: { a: Artifact; spec: FunctionSpec; sta
           {a.candidates.length} ({rejected} rejected)
         </dd>
       </dl>
+      <ArtifactEvidence a={a} fn={spec.name} stale={stale} state={state} engine={engine} />
       <CodeView signature={signatureOf(spec, a.returnType)} body={a.body} />
       <details class="history">
         <summary>Candidate history — every proposal and who rejected it</summary>
@@ -270,11 +272,13 @@ function FunctionCard({
   engine,
   example,
   busy,
+  state,
 }: {
   rec: FunctionRecord;
   engine: Engine;
   example?: ExampleInfo;
   busy: boolean;
+  state: EngineState;
 }) {
   const status = functionStatus(rec);
   const spec = rec.spec;
@@ -334,7 +338,7 @@ function FunctionCard({
         </div>
         <div>
           {rec.artifact ? (
-            <ArtifactView a={rec.artifact} spec={spec} stale={status.kind === 'stale'} />
+            <ArtifactView a={rec.artifact} spec={spec} stale={status.kind === 'stale'} state={state} engine={engine} />
           ) : (
             <p class="empty">No artifact yet — it grows on the first call.</p>
           )}
@@ -452,6 +456,7 @@ export function Repo({ state, engine }: { state: EngineState; engine: Engine }) 
           rec={rec}
           engine={engine}
           busy={state.busy}
+          state={state}
           example={rec.spec.exampleId ? state.examples.find((e) => e.id === rec.spec.exampleId) : undefined}
         />
       ))}

@@ -28,6 +28,9 @@ import { inferDataset } from '../../data/infer';
 import { sampleForModel } from '../../data/sample';
 import { tablePreview } from '../../sandbox/replCore';
 import { encodeValue } from '../../shared/serialize';
+import { suggestProperties } from '../../suggest/suggest';
+import { appendProperty } from '../../suggest/apply';
+import { addedCheckReason } from '../../shared/evidence';
 
 export const T0 = Date.UTC(2026, 9, 4, 9, 0, 0);
 const h = (seed: string): string => seed.repeat(64).slice(0, 64);
@@ -639,6 +642,152 @@ function declinedState(call: string, fn: string, argTypes: string[], declined: D
   return s;
 }
 
+// ───────── evidence, the mutation check, suggested checks ─────────
+
+export const SORT_SPEC: FunctionSpec = {
+  name: 'sortNumbers',
+  params: [{ name: 'xs', type: 'number[]' }],
+  returns: 'number[]',
+  doc: 'The numbers in ascending order, as a new array.',
+  tests: 'test("three", () => eq(sortNumbers([3, 1, 2]), [1, 2, 3]));',
+  properties: '',
+  budgetMs: 1500,
+  maxAttempts: 3,
+  origin: 'user',
+};
+export const SORT_GOOD = 'return [...xs].sort((a, b) => a - b);';
+export const SORT_LEXICAL = 'return [...xs].sort();';
+
+function sortGates(): GateResult[] {
+  return [
+    gate('compile', 'pass', 'compiled, strict', { ms: 161 }),
+    gate('tests', 'pass', '1/1 test passed', { ms: 4, counts: { passed: 1, total: 1 } }),
+    gate('properties', 'skipped', 'no properties yet', { note: 'no properties yet — add one to make the gate stricter' }),
+    gate('invariants', 'pass', 'pure ✓ bounded ✓ (2 sampled calls replayed on frozen arguments)', { ms: 3 }),
+  ];
+}
+
+function sortArtifact(body: string, revision: number): Artifact {
+  const c = candidate(1, body, sortGates(), 'copy, then sort');
+  return {
+    body,
+    source: `function sortNumbers(xs: number[]): number[] {\n${body}\n}`,
+    js: `function sortNumbers(xs) {\n    ${body}\n}`,
+    returnType: 'number[]',
+    specHash: h('5a'),
+    testsHash: h('1d'),
+    model: 'gpt-6-luna',
+    codexVersion: '0.157.2',
+    committedAt: T0 + revision * 60_000,
+    candidates: [c],
+    revision,
+    evidence: { compiled: true, unitTests: 1, pinnedTests: 0, properties: [], sampledCalls: 2 },
+  };
+}
+
+function sortState(body: string): EngineState {
+  const s = baseState();
+  s.hints.opener = false;
+  s.replInput = '';
+  s.program.functions.sortNumbers = rec(SORT_SPEC, sortArtifact(body, 3), '5a', '1d');
+  s.revisions = [R1, revRow({ id: 2, kind: 'spec-edit', fn: 'sortNumbers', title: 'Spec added: sortNumbers — no artifact yet' }, 3, 0), revRow({ id: 3, kind: 'commit', fn: 'sortNumbers', title: 'sortNumbers certified — first attempt' }, 3, 1)];
+  s.headRevision = 3;
+  s.repl = [
+    ...openingTranscript('sortNumbers([3, 1, 2])', 'sortNumbers'),
+    { kind: 'output', id: eid('out'), value: '[1, 2, 3]', ms: 0.2, label: 'generated', detail: 'revision 3' },
+  ];
+  s.generation = {
+    ...medianGeneration([doneAttempt(1, body, sortGates(), 'copy, then sort')], { phase: 'committed', attempt: 1, revision: 3 }),
+    id: 'g-sort',
+    fn: 'sortNumbers',
+    signature: 'function sortNumbers(xs: number[]): number[]',
+    call: 'sortNumbers([3, 1, 2])',
+  };
+  return s;
+}
+
+/** The median artifact with its evidence and a finished mutation check (two survivors, one stopped by the bound). */
+function committedEvidenceState(): EngineState {
+  const s = committedState();
+  const a = s.program.functions.median.artifact!;
+  a.evidence = {
+    compiled: true,
+    unitTests: 5,
+    pinnedTests: 0,
+    properties: [
+      { name: 'agrees with the sort-based reference', runs: 100 },
+      { name: 'result is within min and max', runs: 100 },
+    ],
+    sampledCalls: 26,
+    mutation: {
+      total: 12,
+      killed: 9,
+      killedByBound: 1,
+      survived: 2,
+      stillborn: 1,
+      survivors: [
+        { id: 'boundary@1:9+1', kind: 'boundary', line: 1, original: '0', mutated: '-1' },
+        { id: 'comparison@4:34', kind: 'comparison', line: 4, original: '===', mutated: '!==' },
+      ],
+      ms: 1840,
+      at: T0 + 180_000,
+    },
+  };
+  s.mutation = { fn: 'median', phase: 'done', done: 12, total: 12 };
+  return s;
+}
+
+function suggestionsState(): EngineState {
+  const s = sortState(SORT_GOOD);
+  s.mutation = { fn: 'sortNumbers', phase: 'running', done: 5, total: 12 };
+  return s;
+}
+
+/** The sortNumbers check that the lexical-sort body fails. */
+export function sortedSuggestion() {
+  return suggestProperties(SORT_SPEC, { functions: {} }).find((x) => x.kind === 'sorted')!;
+}
+
+function recheckFailedState(): EngineState {
+  const s = sortState(SORT_LEXICAL);
+  const sug = sortedSuggestion();
+  const reason = addedCheckReason(sug.title);
+  const spec = appendProperty(SORT_SPEC, sug);
+  const r = s.program.functions.sortNumbers;
+  s.program.functions.sortNumbers = { ...r, spec, testsHash: h('e4') }; // stale: certified against the old tests
+  s.revisions.push(revRow({ id: 4, kind: 'spec-edit', fn: 'sortNumbers', title: `${reason}: the committed function fails it`, detail: 'tests hash 1d1d… → e4e4…' }, 3, 0));
+  s.headRevision = 4;
+  const headline = `Rejected: property "${sug.title}" failed for sortNumbers([10, 2])`;
+  const gates: GateResult[] = [
+    gate('compile', 'pass', 'compiled, strict', { ms: 142 }),
+    gate('tests', 'pass', '1/1 test passed', { ms: 3, counts: { passed: 1, total: 1 } }),
+    gate('properties', 'fail', `1/1 property failed (12 runs: ${JSON.stringify(sug.title)} 12)`, {
+      ms: 21,
+      counts: { passed: 0, total: 1 },
+      headline,
+      diagnostics: [
+        { kind: 'property', name: sug.title, call: 'sortNumbers([10, 2])', counterexample: '[[10, 2]]', actual: '[10, 2]', shrinks: 9, runs: 12, seed: 1840213377 },
+      ],
+    }),
+    notReached('invariants'),
+  ];
+  const c: Candidate = { ...candidate(1, SORT_LEXICAL, gates, ''), verdict: 'rejected', rejectedBy: 'properties', headline };
+  s.generation = {
+    ...s.generation!,
+    id: 'g-recheck',
+    phase: 'failed',
+    attempt: 1,
+    maxAttempts: 1,
+    progress: [],
+    attempts: [{ attempt: 1, status: 'rejected', shown: SORT_LEXICAL, gates, candidate: c }],
+    call: 'sortNumbers (committed r3)',
+    kind: 'recheck',
+    recheck: { reason },
+  };
+  s.repl.push({ kind: 'info', id: eid('if'), text: 'You added a check and the function committed earlier fails it. It will be regenerated on the next call.', tone: 'warn' });
+  return s;
+}
+
 // ───────── scenarios ─────────
 
 export const SCENARIOS: Record<string, () => EngineState> = {
@@ -667,6 +816,10 @@ export const SCENARIOS: Record<string, () => EngineState> = {
   },
 
   committed: committedState,
+
+  'committed-evidence': committedEvidenceState,
+  suggestions: suggestionsState,
+  'recheck-failed': recheckFailedState,
 
   cached: () => {
     const s = committedState();
@@ -970,9 +1123,19 @@ export const SCENARIOS: Record<string, () => EngineState> = {
 };
 
 /** Scenarios that open UI-only state (the data drawer, the Repo tab) when the fixture engine starts. */
-export const SCENARIO_UI: Record<string, { drawer?: boolean; tab?: 'revisions' | 'repo' }> = {
+export const SCENARIO_UI: Record<
+  string,
+  { drawer?: boolean; tab?: 'revisions' | 'repo'; added?: () => Array<{ fn: string; id: string; title: string; why: string }> }
+> = {
   'data-drawer-open': { drawer: true },
   pinned: { tab: 'repo' },
+  'committed-evidence': { tab: 'repo' },
+  'recheck-failed': {
+    added: () => {
+      const sug = sortedSuggestion();
+      return [{ fn: 'sortNumbers', id: sug.id, title: sug.title, why: sug.why }];
+    },
+  },
 };
 
 export const SCENARIO_NAMES = Object.keys(SCENARIOS);

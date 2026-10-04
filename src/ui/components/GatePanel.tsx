@@ -1,10 +1,15 @@
-import { GATE_ORDER, type AttemptView, type GateResult, type GenerationView } from '../../types';
+import { GATE_ORDER, type AttemptView, type Engine, type EngineState, type GateResult, type GenerationView } from '../../types';
 import { fmtMs } from '../format';
 import { attribution, failingGate, gateAttempt, isLatestAttempt } from '../select';
 import { selection } from '../uiState';
 import { CopyBlock, PanelHead, StatusIcon, statusWord } from './common';
 import { DiagnosticFacts, DiagnosticItem } from './Diagnostics';
 import { declineCopy, whoDecided } from '../explain';
+import { committedArtifact } from '../evidence';
+import { Confidence, MoreChecks } from './Evidence';
+
+/** Under a re-check's headline: why a committed function is being rejected at all. */
+export const RECHECK_LINE = 'You added this check after the function was committed. The committed function fails it.';
 
 const GATE_LABEL = { compile: 'Compile', tests: 'Tests', properties: 'Properties', invariants: 'Invariants' } as const;
 const GATE_WHAT = {
@@ -72,14 +77,16 @@ function Headline({ gen, a }: { gen: GenerationView; a: AttemptView }) {
   const fail = failingGate(a.gates);
   if (fail) {
     const first = fail.diagnostics[0];
+    const recheck = gen.kind === 'recheck';
     return (
-      <div class="headline headline-fail" key={`${gen.id}:${a.attempt}`}>
+      <div class={`headline headline-fail${recheck ? ' headline-recheck' : ''}`} key={`${gen.id}:${a.attempt}`}>
         <p class="headline-gate">
           <span aria-hidden="true">✕</span> {fail.gate.toUpperCase()}
-          <span class="muted"> · candidate #{a.attempt}</span>
+          <span class="muted">{recheck ? ' · re-check of the committed function' : ` · candidate #${a.attempt}`}</span>
           {fail.note && <span class="spec-error"> · {fail.note}</span>}
         </p>
         <p class="headline-text">{fail.headline ?? a.candidate?.headline ?? `Rejected by ${fail.gate}`}</p>
+        {recheck && <p class="recheck-line">{RECHECK_LINE}</p>}
         <div class="who" aria-label="Who decided">
           {whoDecided(fail, a.attempt).map((line, i) => (
             <p key={i} class={i === 0 ? 'who-line' : 'who-line who-fair'}>
@@ -107,8 +114,12 @@ function Headline({ gen, a }: { gen: GenerationView; a: AttemptView }) {
   return null;
 }
 
-export function GatePanel({ gen }: { gen: GenerationView | null }) {
+export function GatePanel({ gen, state, engine }: { gen: GenerationView | null; state?: EngineState; engine?: Engine }) {
   const a = gateAttempt(gen, selection.value);
+  const recheck = gen?.kind === 'recheck';
+  // after a commit (never before): what ran against the committed function, and the checks that could still be added
+  const committed = state && a?.status === 'accepted' ? committedArtifact(gen, state.program) : undefined;
+  const checksFor = state && engine && gen && (committed || recheck) ? gen.fn : null;
   const rows = rowsFor(a);
   const failing = a ? failingGate(a.gates) : undefined;
   const diags = a ? a.gates.filter((g) => g.diagnostics.length > 0) : [];
@@ -118,7 +129,7 @@ export function GatePanel({ gen }: { gen: GenerationView | null }) {
   return (
     <section class="panel panel-gates" aria-label="Gates">
       <PanelHead ch="03" title="Gates">
-        {gen && (
+        {gen && !recheck && (
           <span class="budget mono">
             attempt {gen.attempt} of {gen.maxAttempts}
           </span>
@@ -161,7 +172,8 @@ export function GatePanel({ gen }: { gen: GenerationView | null }) {
             </div>
           ) : (
             gen?.phase === 'failed' &&
-            !gen.declined && (
+            !gen.declined &&
+            !recheck && (
               <p class="exhausted">
                 Budget exhausted after {gen.attempts.length} candidate{gen.attempts.length === 1 ? '' : 's'} — the
                 program is unchanged.
@@ -170,6 +182,8 @@ export function GatePanel({ gen }: { gen: GenerationView | null }) {
           )}
           {gen && a && <Headline gen={gen} a={a} />}
         </div>
+        {committed && gen && <Confidence a={committed} fn={gen.fn} mutation={state?.mutation} />}
+        {checksFor && state && engine && <MoreChecks state={state} engine={engine} fn={checksFor} />}
 
         {!gen && <p class="empty">The gates run here when a call grows a function. Nothing has been judged yet.</p>}
 

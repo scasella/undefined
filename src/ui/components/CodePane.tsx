@@ -26,7 +26,7 @@ export function CodePane({ state }: { state: EngineState }) {
       <section class="panel panel-code" aria-label="Candidate code">
         <PanelHead ch="02" title="Candidate">
           <span class="muted mono">
-            #{attempt.attempt} of {gen.maxAttempts} · {gen.fn}
+            {gen.kind === 'recheck' ? `committed body · ${gen.fn}` : `#${attempt.attempt} of ${gen.maxAttempts} · ${gen.fn}`}
           </span>
           {holdover ? (
             <>
@@ -39,7 +39,7 @@ export function CodePane({ state }: { state: EngineState }) {
             </>
           ) : (
             <span class={`chip st-${attempt.status}${attempt.candidate?.declined ? ' st-declined' : ''}`}>
-              {attempt.candidate?.declined ? 'declined' : STATUS_TEXT[attempt.status]}
+              {attempt.candidate?.declined ? 'declined' : gen.kind === 'recheck' ? 'fails the added check' : STATUS_TEXT[attempt.status]}
             </span>
           )}
           {committed && <GeneratedBadge />}

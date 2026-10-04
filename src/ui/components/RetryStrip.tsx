@@ -15,7 +15,7 @@ export function RetryStrip({ gen }: { gen: GenerationView | null }) {
   return (
     <section class="panel panel-strip" aria-label="Candidates">
       <PanelHead ch="04" title="Candidates">
-        {gen && (
+        {gen && gen.kind !== 'recheck' && (
           <span class="muted mono small">
             {gen.fn} · {gen.attempts.length}/{gen.maxAttempts} used
           </span>
@@ -23,7 +23,12 @@ export function RetryStrip({ gen }: { gen: GenerationView | null }) {
       </PanelHead>
       <p class="strip-caption muted small">Every candidate the model proposes lands here, rejected ones too.</p>
       <div class="panel-body">
-        {!gen ? (
+        {gen?.kind === 'recheck' ? (
+          <p class="empty small">
+            No candidates: the model was not asked. The committed function was re-checked against the check you added;
+            the next call regenerates it.
+          </p>
+        ) : !gen ? (
           <p class="empty small">Nothing proposed yet.</p>
         ) : (
           <ol class="chips">

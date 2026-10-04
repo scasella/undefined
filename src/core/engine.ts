@@ -23,6 +23,7 @@ import type {
   Engine,
   EngineState,
   EvalOutcome,
+  Evidence,
   ExampleInfo,
   FunctionSpec,
   GateId,
@@ -34,6 +35,7 @@ import type {
   Generator,
   Hash,
   Json,
+  MutationReport,
   Pacing,
   Pin,
   PinArg,
@@ -49,7 +51,13 @@ import type {
 import { GATE_ORDER } from '../types';
 import { compileCandidate, transpileUserCode, warmUp, type CompileOutput } from '../gates/compile';
 import { specFromCall } from '../gates/source';
-import { runExecutionGates, type ExecGateInput, type PinnedCase } from '../sandbox/gateRunner';
+import { evidenceFrom, runExecutionGates, type ExecGateInput, type PinnedCase } from '../sandbox/gateRunner';
+import { DEFAULT_MAX_MUTANTS, DEFAULT_TIME_BOX_MS, runMutation as runMutants, type MutantRunner } from '../mutation/run';
+import { generateMutants } from '../mutation/mutate';
+import { NO_TESTS_REASON, skippedReport } from '../mutation/classify';
+import { suggestProperties } from '../suggest/suggest';
+import { appendProperty } from '../suggest/apply';
+import { addedCheckReason, MUTATION_FAILED_PREFIX } from '../shared/evidence';
 import { MASKED_NAMES } from '../sandbox/mask';
 import { Runtime } from '../sandbox/runtime';
 import { gateSeed, hashesFor, sha256Hex } from '../shared/hash';
@@ -116,6 +124,8 @@ export interface EngineStore {
   appendRevision(rev: Revision, head: number): Promise<void>;
   saveFlags(flags: store.Persisted['flags']): Promise<void>;
   saveLiveEnv(env: Record<string, Json>): Promise<void>;
+  /** Re-store an existing revision without moving the head (evidence attached after the fact). Optional for older stores. */
+  updateRevision?(rev: Revision): Promise<void>;
   /** Dataset rows, encoded, by hash (only the ones some revision still refers to). Optional for older stores. */
   saveDatasets?(datasets: Record<Hash, Json>): Promise<void>;
   clearAll(): Promise<void>;
@@ -147,6 +157,12 @@ export interface EngineDeps {
   inputMemory: { load(): string | null; save(text: string): void };
   /** Text of a bundled data file (e.g. `orders.csv` for the orders example); null when there is none. */
   bundledData(filename: string): Promise<string | null>;
+  /**
+   * Lazy mutation check timing (real timers, never deps.sleep): start once the engine has been idle `idleMs`
+   * (default 4000) and at least `quietMs` (default 10000) after the last Enter; stop starting mutants after
+   * `timeBoxMs` (default 6000). Optional so older callers and tests keep the defaults.
+   */
+  mutation?: { idleMs?: number; quietMs?: number; timeBoxMs?: number };
 }
 
 export const DEFAULT_PACING: Pacing = { typeCharMs: 6, gateDwellMs: 450, replayMaxMs: 5000 };
@@ -296,6 +312,7 @@ function defaultDeps(): EngineDeps {
       appendRevision: store.appendRevision,
       saveFlags: store.saveFlags,
       saveLiveEnv: store.saveLiveEnv,
+      updateRevision: store.updateRevision,
       saveDatasets: store.saveDatasets,
       clearAll: store.clearAll,
     },
@@ -359,6 +376,54 @@ export function decodeCallArgs(args: unknown): unknown[] | undefined {
   } catch {
     return undefined;
   }
+}
+
+// ───────────────────────── evidence & mutation ─────────────────────────
+
+/** Idle time before the lazy mutation check starts (no generation, no submit, no queued operation). */
+export const MUTATION_IDLE_MS = 4000;
+/** The check never starts sooner than this after an Enter, so nothing new moves while the opening sequence plays. */
+export const MUTATION_QUIET_MS = 10_000;
+/** Per-call budget for mutants (a mutant is a broken copy: it gets at most a second per call). */
+const MUTANT_CALL_BUDGET_MS = 1000;
+export const RECHECK_FAILED_INFO =
+  'You added a check and the function committed earlier fails it. It will be regenerated on the next call.';
+
+/** Gate-result failures that are not a verdict on the mutant: the run could not happen. */
+const INFRA_DIAGNOSTICS = new Set(['(load)', '(spec error)', '(gate runner)', '(gate worker)']);
+const INFRA_NOTES = new Set(['spec error', 'gate worker error']);
+
+function infraFailure(r: GateResult): string | null {
+  if (r.status !== 'fail') return null;
+  const d = r.diagnostics.find((x) => x.kind === 'test' && INFRA_DIAGNOSTICS.has(x.name));
+  if (d || (r.note && INFRA_NOTES.has(r.note)) || r.summary === 'gate runner error') {
+    const what = d && d.kind === 'test' ? (d.error ?? d.message) : (r.headline ?? r.summary);
+    return `${r.summary || r.note || 'gate error'}: ${what}`.replace(/^(.+): \1$/, '$1');
+  }
+  return null;
+}
+
+/**
+ * One mutant's fate from its Tests/Properties gate results (plus an Invariants failure, attribution rule):
+ * no failure → 'survived'; an Invariants `bounded` failure (the watchdog stopped a call, or the per-mutant overall
+ * cap, which is a time limit too) → 'killed-by-bound'; any other test/property/invariant failure → 'killed'.
+ * A load error, spec error or gate-runner fault is not a kill: it throws, and the whole check fails visibly.
+ */
+export function classifyMutant(results: readonly GateResult[]): 'killed' | 'killed-by-bound' | 'survived' {
+  const failed = results.filter((r) => r.status === 'fail');
+  if (failed.length === 0) return 'survived';
+  for (const r of failed) {
+    const infra = infraFailure(r);
+    if (infra) throw new Error(infra);
+  }
+  const inv = failed.find((r) => r.gate === 'invariants');
+  if (inv && inv.diagnostics.some((d) => d.kind === 'invariant' && d.invariant === 'bounded')) return 'killed-by-bound';
+  return 'killed';
+}
+
+/** Facts about what ran against an accepted candidate (compile passed, by construction). */
+export function evidenceOf(gates: readonly GateResult[], mutation?: MutationReport): Evidence {
+  return { compiled: true, ...evidenceFrom(gates), ...(mutation ? { mutation } : {}) };
 }
 
 // ───────────────────────── data ─────────────────────────
@@ -598,6 +663,18 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
    * form (persisted / exported) and the decoded rows (gates, samples). Garbage-collected to what some revision uses.
    */
   const content = new Map<Hash, { encoded: Json; rows: unknown[] }>();
+  /** Lazy mutation check: functions waiting for one, the run in flight, its idle timer, and the activity clock. */
+  const mutCfg = {
+    idleMs: deps.mutation?.idleMs ?? MUTATION_IDLE_MS,
+    quietMs: deps.mutation?.quietMs ?? MUTATION_QUIET_MS,
+    timeBoxMs: deps.mutation?.timeBoxMs ?? DEFAULT_TIME_BOX_MS,
+  };
+  const mutQueue: string[] = [];
+  let mutRun: { fn: string; ctrl: AbortController } | null = null;
+  let mutTimer: ReturnType<typeof setTimeout> | null = null;
+  // performance.now(), not deps.now(): tests drive deps.now() as a fake clock
+  let lastActivity = performance.now();
+  let lastEnter = Number.NEGATIVE_INFINITY;
 
   // ── state plumbing ──
 
@@ -694,6 +771,8 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
   function exclusive(what: string | null, op: () => Promise<void>, onSkip?: () => void): Promise<void> {
     const myEpoch = epoch;
     if (opsPending > 0 && what) notice('info', `${WAITING_PREFIX}${what}…`);
+    // Every operation that may change the program stops a running mutation check (it re-runs after the next idle).
+    cancelMutation();
     opsPending++;
     const run = opTail.then(async () => {
       if (disposed || myEpoch !== epoch) {
@@ -709,9 +788,11 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     const settled = run.then(
       () => {
         opsPending--;
+        idleAgain();
       },
       (e: unknown) => {
         opsPending--;
+        idleAgain();
         console.warn('[engine] operation failed', e);
       },
     );
@@ -920,6 +1001,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     const text = s.replInput.trim();
     if (!s.ready || s.busy || text === '' || !runtime) return Promise.resolve();
     const myEpoch = epoch;
+    lastEnter = performance.now();
     busyStart();
     set({ replInput: '' });
     deps.inputMemory.save(text);
@@ -1362,7 +1444,12 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       }
 
       if (verdict === 'accepted') {
-        const revision = await commit(req, body, gated.compile, specHash, testsHash, model, codexVersion, candidates, maxAttempts);
+        // What actually ran, as facts (never a score). No tests, properties or pins: nothing could kill a mutant, so
+        // the mutation check is recorded as skipped right away; otherwise it runs lazily once the engine is idle.
+        const ungated = isUngated(spec);
+        const evidence = evidenceOf(gated.gates, ungated ? skippedReport(NO_TESTS_REASON, deps.now()) : undefined);
+        const revision = await commit(req, body, gated.compile, specHash, testsHash, model, codexVersion, candidates, maxAttempts, evidence);
+        if (!ungated) enqueueMutation(fn);
         setGen({ phase: 'committed', revision });
         return { kind: 'committed', revision, grown: { fn, ungated: isUngated(spec), notes: result.notes } };
       }
@@ -1428,7 +1515,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
    * A spec's pins as gate cases: arguments and expected value decoded, dataset arguments resolved to the stored rows
    * by hash. A pin whose dataset is no longer stored is skipped, and the user is told.
    */
-  function decodePins(spec: FunctionSpec): PinnedCase[] {
+  function decodePins(spec: FunctionSpec, quiet = false): PinnedCase[] {
     const out: PinnedCase[] = [];
     const skipped: string[] = [];
     for (const pin of spec.pins ?? []) {
@@ -1450,7 +1537,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         skipped.push(pin.label);
       }
     }
-    if (skipped.length > 0) {
+    if (skipped.length > 0 && !quiet) {
       notice(
         'error',
         `Skipped ${plural(skipped.length, 'pinned test')} (${skipped.join(', ')}): the data it was pinned on is no longer stored. Remove the pin in the Repo tab, or pin the result again.`,
@@ -1622,6 +1709,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     codexVersion: string,
     candidates: Candidate[],
     maxAttempts: number,
+    evidence: Evidence,
   ): Promise<number> {
     const { fn, spec } = req;
     const base = headRev().program;
@@ -1645,6 +1733,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       committedAt: deps.now(),
       candidates: [...candidates],
       revision: revisionId,
+      evidence,
     };
     const program = withArtifact(withRec, fn, artifact);
     const rejected = candidates.filter((c) => c.verdict !== 'accepted').length;
@@ -1672,7 +1761,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
   // The public operations below go through `exclusive`; the *Inner variants assume they already hold the queue
   // (they call each other, never the public ones, so nothing waits on itself).
 
-  async function applySpec(next: FunctionSpec, opts: { kind: Revision['kind']; title?: string }): Promise<void> {
+  async function applySpec(next: FunctionSpec, opts: { kind: Revision['kind']; title?: string; quiet?: boolean }): Promise<void> {
     const name = next.name;
     const base = headRev().program;
     const before = base.functions[name];
@@ -1726,7 +1815,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       ...(changes.length ? { detail: changes.join(' · ') } : {}),
     });
     await commitRevision(rev);
-    if (before) {
+    if (before && !opts.quiet) {
       const tail = invalidates
         ? 'artifact invalidated; the next call regenerates'
         : revalidated
@@ -2103,6 +2192,388 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     });
   }
 
+  // ───────────────────────── mutation check (lazy) ─────────────────────────
+  // Mutation testing asks "did the checks actually check anything?": broken copies of the committed function are run
+  // against the same tests, properties and pins. It runs OUTSIDE the operation queue, only when the engine is idle,
+  // and every queued operation cancels it (no partial report is stored; it re-runs after the next idle). The report
+  // is metadata attached to the artifact after the fact: evidence is not part of any hash, so nothing goes stale.
+
+  const setMutation = (m: EngineState['mutation'] | null): void => {
+    if (m) {
+      set({ mutation: m });
+    } else if (state.value.mutation) {
+      const { mutation: _gone, ...rest } = state.value;
+      state.value = rest;
+    }
+  };
+
+  function scheduleMutation(): void {
+    if (disposed || mutRun || mutQueue.length === 0) return;
+    if (mutTimer !== null) clearTimeout(mutTimer);
+    const now = performance.now();
+    const wait = Math.max(lastActivity + mutCfg.idleMs - now, lastEnter + mutCfg.quietMs - now, 0);
+    mutTimer = setTimeout(mutationTick, Math.ceil(wait) + 5);
+  }
+
+  /** An operation finished: the idle clock restarts. */
+  function idleAgain(): void {
+    lastActivity = performance.now();
+    scheduleMutation();
+  }
+
+  function enqueueMutation(fn: string): void {
+    if (!mutQueue.includes(fn)) mutQueue.push(fn);
+    if (!mutRun) setMutation({ fn: mutQueue[0]!, phase: 'waiting', done: 0, total: 0 });
+    scheduleMutation();
+  }
+
+  /** Stop a running check (it goes back to the front of the queue); the idle clock restarts. */
+  function cancelMutation(): void {
+    lastActivity = performance.now();
+    if (mutRun) {
+      const { fn, ctrl } = mutRun;
+      mutRun = null;
+      ctrl.abort();
+      if (!mutQueue.includes(fn)) mutQueue.unshift(fn);
+      setMutation({ fn: mutQueue[0]!, phase: 'waiting', done: 0, total: 0 });
+    }
+    scheduleMutation();
+  }
+
+  function clearMutations(): void {
+    mutQueue.length = 0;
+    mutRun?.ctrl.abort();
+    mutRun = null;
+    if (mutTimer !== null) clearTimeout(mutTimer);
+    mutTimer = null;
+    setMutation(null);
+  }
+
+  function mutationTick(): void {
+    mutTimer = null;
+    if (disposed || mutRun || mutQueue.length === 0) return;
+    const now = performance.now();
+    if (busyCount > 0 || opsPending > 0 || now < lastActivity + mutCfg.idleMs || now < lastEnter + mutCfg.quietMs) {
+      scheduleMutation();
+      return;
+    }
+    void runMutationNow(mutQueue.shift()!);
+  }
+
+  /** The live artifact of `fn` this check is about (identity: revision, hashes, body). */
+  const sameArtifact = (a: Artifact | null | undefined, b: Artifact): boolean =>
+    !!a && a.revision === b.revision && a.specHash === b.specHash && a.testsHash === b.testsHash && a.body === b.body;
+
+  /** Run the check for `fn` now (outside the queue). Resolves when it is stored, cancelled or not applicable. */
+  async function runMutationNow(fn: string): Promise<void> {
+    const rec = headRev().program.functions[fn];
+    if (!rec || !isLive(rec)) {
+      // regrown, edited or rolled away since it was queued: nothing to check
+      if (state.value.mutation?.fn === fn) setMutation(null);
+      next();
+      return;
+    }
+    const artifact = rec.artifact!;
+    if (isUngated(rec.spec)) {
+      await attachMutation(fn, artifact, skippedReport(NO_TESTS_REASON, deps.now()));
+      setMutation({ fn, phase: 'done', done: 0, total: 0 });
+      next();
+      return;
+    }
+    const ctrl = new AbortController();
+    mutRun = { fn, ctrl };
+    setMutation({ fn, phase: 'running', done: 0, total: 0 });
+    let report: MutationReport;
+    let baseline: Evidence | undefined;
+    try {
+      const r = await mutationReport(rec, ctrl.signal, (done, total) => {
+        if (mutRun?.ctrl === ctrl) setMutation({ fn, phase: 'running', done, total });
+      });
+      report = r.report;
+      baseline = r.baseline;
+    } catch (e) {
+      if (ctrl.signal.aborted || mutRun?.ctrl !== ctrl) return; // cancelled: re-queued by cancelMutation
+      report = skippedReport(`${MUTATION_FAILED_PREFIX}${errorText(e)}`, deps.now());
+    }
+    if (ctrl.signal.aborted || mutRun?.ctrl !== ctrl || disposed) return;
+    mutRun = null;
+    await attachMutation(fn, artifact, report, baseline);
+    setMutation({ fn, phase: 'done', done: report.total, total: report.total });
+    next();
+
+    function next(): void {
+      if (mutQueue.length > 0) {
+        setMutation({ fn: mutQueue[0]!, phase: 'waiting', done: 0, total: 0 });
+        scheduleMutation();
+      }
+    }
+  }
+
+  /**
+   * Generate up to DEFAULT_MAX_MUTANTS mutants of the artifact's compiled JS and run each against the spec's tests,
+   * properties and pins (phases tests + properties; the Invariants gate still reports a bounded/pure violation).
+   * Same seed as the gates. An artifact committed before evidence was kept first gets a baseline run of all gates
+   * (a kill only means something if the original passes).
+   */
+  async function mutationReport(
+    rec: Program['functions'][string],
+    sig: AbortSignal,
+    progress: (done: number, total: number) => void,
+  ): Promise<{ report: MutationReport; baseline?: Evidence }> {
+    const { spec } = rec;
+    const artifact = rec.artifact!;
+    const seed = gateSeed(rec.specHash, rec.testsHash);
+    const tests = deps.transpile(spec.tests);
+    const props = deps.transpile(spec.properties);
+    if (tests.error) throw new Error(`the spec's tests do not load (${tests.error})`);
+    if (props.error) throw new Error(`the spec's properties do not load (${props.error})`);
+    const pinned = decodePins(spec, true);
+    const common = {
+      name: spec.name,
+      testsJs: tests.js,
+      propertiesJs: props.js,
+      seed,
+      ...(pinned.length > 0 ? { pinned } : {}),
+    };
+    let baseline: Evidence | undefined;
+    if (!artifact.evidence) {
+      const all = await deps.execGates({ ...common, js: artifact.js, budgetMs: spec.budgetMs });
+      if (sig.aborted) throw new Aborted();
+      const bad = all.find((g) => g.status === 'fail');
+      if (bad) throw new Error(`the committed function does not pass its own checks now (${bad.headline ?? bad.summary})`);
+      baseline = evidenceOf(all);
+    }
+    const max = DEFAULT_MAX_MUTANTS;
+    // Same seed and max as runMutants below, so the same mutants: only to know the total for the progress line.
+    const { mutants } = await generateMutants(artifact.js, { seed, max });
+    if (sig.aborted) throw new Aborted();
+    const total = mutants.length;
+    progress(0, total);
+    const budgetMs = Math.min(spec.budgetMs, MUTANT_CALL_BUDGET_MS);
+    const boxStart = performance.now();
+    let done = 0;
+    const runner: MutantRunner = async (js) => {
+      if (sig.aborted) throw new Aborted();
+      // run.ts checks the time box only between mutants: cap each run so one slow mutant cannot blow it. Hitting the
+      // cap is an Invariants `bounded` failure, i.e. "stopped by the time limit" (killed-by-bound), never a pass.
+      const left = mutCfg.timeBoxMs - (performance.now() - boxStart);
+      const results = await deps.execGates({
+        ...common,
+        js,
+        budgetMs,
+        phases: ['tests', 'properties'],
+        overallCapMs: Math.max(2 * budgetMs, Math.round(left)),
+      });
+      if (sig.aborted) throw new Aborted();
+      const fate = classifyMutant(results);
+      progress(++done, total);
+      return fate;
+    };
+    const report = await runMutants({ js: artifact.js, seed, max, timeBoxMs: mutCfg.timeBoxMs, runner });
+    return { report, ...(baseline ? { baseline } : {}) };
+  }
+
+  /**
+   * Store `report` on every revision whose program holds this exact artifact (same revision, hashes and body): the
+   * head and the revision it was committed (or re-certified) in. Synchronous up to the history swap; then persisted.
+   */
+  async function attachMutation(fn: string, artifact: Artifact, report: MutationReport, baseline?: Evidence): Promise<void> {
+    if (!sameArtifact(headRev().program.functions[fn]?.artifact, artifact)) return;
+    const changed: Revision[] = [];
+    history = history.map((r) => {
+      const rec = r.program.functions[fn];
+      if (!rec || !sameArtifact(rec.artifact, artifact)) return r;
+      const a = rec.artifact!;
+      const base: Evidence = a.evidence ?? baseline ?? { compiled: true, unitTests: 0, pinnedTests: 0, properties: [], sampledCalls: 0 };
+      const next: Revision = {
+        ...r,
+        program: { ...r.program, functions: { ...r.program.functions, [fn]: { ...rec, artifact: { ...a, evidence: { ...base, mutation: report } } } } },
+      };
+      changed.push(next);
+      return next;
+    });
+    publishHistory();
+    for (const r of changed) {
+      if (deps.store.updateRevision) await deps.store.updateRevision(r);
+      else await deps.store.appendRevision(r, head);
+    }
+  }
+
+  /** The Repo tab's "Re-run mutation check": after queued operations, now, without waiting for idle. */
+  async function runMutationPublic(fn: string): Promise<void> {
+    await opTail;
+    if (disposed) return;
+    if (mutRun) {
+      const running = mutRun;
+      mutRun = null;
+      running.ctrl.abort();
+      if (running.fn !== fn && !mutQueue.includes(running.fn)) mutQueue.unshift(running.fn);
+    }
+    const at = mutQueue.indexOf(fn);
+    if (at >= 0) mutQueue.splice(at, 1);
+    if (mutTimer !== null) clearTimeout(mutTimer);
+    mutTimer = null;
+    await runMutationNow(fn);
+  }
+
+  // ───────────────────────── suggested checks: re-certify ─────────────────────────
+
+  /**
+   * Add a suggested property and re-check the COMMITTED artifact against the strengthened spec instead of letting the
+   * hash change make it stale: its stored body is recompiled and run through tests, properties (with the new one),
+   * pins and invariants with the new spec's seed. Pass → re-certified in place (hashes restamped, evidence
+   * recomputed, still live, no restart, no regeneration). Fail → the spec change is applied, the artifact is stale
+   * and the gate panel shows the re-check's verdict with its counterexample. Used for nothing else.
+   */
+  function addSuggestedProperty(fn: string, suggestionId: string): Promise<void> {
+    return exclusive('add the check', async () => {
+      try {
+        const base = headRev().program;
+        const rec = base.functions[fn];
+        if (!rec) {
+          notice('error', `No function named ${fn}`);
+          return;
+        }
+        const suggestion = suggestProperties(rec.spec, base).find((x) => x.id === suggestionId);
+        if (!suggestion) {
+          notice('error', 'That suggested check no longer applies to the current spec; nothing was added.');
+          return;
+        }
+        const next = appendProperty(rec.spec, suggestion);
+        if (next === rec.spec) return;
+        const reason = addedCheckReason(suggestion.title);
+        if (!isLive(rec)) {
+          await applySpec(next, { kind: 'spec-edit', title: `${reason} (no committed function to re-check)` });
+          return;
+        }
+        const artifact = rec.artifact!;
+        const { specHash, testsHash } = await hashesFor(next);
+        const compiled = await deps.compile(next, artifact.body);
+        const tests = deps.transpile(next.tests);
+        const props = deps.transpile(next.properties);
+        const loadError = tests.error ?? props.error;
+        if (loadError) {
+          notice('error', `The suggested check does not load (${loadError}); nothing was added.`);
+          return;
+        }
+        let gates: GateResult[];
+        if (compiled.gate.status === 'fail' || compiled.js === null) {
+          gates = [compiled.gate, notReached('tests'), notReached('properties'), notReached('invariants')];
+        } else {
+          const pinned = decodePins(next);
+          const results = await deps
+            .execGates({
+              name: fn,
+              js: compiled.js,
+              testsJs: tests.js,
+              propertiesJs: props.js,
+              budgetMs: next.budgetMs,
+              seed: gateSeed(specHash, testsHash),
+              ...(pinned.length > 0 ? { pinned } : {}),
+            })
+            .catch((e: unknown): GateResult[] => [
+              {
+                gate: 'tests',
+                status: 'fail',
+                ms: 0,
+                summary: 'gate runner error',
+                headline: `Rejected: gate runner error: ${errorText(e)}`,
+                diagnostics: [{ kind: 'test', name: '(gate runner)', message: errorText(e), error: errorText(e) }],
+              },
+            ]);
+          gates = [compiled.gate, ...GATE_ORDER.slice(1).map((g) => results.find((r) => r.gate === g) ?? notReached(g))];
+        }
+        const infra = gates.map(infraFailure).find((x) => x !== null);
+        if (infra) {
+          notice('error', `Could not re-check ${fn} against the new check (${infra}); nothing was added.`);
+          return;
+        }
+        const failing = gates.find((g) => g.status === 'fail');
+        if (!failing) {
+          await recertify(fn, next, artifact, compiled, gates, reason, { specHash, testsHash, before: rec.testsHash });
+          return;
+        }
+        // The committed function fails the new check: the spec change stands, the artifact is stale.
+        await applySpec(next, { kind: 'spec-edit', title: `${reason}: the committed function fails it`, quiet: true });
+        if (state.value.mutation?.fn === fn) setMutation(null);
+        const accepted = artifact.candidates[artifact.candidates.length - 1];
+        const candidate: Candidate = {
+          id: id('c'),
+          attempt: 1,
+          body: artifact.body,
+          notes: '',
+          source: accepted?.source ?? 'replay',
+          generationMs: 0,
+          gates,
+          verdict: 'rejected',
+          rejectedBy: failing.gate,
+          ...(failing.headline ? { headline: failing.headline } : {}),
+        };
+        set({
+          generation: {
+            id: id('g'),
+            fn,
+            signature: declarationLine(next),
+            call: `${fn} (committed r${artifact.revision})`,
+            phase: 'failed',
+            attempt: 1,
+            maxAttempts: 1,
+            progress: [],
+            attempts: [{ attempt: 1, status: 'rejected', shown: artifact.body, gates, candidate }],
+            ungated: false,
+            mode: generator?.mode ?? state.value.mode,
+            kind: 'recheck',
+            recheck: { reason },
+          },
+        });
+        info(RECHECK_FAILED_INFO, 'warn');
+      } catch (e) {
+        notice('error', `Adding the check failed: ${errorText(e)}`);
+      }
+    });
+  }
+
+  /** Must run inside `exclusive`: the passing branch of addSuggestedProperty. */
+  async function recertify(
+    fn: string,
+    next: FunctionSpec,
+    artifact: Artifact,
+    compiled: CompileOutput,
+    gates: GateResult[],
+    reason: string,
+    h: { specHash: Hash; testsHash: Hash; before: Hash },
+  ): Promise<void> {
+    // withSpec first (it recomputes the record's hashes), then the artifact restamped to those same hashes: live.
+    const withRec = await withSpec(headRev().program, next);
+    const env = await snapshotEnv();
+    const revisionId = (history[history.length - 1]?.id ?? 0) + 1;
+    const restamped: Artifact = {
+      ...artifact,
+      js: compiled.js!,
+      source: compiled.source,
+      returnType: compiled.returnType,
+      specHash: h.specHash,
+      testsHash: h.testsHash,
+      // the tests changed, so the old mutation report no longer describes them: the check re-runs after idle
+      evidence: evidenceOf(gates),
+      recertified: [...(artifact.recertified ?? []), { at: deps.now(), revision: revisionId, reason }],
+    };
+    const rev = newRevision(history, {
+      kind: 'recertify',
+      title: `${reason}: committed function re-certified`,
+      detail: `tests hash ${short(h.before)} → ${short(h.testsHash)} · the artifact committed at r${artifact.revision} passed the strengthened checks; no regeneration`,
+      fn,
+      program: withArtifact(withRec, fn, restamped),
+      env,
+      at: deps.now(),
+    });
+    await commitRevision(rev);
+    // still live in the runtime: no restart; redefined only if the recompiled js differs
+    if (restamped.js !== artifact.js) await runtime?.define(fn, restamped.js, next.budgetMs);
+    info(`${fn}: ${reason}. The committed function passes it: re-certified at r${rev.id}, nothing regenerated.`, 'accent');
+    enqueueMutation(fn);
+  }
+
   // ───────────────────────── service ─────────────────────────
 
   async function recheckService(): Promise<void> {
@@ -2168,6 +2639,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       }
       history = [...image.revisions, rev];
       head = rev.id;
+      clearMutations();
       publishHistory();
       set({ generation: null });
       await deps.store.clearAll();
@@ -2197,6 +2669,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     growCtrl?.abort();
     growCtrl = null;
     contexts.clear();
+    clearMutations();
     busyCount = 0;
     return exclusive(null, async () => {
       try {
@@ -2234,6 +2707,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     epoch++;
     growCtrl?.abort();
     growCtrl = null;
+    clearMutations();
     runtime?.dispose();
   }
 
@@ -2268,6 +2742,8 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     setSendSamples,
     pinResult,
     removePin,
+    runMutation: runMutationPublic,
+    addSuggestedProperty,
     dispose,
   };
 }

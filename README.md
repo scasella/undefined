@@ -120,6 +120,67 @@ so the same candidate always gets the same verdict and the same shrunk counterex
 **Provenance, not reproducibility.** Each artifact records its spec hash, tests hash, model id, Codex CLI version, and the
 full candidate history including rejected attempts. Nothing here claims the model would produce the same code twice.
 
+## How much to trust a committed function
+
+Under the green *Accepted, committed as rN* banner (and in the Repo tab's artifact card) is one muted line of facts
+about what actually ran against the function, for example:
+
+> Compiled. 4 unit tests. 3 properties, 100 runs each. 26 calls replayed for purity. Tests killed 11 of 12 mutants
+> (1 survived, which may be equivalent).
+
+It always lists the same five facts and says "no …" when one of them is zero: whether it compiled, the unit tests (and
+pinned tests), the properties with their fast-check run counts, how many calls the Invariants gate replayed on frozen
+arguments, and the mutation check. **It deliberately has no score, grade or percentage.** Counts of checks do not add up
+to "how correct", and a single number would claim more than the gates know. The evidence is metadata attached to the
+artifact after the fact. It is not part of any hash, so recording it never invalidates anything.
+
+**Mutation testing** asks whether the checks actually check anything. Once the program has been idle for a few
+seconds after a commit (never sooner than 10 s after you pressed Enter, and any new call or edit cancels it), up to 12
+*broken copies* of the committed function are made. Each one changes one small thing in the compiled code, such as `<`
+to `<=`, `+` to `-`, a constant `0` to `1`, or a condition negated. Every copy is run against the same tests,
+properties and pins, with at most 1 s per call and a 6 s time box for the whole check. Each copy lands in one of four
+buckets, which are reported separately and never merged:
+
+- **killed**: a test or property failed.
+- **stopped by the time limit**: a call did not return within the bound, as with an infinite loop. This is a kill,
+  reported on its own.
+- **survived**: every check accepted the broken copy. It *may be an equivalent mutant* (a change that makes no
+  observable difference), so a survivor is a lead, not a verdict. "see survivors" lists each one as
+  `compiled line N: original → mutated`. N is a line of the compiled JavaScript body, not of the TypeScript the model
+  wrote.
+- **did not compile**: never run and never counted as a kill.
+
+If the check cannot run at all (a broken copy fails to load, or the gate runner fails), it says *Mutation check could
+not run: …* and counts nothing as killed. A function with no tests, properties or pins reads *No tests yet: nothing
+could kill a mutant. Add one to make the gate stricter.* **Re-run mutation check** in the Repo tab runs it again on
+demand.
+
+**More checks you can add.** When the function's name, types or doc suggest a property its spec does not state yet
+(sorted output, same length, idempotence, round trips…), grey rows offer it with a one-line reason and an **Add**
+button. Adding one re-checks the *committed* function against the strengthened spec, using its stored body and the new
+seed. If it passes, the function is **re-certified in place**: the hashes are restamped, it stays live, nothing is
+regenerated, and the log says *re-certified at rN: Added check "…"*. If it fails, the spec change stands, the function
+goes stale (it regenerates on the next call), and the gate panel shows the counterexample. "Same input twice gives the
+same result" and "The arguments are not modified" are listed as *already checked*: the Invariants gate runs both on
+every candidate, so they are never offered. The shipped median, slugify and fibonacci specs already state everything
+the suggester knows, so they get no suggestions. That is expected.
+
+**Measured kill rates of the shipped checks**: the engine's own path, run on each known-good body in `src/examples`
+(seed derived from the spec hashes, default 6 s box; printed by `src/core/engine.evidence.test.ts`, which runs in
+Node, where there is no watchdog):
+
+| example | body | result |
+|---|---|---|
+| median | goodBodies[0] | killed 11 of 12 (1 survived: compiled line 1, `0 → -1`) |
+| median | goodBodies[1] | killed 11 of 12 (1 survived: compiled line 1, `0 → -1`) |
+| slugify | goodBodies[0] | killed 1 of 1 (the body has a single mutation site) |
+| slugify | goodBodies[1] | killed 12 of 12 |
+| fibonacci | goodBodies[0] | killed 12 of 12 |
+| orders | (spec-less) | no tests yet: nothing could kill a mutant |
+
+In the browser, with the recorded replay bodies and the real watchdog, the measured results were: median 12 of 12,
+slugify 1 of 1, and fibonacci 8 of 12 killed, 2 more stopped by the time limit, 2 survived.
+
 ## The examples: who held the contract (read this)
 
 `gpt-6-luna` is a strong model, and with a fully specified ticket it passes first time: in my first sampling, **18 of 18**
@@ -238,4 +299,7 @@ rates above against your own Codex login (results in `.tmp/tune-out.json`).
 8. **0:52** (live mode) Click **orders** and press Enter. The model sees only `type Row` and three sample rows (the
    **Data** drawer shows exactly which). The result renders as a table; press **Pin as test**. From now on every
    regeneration of `topCustomersByRevenue` has to reproduce that result, or Tests rejects it.
-9. **0:55** Open **Revisions** and click **Roll back to r2**. Then **Image → Export** to download your whole program.
+9. **0:54** Back on the committed median, wait a few seconds: under the green banner the confidence line fills in
+   with the mutation check (the recorded median reads *Tests killed 12 of 12 mutants*). When something survives,
+   **see survivors** shows the broken copy your checks let through. There is no score, only what ran.
+10. **0:55** Open **Revisions** and click **Roll back to r2**. Then **Image → Export** to download your whole program.
