@@ -4,6 +4,8 @@
 
 ![The opening sequence: an undefined call, a rejected candidate, a retry, a commit](docs/opening.gif)
 
+[Watch the 30-second demo](docs/demo.mp4) (2880×1800 MP4: the opening sequence, then the data scratchpad: load a dataset, call a function over it with no spec, get a table, pin the result as a test).
+
 Compilers used to sit upstream of everything: a human wrote code, the compiler judged it. LLMs invert that pipeline. The
 model becomes the *upstream source* of code, and the ordinary toolchain (a strict TypeScript compiler, unit tests,
 property tests, purity and runtime-bound checks) becomes the *downstream consumer* that decides what is accepted. Undefined
