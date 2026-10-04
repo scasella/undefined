@@ -6,6 +6,8 @@ const EXPECT = {
   median: { gate: 'PROPERTIES', text: 'median([])' },
   slugify: { gate: 'TESTS', text: 'slugify(' },
   fibonacci: { gate: 'INVARIANTS', text: 'fibonacci(1000000)' },
+  // spec-less over a dataset: no tests, so nothing to reject; it must commit, render a table and offer the pin
+  orders: { button: 'topCustomersByRevenue(', text: 'Pin as test', noRejection: true },
 };
 const srv = await startServer({ mode: 'preview', port: 5194 });
 const b = await launch({ width: 1440, height: 900 });
@@ -17,7 +19,7 @@ try {
     await p.evaluate(async () => { localStorage.clear(); await new Promise((r) => { const q = indexedDB.deleteDatabase('undefined-image'); q.onsuccess = q.onerror = q.onblocked = () => r(); setTimeout(r, 1500); }); });
     await p.goto(srv.url);
     await p.waitForSelector('#repl-input');
-    if (id !== 'median') await p.locator('button.example', { hasText: id + '(' }).click();
+    if (id !== 'median') await p.locator('button.example', { hasText: (want.button ?? id + '(') }).click();
     await p.locator('#repl-input').press('Enter');
     let rejected = '';
     try {
@@ -25,7 +27,7 @@ try {
       rejected = await p.evaluate(() => [...document.querySelectorAll('.candidates *, [class*="strip"] *')].map((e) => e.textContent).join(' '));
     } catch { rejected = 'TIMEOUT'; }
     const text = await p.evaluate(() => document.body.innerText);
-    const ok = /Accepted — committed as r\d+/.test(text) && text.includes(want.text) && /rejected by/i.test(text) && text.toLowerCase().includes(want.gate.toLowerCase());
+    const ok = /Accepted — committed as r\d+/.test(text) && text.includes(want.text) && (want.noRejection ? !/rejected by/i.test(text) && (await p.locator('table').count()) > 0 : /rejected by/i.test(text) && text.toLowerCase().includes(want.gate.toLowerCase()));
     console.log(ok ? 'PASS' : 'FAIL', id, ok ? '' : text.slice(0, 400));
     if (!ok) failed++;
   }

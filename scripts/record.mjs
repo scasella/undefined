@@ -10,6 +10,7 @@ const ids = process.argv.slice(2).length ? process.argv.slice(2) : ['median', 's
 const CALLS = { median: 'median([3, 1, 4, 2])', slugify: 'slugify("Hello, World! Crème Brûlée")', fibonacci: 'fibonacci(90)', orders: 'topCustomersByRevenue(rows)' };
 // Spec-less examples have no tests, so there is nothing to reject on the first candidate: committed is the requirement.
 const SPECLESS = new Set(['orders']);
+const FN = { orders: 'topCustomersByRevenue' }; // the function an example grows, when it differs from its id
 const MAX_TRIES = 4;
 mkdirSync('public/recordings', { recursive: true });
 const srv = await startServer({ mode: 'dev', port: 5193 });
@@ -29,7 +30,7 @@ try {
       const rec = await b.page.evaluate(() => window.__undefined.exportRecording());
       rec.id = id;
       rec.title = `${id} — recorded live session`;
-      rec.sessions = rec.sessions.filter((s) => s.fn === id);
+      rec.sessions = rec.sessions.filter((s) => s.fn === (FN[id] ?? id));
       writeFileSync(`public/recordings/${id}.json`, JSON.stringify(rec, null, 1) + '\n');
       console.log(`  saved public/recordings/${id}.json (v${rec.version}, ${rec.sessions.length} sessions, tries: ${attempt})`);
       break;

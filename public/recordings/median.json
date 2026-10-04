@@ -3,7 +3,7 @@
  "version": 2,
  "id": "median",
  "title": "median — recorded live session",
- "recordedAt": "2026-10-04T15:16:35.783Z",
+ "recordedAt": "2026-10-04T18:11:39.694Z",
  "model": "gpt-6-luna",
  "codexVersion": "0.159.2",
  "effort": "low",
@@ -15,48 +15,10 @@
    "label": "median — Returns the median of a list of numbers.",
    "attempts": [
     {
-     "prompt": "You write the body of one TypeScript function, median. A strict toolchain decides whether your code is accepted: the TypeScript compiler, hidden unit tests, fast-check property tests, and purity/time-limit checks. Only code that passes all of them is used.\n\nHARD RULES\n- Do not run any shell command. Do not read, list or inspect any file. Do not use any tool. The working directory is empty on purpose; nothing there will help.\n- Answer immediately, from this prompt alone.\n- Return ONLY the JSON object {\"body\": string, \"notes\": string}. No text before or after it.\n\nOUTPUT\n- \"body\": ONLY the statements that go between the function's braces. No signature, no braces around the whole thing, no markdown fences, nothing declared outside the function. Helper functions, if needed, must be declared inside the body.\n- \"notes\": one short sentence about the approach.\n\nFUNCTION\nfunction median(numbers: number[]): number\n\nYour body is compiled exactly as:\nfunction median(numbers: number[]): number {\n  <body>\n}\n\nREQUIREMENTS FOR THE BODY\n- Must compile under TypeScript 'strict' with lib ES2022 only: no DOM and no Node APIs (no window, document, fetch, process, require, console, setTimeout).\n- Pure and deterministic: read only the parameters and standard ES2022 built-ins. No global state, no I/O, no Date or Date.now(), no Math.random(), no performance, no crypto.\n- Must not mutate its arguments.\n- Each call must return within 1000 ms.\n- Throw an Error only where the contract says the input is invalid.\n\nCONTRACT (the doc; follow it exactly)\nReturns the median of a list of numbers.\n\nCHECKS\nThese checks will be run against your function (bodies are hidden):\nUnit tests:\n- \"odd-length list\"\n- \"even-length list\"\n- \"single value\"\n- \"negative and fractional values\"\nProperties (fast-check generates many inputs, including edge cases):\n- \"agrees with a sort-based reference\"\n- \"the order of the input does not matter\"\n- \"result lies between the smallest and largest value\"\n\nFINAL REMINDER\n- Do not run any shell command, do not read or inspect any file, do not use any tool.\n- Reply now with ONLY the JSON object {\"body\": string, \"notes\": string}; \"body\" holds only the statements between the braces.\n",
-     "body": "if (numbers.length === 0) {\n  throw new Error(\"median requires a non-empty list\");\n}\nconst sorted = numbers.slice().sort((a, b) => a - b);\nconst middle = Math.floor(sorted.length / 2);\nreturn sorted.length % 2 === 1\n  ? sorted[middle]!\n  : (sorted[middle - 1]! + sorted[middle]!) / 2;",
-     "notes": "Copies and sorts the values, then returns the middle value or the average of the two middle values.",
-     "durationMs": 6986,
-     "progress": [
-      {
-       "t": 0,
-       "text": "codex exec · model gpt-6-luna · effort low · read-only sandbox",
-       "channel": "system"
-      },
-      {
-       "t": 672,
-       "text": "session started",
-       "channel": "event"
-      },
-      {
-       "t": 673,
-       "text": "turn started",
-       "channel": "event"
-      },
-      {
-       "t": 5987,
-       "text": "model answered · body 284 chars",
-       "channel": "event"
-      },
-      {
-       "t": 6095,
-       "text": "model replied · 132 output tokens · 16723 input tokens",
-       "channel": "event"
-      },
-      {
-       "t": 6986,
-       "text": "answer received",
-       "channel": "system"
-      }
-     ]
-    },
-    {
-     "prompt": "You write the body of one TypeScript function, median. A strict toolchain decides whether your code is accepted: the TypeScript compiler, hidden unit tests, fast-check property tests, and purity/time-limit checks. Only code that passes all of them is used.\n\nHARD RULES\n- Do not run any shell command. Do not read, list or inspect any file. Do not use any tool. The working directory is empty on purpose; nothing there will help.\n- Answer immediately, from this prompt alone.\n- Return ONLY the JSON object {\"body\": string, \"notes\": string}. No text before or after it.\n\nOUTPUT\n- \"body\": ONLY the statements that go between the function's braces. No signature, no braces around the whole thing, no markdown fences, nothing declared outside the function. Helper functions, if needed, must be declared inside the body.\n- \"notes\": one short sentence about the approach.\n\nFUNCTION\nfunction median(numbers: number[]): number\n\nYour body is compiled exactly as:\nfunction median(numbers: number[]): number {\n  <body>\n}\n\nREQUIREMENTS FOR THE BODY\n- Must compile under TypeScript 'strict' with lib ES2022 only: no DOM and no Node APIs (no window, document, fetch, process, require, console, setTimeout).\n- Pure and deterministic: read only the parameters and standard ES2022 built-ins. No global state, no I/O, no Date or Date.now(), no Math.random(), no performance, no crypto.\n- Must not mutate its arguments.\n- Each call must return within 1000 ms.\n- Throw an Error only where the contract says the input is invalid.\n\nCONTRACT (the doc; follow it exactly)\nReturns the median of a list of numbers.\n\nCHECKS\nThese checks will be run against your function (bodies are hidden):\nUnit tests:\n- \"odd-length list\"\n- \"even-length list\"\n- \"single value\"\n- \"negative and fractional values\"\nProperties (fast-check generates many inputs, including edge cases):\n- \"agrees with a sort-based reference\"\n- \"the order of the input does not matter\"\n- \"result lies between the smallest and largest value\"\n\nPREVIOUS ATTEMPT (rejected)\nAttempt 1 was rejected. Its body:\n```ts\nif (numbers.length === 0) {\n  throw new Error(\"median requires a non-empty list\");\n}\nconst sorted = numbers.slice().sort((a, b) => a - b);\nconst middle = Math.floor(sorted.length / 2);\nreturn sorted.length % 2 === 1\n  ? sorted[middle]!\n  : (sorted[middle - 1]! + sorted[middle]!) / 2;\n```\nWhat the checks reported:\npassed: compile, tests\nPROPERTIES FAILED\n  - property \"agrees with a sort-based reference\"\n    counterexample (shrunk by fast-check in 0 steps, seed 356460707): median([])\n    expected: NaN\n    error:    Error: median requires a non-empty list\n\nFix exactly what the diagnostics show. Keep what worked. Do not repeat an approach that was already rejected.\n\nFINAL REMINDER\n- Do not run any shell command, do not read or inspect any file, do not use any tool.\n- Reply now with ONLY the JSON object {\"body\": string, \"notes\": string}; \"body\" holds only the statements between the braces.\n",
-     "body": "const sorted = numbers.slice().sort((a, b) => a - b);\nconst middle = Math.floor(sorted.length / 2);\nreturn sorted.length % 2 === 1\n  ? sorted[middle]!\n  : (sorted[middle - 1]! + sorted[middle]!) / 2;",
-     "notes": "Sort a copy and return the middle value or the average of the two middle values; an empty list naturally returns NaN.",
-     "durationMs": 6189,
+     "prompt": "You write the body of one TypeScript function, median. A strict toolchain decides whether your code is accepted: the TypeScript compiler, hidden unit tests, fast-check property tests, and purity/time-limit checks. Only code that passes all of them is used.\n\nHARD RULES\n- Do not run any shell command. Do not read, list or inspect any file. Do not use any tool. The working directory is empty on purpose; nothing there will help.\n- Answer immediately, from this prompt alone.\n- Return ONLY the JSON object {\"body\": string, \"notes\": string}. No text before or after it.\n\nOUTPUT\n- \"body\": ONLY the statements that go between the function's braces. No signature, no braces around the whole thing, no markdown fences, nothing declared outside the function. Helper functions, if needed, must be declared inside the body.\n- \"notes\": one short sentence about the approach.\n\nFUNCTION\nfunction median(numbers: number[]): number\n\nYour body is compiled exactly as:\nfunction median(numbers: number[]): number {\n  <body>\n}\n\nREQUIREMENTS FOR THE BODY\n- Must compile under TypeScript 'strict' with lib ES2022 only: no DOM and no Node APIs (no window, document, fetch, process, require, console, setTimeout).\n- Pure and deterministic: read only the parameters and standard ES2022 built-ins. No global state, no I/O, no Date or Date.now(), no Math.random(), no performance, no crypto.\n- Must not mutate its arguments.\n- Each call must return within 1000 ms.\n- Throw an Error only where the contract says the input is invalid (or as the whole body, in the two cases under HONESTY below).\n\nCONTRACT (the doc; follow it exactly)\nReturns the median of a list of numbers.\n\nCHECKS\nThese checks will be run against your function (bodies are hidden):\nUnit tests:\n- \"odd-length list\"\n- \"even-length list\"\n- \"single value\"\n- \"negative and fractional values\"\nProperties (fast-check generates many inputs, including edge cases):\n- \"agrees with a sort-based reference\"\n- \"the order of the input does not matter\"\n- \"result lies between the smallest and largest value\"\n\nHONESTY (when not to write the function)\n- Every generated function is a pure function of its arguments. If median cannot honestly be written that way (its name or contract needs randomness, the current time, the network, files, the console, or state that persists between calls such as counters, caches or ids), do NOT fake it with a constant, an echo of the input or a no-op. The body must be exactly:\n  throw new Error(\"CANNOT_BE_PURE: <one sentence: what it would need>\");\n- Decline with NEEDS_SPEC only when the name carries no meaning of its own (process, handle, data, transform, clean, run, doIt: a verb or noun that does not say what comes out) AND the contract above is empty. Then do not invent behaviour; the body must be exactly:\n  throw new Error(\"NEEDS_SPEC: <one sentence: the single question you need answered>\");\n- If the name DESCRIBES the result (topCustomersByRevenue, monthlyTotals, dedupeByEmail, truncate, formatCurrency, parseCsvLine, sortDescending, isPalindrome, add), write it: choose the most conventional reading, handle the argument types sensibly, and use the notes field to name the assumptions you made in one sentence (e.g. \"Assumes totals are summed per group, ties sorted alphabetically, returns the top 5.\"). A reasonable default with its assumptions stated is better than a question; the caller can correct you with a spec.\n\nFINAL REMINDER\n- Do not run any shell command, do not read or inspect any file, do not use any tool.\n- Reply now with ONLY the JSON object {\"body\": string, \"notes\": string}; \"body\" holds only the statements between the braces.\n",
+     "body": "if (numbers.length === 0) {\n  throw new Error(\"median requires a non-empty list\");\n}\nconst sorted = numbers.slice().sort((a, b) => a - b);\nconst middle = Math.floor(sorted.length / 2);\nif (sorted.length % 2 === 1) {\n  return sorted[middle];\n}\nreturn (sorted[middle - 1] + sorted[middle]) / 2;",
+     "notes": "Sorts a copy and returns the middle value or the mean of the two middle values; assumes the list is non-empty.",
+     "durationMs": 6893,
      "progress": [
       {
        "t": 1,
@@ -64,27 +26,65 @@
        "channel": "system"
       },
       {
-       "t": 123,
+       "t": 109,
        "text": "session started",
        "channel": "event"
       },
       {
-       "t": 125,
+       "t": 110,
        "text": "turn started",
        "channel": "event"
       },
       {
-       "t": 5259,
-       "text": "model answered · body 199 chars",
+       "t": 6132,
+       "text": "model answered · body 292 chars",
        "channel": "event"
       },
       {
-       "t": 5260,
-       "text": "model replied · 110 output tokens · 16920 input tokens",
+       "t": 6157,
+       "text": "model replied · 140 output tokens · 17050 input tokens",
        "channel": "event"
       },
       {
-       "t": 6189,
+       "t": 6892,
+       "text": "answer received",
+       "channel": "system"
+      }
+     ]
+    },
+    {
+     "prompt": "You write the body of one TypeScript function, median. A strict toolchain decides whether your code is accepted: the TypeScript compiler, hidden unit tests, fast-check property tests, and purity/time-limit checks. Only code that passes all of them is used.\n\nHARD RULES\n- Do not run any shell command. Do not read, list or inspect any file. Do not use any tool. The working directory is empty on purpose; nothing there will help.\n- Answer immediately, from this prompt alone.\n- Return ONLY the JSON object {\"body\": string, \"notes\": string}. No text before or after it.\n\nOUTPUT\n- \"body\": ONLY the statements that go between the function's braces. No signature, no braces around the whole thing, no markdown fences, nothing declared outside the function. Helper functions, if needed, must be declared inside the body.\n- \"notes\": one short sentence about the approach.\n\nFUNCTION\nfunction median(numbers: number[]): number\n\nYour body is compiled exactly as:\nfunction median(numbers: number[]): number {\n  <body>\n}\n\nREQUIREMENTS FOR THE BODY\n- Must compile under TypeScript 'strict' with lib ES2022 only: no DOM and no Node APIs (no window, document, fetch, process, require, console, setTimeout).\n- Pure and deterministic: read only the parameters and standard ES2022 built-ins. No global state, no I/O, no Date or Date.now(), no Math.random(), no performance, no crypto.\n- Must not mutate its arguments.\n- Each call must return within 1000 ms.\n- Throw an Error only where the contract says the input is invalid (or as the whole body, in the two cases under HONESTY below).\n\nCONTRACT (the doc; follow it exactly)\nReturns the median of a list of numbers.\n\nCHECKS\nThese checks will be run against your function (bodies are hidden):\nUnit tests:\n- \"odd-length list\"\n- \"even-length list\"\n- \"single value\"\n- \"negative and fractional values\"\nProperties (fast-check generates many inputs, including edge cases):\n- \"agrees with a sort-based reference\"\n- \"the order of the input does not matter\"\n- \"result lies between the smallest and largest value\"\n\nHONESTY (when not to write the function)\n- Every generated function is a pure function of its arguments. If median cannot honestly be written that way (its name or contract needs randomness, the current time, the network, files, the console, or state that persists between calls such as counters, caches or ids), do NOT fake it with a constant, an echo of the input or a no-op. The body must be exactly:\n  throw new Error(\"CANNOT_BE_PURE: <one sentence: what it would need>\");\n- Decline with NEEDS_SPEC only when the name carries no meaning of its own (process, handle, data, transform, clean, run, doIt: a verb or noun that does not say what comes out) AND the contract above is empty. Then do not invent behaviour; the body must be exactly:\n  throw new Error(\"NEEDS_SPEC: <one sentence: the single question you need answered>\");\n- If the name DESCRIBES the result (topCustomersByRevenue, monthlyTotals, dedupeByEmail, truncate, formatCurrency, parseCsvLine, sortDescending, isPalindrome, add), write it: choose the most conventional reading, handle the argument types sensibly, and use the notes field to name the assumptions you made in one sentence (e.g. \"Assumes totals are summed per group, ties sorted alphabetically, returns the top 5.\"). A reasonable default with its assumptions stated is better than a question; the caller can correct you with a spec.\n\nPREVIOUS ATTEMPT (rejected)\nAttempt 1 was rejected. Its body:\n```ts\nif (numbers.length === 0) {\n  throw new Error(\"median requires a non-empty list\");\n}\nconst sorted = numbers.slice().sort((a, b) => a - b);\nconst middle = Math.floor(sorted.length / 2);\nif (sorted.length % 2 === 1) {\n  return sorted[middle];\n}\nreturn (sorted[middle - 1] + sorted[middle]) / 2;\n```\nWhat the checks reported:\npassed: compile, tests\nPROPERTIES FAILED\n  - property \"agrees with a sort-based reference\"\n    counterexample (shrunk by fast-check in 0 steps, seed 356460707): median([])\n    expected: NaN\n    error:    Error: median requires a non-empty list\n\nFix exactly what the diagnostics show. Keep what worked. Do not repeat an approach that was already rejected.\n\nFINAL REMINDER\n- Do not run any shell command, do not read or inspect any file, do not use any tool.\n- Reply now with ONLY the JSON object {\"body\": string, \"notes\": string}; \"body\" holds only the statements between the braces.\n",
+     "body": "const sorted = numbers.slice().sort((a, b) => a - b);\nconst middle = Math.floor(sorted.length / 2);\nif (sorted.length % 2 === 1) {\n  return sorted[middle];\n}\nreturn (sorted[middle - 1] + sorted[middle]) / 2;",
+     "notes": "Copies and sorts the values, returning the middle value or the average of the two middle values; an empty list yields NaN.",
+     "durationMs": 7274,
+     "progress": [
+      {
+       "t": 2,
+       "text": "codex exec · model gpt-6-luna · effort low · read-only sandbox",
+       "channel": "system"
+      },
+      {
+       "t": 133,
+       "text": "session started",
+       "channel": "event"
+      },
+      {
+       "t": 135,
+       "text": "turn started",
+       "channel": "event"
+      },
+      {
+       "t": 6487,
+       "text": "model answered · body 207 chars",
+       "channel": "event"
+      },
+      {
+       "t": 6513,
+       "text": "model replied · 114 output tokens · 17249 input tokens",
+       "channel": "event"
+      },
+      {
+       "t": 7274,
        "text": "answer received",
        "channel": "system"
       }
@@ -119,38 +119,38 @@
    "label": "median — Returns the low median of a list of numb",
    "attempts": [
     {
-     "prompt": "You write the body of one TypeScript function, median. A strict toolchain decides whether your code is accepted: the TypeScript compiler, hidden unit tests, fast-check property tests, and purity/time-limit checks. Only code that passes all of them is used.\n\nHARD RULES\n- Do not run any shell command. Do not read, list or inspect any file. Do not use any tool. The working directory is empty on purpose; nothing there will help.\n- Answer immediately, from this prompt alone.\n- Return ONLY the JSON object {\"body\": string, \"notes\": string}. No text before or after it.\n\nOUTPUT\n- \"body\": ONLY the statements that go between the function's braces. No signature, no braces around the whole thing, no markdown fences, nothing declared outside the function. Helper functions, if needed, must be declared inside the body.\n- \"notes\": one short sentence about the approach.\n\nFUNCTION\nfunction median(numbers: number[]): number\n\nYour body is compiled exactly as:\nfunction median(numbers: number[]): number {\n  <body>\n}\n\nREQUIREMENTS FOR THE BODY\n- Must compile under TypeScript 'strict' with lib ES2022 only: no DOM and no Node APIs (no window, document, fetch, process, require, console, setTimeout).\n- Pure and deterministic: read only the parameters and standard ES2022 built-ins. No global state, no I/O, no Date or Date.now(), no Math.random(), no performance, no crypto.\n- Must not mutate its arguments.\n- Each call must return within 1000 ms.\n- Throw an Error only where the contract says the input is invalid.\n\nCONTRACT (the doc; follow it exactly)\nReturns the low median of a list of numbers: the middle value once the numbers are sorted in ascending numeric order. When the list has an even number of values there are two middle values, and the function returns the lower of the two (no averaging), so the result is always one of the input values. An empty list has no median, so the function throws a RangeError. The input array belongs to the caller and must be left exactly as it was.\n\nCHECKS\nThese checks will be run against your function (bodies are hidden):\nUnit tests:\n- \"returns the middle value of an odd-length list\"\n- \"returns the lower middle value of an even-length list\"\n- \"a single value is its own median\"\n- \"works with negative and fractional values\"\n- \"throws a RangeError for an empty list\"\nProperties (fast-check generates many inputs, including edge cases):\n- \"agrees with a sort-based reference\"\n- \"the order of the input does not matter\"\n- \"result is one of the input values\"\n\nFINAL REMINDER\n- Do not run any shell command, do not read or inspect any file, do not use any tool.\n- Reply now with ONLY the JSON object {\"body\": string, \"notes\": string}; \"body\" holds only the statements between the braces.\n",
-     "body": "if (numbers.length === 0) {\n  throw new RangeError(\"median of an empty list\");\n}\nconst sorted = numbers.slice().sort((a, b) => a - b);\nreturn sorted[Math.floor((sorted.length - 1) / 2)]!;",
-     "notes": "Copies and numerically sorts the input, then returns the lower middle value; throws RangeError for an empty list.",
-     "durationMs": 8818,
+     "prompt": "You write the body of one TypeScript function, median. A strict toolchain decides whether your code is accepted: the TypeScript compiler, hidden unit tests, fast-check property tests, and purity/time-limit checks. Only code that passes all of them is used.\n\nHARD RULES\n- Do not run any shell command. Do not read, list or inspect any file. Do not use any tool. The working directory is empty on purpose; nothing there will help.\n- Answer immediately, from this prompt alone.\n- Return ONLY the JSON object {\"body\": string, \"notes\": string}. No text before or after it.\n\nOUTPUT\n- \"body\": ONLY the statements that go between the function's braces. No signature, no braces around the whole thing, no markdown fences, nothing declared outside the function. Helper functions, if needed, must be declared inside the body.\n- \"notes\": one short sentence about the approach.\n\nFUNCTION\nfunction median(numbers: number[]): number\n\nYour body is compiled exactly as:\nfunction median(numbers: number[]): number {\n  <body>\n}\n\nREQUIREMENTS FOR THE BODY\n- Must compile under TypeScript 'strict' with lib ES2022 only: no DOM and no Node APIs (no window, document, fetch, process, require, console, setTimeout).\n- Pure and deterministic: read only the parameters and standard ES2022 built-ins. No global state, no I/O, no Date or Date.now(), no Math.random(), no performance, no crypto.\n- Must not mutate its arguments.\n- Each call must return within 1000 ms.\n- Throw an Error only where the contract says the input is invalid (or as the whole body, in the two cases under HONESTY below).\n\nCONTRACT (the doc; follow it exactly)\nReturns the low median of a list of numbers: the middle value once the numbers are sorted in ascending numeric order. When the list has an even number of values there are two middle values, and the function returns the lower of the two (no averaging), so the result is always one of the input values. An empty list has no median, so the function throws a RangeError. The input array belongs to the caller and must be left exactly as it was.\n\nCHECKS\nThese checks will be run against your function (bodies are hidden):\nUnit tests:\n- \"returns the middle value of an odd-length list\"\n- \"returns the lower middle value of an even-length list\"\n- \"a single value is its own median\"\n- \"works with negative and fractional values\"\n- \"throws a RangeError for an empty list\"\nProperties (fast-check generates many inputs, including edge cases):\n- \"agrees with a sort-based reference\"\n- \"the order of the input does not matter\"\n- \"result is one of the input values\"\n\nHONESTY (when not to write the function)\n- Every generated function is a pure function of its arguments. If median cannot honestly be written that way (its name or contract needs randomness, the current time, the network, files, the console, or state that persists between calls such as counters, caches or ids), do NOT fake it with a constant, an echo of the input or a no-op. The body must be exactly:\n  throw new Error(\"CANNOT_BE_PURE: <one sentence: what it would need>\");\n- Decline with NEEDS_SPEC only when the name carries no meaning of its own (process, handle, data, transform, clean, run, doIt: a verb or noun that does not say what comes out) AND the contract above is empty. Then do not invent behaviour; the body must be exactly:\n  throw new Error(\"NEEDS_SPEC: <one sentence: the single question you need answered>\");\n- If the name DESCRIBES the result (topCustomersByRevenue, monthlyTotals, dedupeByEmail, truncate, formatCurrency, parseCsvLine, sortDescending, isPalindrome, add), write it: choose the most conventional reading, handle the argument types sensibly, and use the notes field to name the assumptions you made in one sentence (e.g. \"Assumes totals are summed per group, ties sorted alphabetically, returns the top 5.\"). A reasonable default with its assumptions stated is better than a question; the caller can correct you with a spec.\n\nFINAL REMINDER\n- Do not run any shell command, do not read or inspect any file, do not use any tool.\n- Reply now with ONLY the JSON object {\"body\": string, \"notes\": string}; \"body\" holds only the statements between the braces.\n",
+     "body": "if (numbers.length === 0) {\n  throw new RangeError(\"median of empty array\");\n}\nconst sorted = numbers.slice().sort((a, b) => a - b);\nreturn sorted[Math.floor((sorted.length - 1) / 2)];",
+     "notes": "Copies and sorts the values numerically, then returns the lower middle value.",
+     "durationMs": 8186,
      "progress": [
       {
-       "t": 26,
+       "t": 30,
        "text": "codex exec · model gpt-6-luna · effort low · read-only sandbox",
        "channel": "system"
       },
       {
-       "t": 136,
+       "t": 145,
        "text": "session started",
        "channel": "event"
       },
       {
-       "t": 138,
+       "t": 146,
        "text": "turn started",
        "channel": "event"
       },
       {
-       "t": 6458,
-       "text": "model answered · body 187 chars",
+       "t": 7514,
+       "text": "model answered · body 184 chars",
        "channel": "event"
       },
       {
-       "t": 6459,
-       "text": "model replied · 102 output tokens · 16837 input tokens",
+       "t": 7550,
+       "text": "model replied · 92 output tokens · 17162 input tokens",
        "channel": "event"
       },
       {
-       "t": 8818,
+       "t": 8186,
        "text": "answer received",
        "channel": "system"
       }
