@@ -79,9 +79,9 @@ const printed: string[] = [];
 
 const EXPECTED_HEADLINES: Record<string, string[]> = {
   median: [
-    'Rejected: median([0, 2, 100]) returned 100, expected 2', // property (seed-dependent)
+    'Rejected: median([-1, 0, -2]) returned -2, expected -1', // property (seed-dependent)
     'Rejected: median([1, 2]) returned 2, expected 1.5',
-    'Rejected: median([]) returned NaN, expected "a thrown RangeError"',
+    'Rejected: test "empty list" failed after median([]): expected NaN, got "threw Error"',
     'Rejected: median([3, 1, 4, 2]) mutated its argument (pure)',
   ],
   slugify: [
@@ -91,7 +91,8 @@ const EXPECTED_HEADLINES: Record<string, string[]> = {
     'Rejected: property "output is lowercase letters and digits joined by single hyphens" failed for slugify("_")', // property (seed-dependent)
   ],
   fibonacci: [
-    // the naive recursion is browser-only: 'Rejected: fibonacci(90) did not return within 1500 ms (bounded)'
+    // browser-only (simulated below): the O(n) loop → 'Rejected: fibonacci(1000000) did not return within 1500 ms (bounded)'
+    // and the naive recursion → 'Rejected: fibonacci(90) did not return within 1500 ms (bounded)'
     'Rejected: fibonacci(90) returned 2880067194370816000n, expected 2880067194370816120n',
     "Rejected: line 6: Type 'number' is not assignable to type 'bigint'.",
     'Rejected: fibonacci(0) returned 1n, expected 0n',
@@ -128,7 +129,8 @@ describe('EXAMPLES registry', () => {
         expect(ex.spec.origin).toBe('example');
         expect(ex.spec.exampleId).toBe(ex.id);
         expect(ex.spec.maxAttempts).toBe(3);
-        expect(ex.spec.doc.trim().length).toBeGreaterThan(80);
+        // Docs are deliberately terse (the hidden tests and properties carry the contract); just never empty.
+        expect(ex.spec.doc.trim()).not.toBe('');
         expect(ex.call.startsWith(`${ex.fn}(`)).toBe(true);
         expect(ex.goodBodies.length).toBeGreaterThanOrEqual(1);
         expect(ex.badBodies.length).toBeGreaterThanOrEqual(2);
@@ -237,58 +239,85 @@ const FIB_TABLE: readonly bigint[] = [
   1100087778366101931n, 1779979416004714189n, 2880067194370816120n,
 ];
 
-describe('fibonacci naive recursion (browser-only bad body), simulated without hanging', () => {
-  it('reaches fibonacci(90) in the Tests phase after quick small calls; the watchdog verdict reads as intended', async () => {
+/**
+ * Runs a browser-only fibonacci bad body through the real gate executor, but refuses (via the enter hook, right
+ * before the call) to start any fibonacci(n) with n > maxN, plus every call after it, so nothing ever hangs here.
+ * Returns where it stopped and the slowest call that was allowed to run.
+ */
+async function simulateWatchdog(body: string, maxN: number) {
+  const ex = exampleById('fibonacci')!;
+  const compiled = await compileCandidate(ex.spec, body);
+  expect(compiled.gate.status).toBe('pass');
+  const { specHash, testsHash } = await hashesFor(ex.spec);
+  const STOP = 'simulated watchdog stop';
+  let phase = '';
+  let stoppedAt: { label: string; phase: string } | null = null;
+  let enteredAt = 0;
+  const slowest: number[] = [];
+  const exec = executeGates(
+    {
+      name: 'fibonacci',
+      js: compiled.js!,
+      testsJs: userJs(ex.spec.tests),
+      propertiesJs: userJs(ex.spec.properties),
+      budgetMs: ex.spec.budgetMs,
+      seed: gateSeed(specHash, testsHash),
+      callArgs: callArgs(ex),
+    },
+    {
+      phase: (p) => (phase = p),
+      enter: (label) => {
+        const n = Number(/^fibonacci\((-?\d+)\)$/.exec(label)?.[1]);
+        if (stoppedAt || n > maxN) {
+          stoppedAt ??= { label, phase };
+          throw new Error(STOP);
+        }
+        enteredAt = performance.now();
+      },
+      leave: () => slowest.push(performance.now() - enteredAt),
+    },
+  );
+  expect(exec[0]!.status).toBe('fail'); // only because of the simulated stop
+  return { ex, stoppedAt: stoppedAt as { label: string; phase: string } | null, slowestMs: Math.max(...slowest) };
+}
+
+describe('fibonacci browser-only bad bodies, simulated without hanging', () => {
+  const bodyWith = (pattern: RegExp): string => {
     const ex = exampleById('fibonacci')!;
-    const naive = ex.badBodies.find((b) => b.browserOnly)!;
-    const compiled = await compileCandidate(ex.spec, naive.body);
-    expect(compiled.gate.status).toBe('pass');
-    const { specHash, testsHash } = await hashesFor(ex.spec);
-    const STOP = 'simulated watchdog stop';
-    let phase = '';
-    let stoppedAt: { label: string; phase: string } | null = null;
-    let enteredAt = 0;
-    const slowest: number[] = [];
-    // The hook fires right before each candidate call: refuse to start fibonacci(n) for large n, the call
-    // the real watchdog would have to terminate, and every call after it (so nothing ever hangs here).
-    const exec = executeGates(
-      {
-        name: 'fibonacci',
-        js: compiled.js!,
-        testsJs: userJs(ex.spec.tests),
-        propertiesJs: userJs(ex.spec.properties),
-        budgetMs: ex.spec.budgetMs,
-        seed: gateSeed(specHash, testsHash),
-        callArgs: callArgs(ex),
-      },
-      {
-        phase: (p) => (phase = p),
-        enter: (label) => {
-          const n = Number(/^fibonacci\((-?\d+)\)$/.exec(label)?.[1]);
-          if (stoppedAt || n > 30) {
-            stoppedAt ??= { label, phase };
-            throw new Error(STOP);
-          }
-          enteredAt = performance.now();
-        },
-        leave: () => slowest.push(performance.now() - enteredAt),
-      },
-    );
+    const matches = ex.badBodies.filter((b) => b.browserOnly && pattern.test(b.body));
+    expect(matches).toHaveLength(1);
+    expect(matches[0]!.rejectedBy).toBe('invariants');
+    return matches[0]!.body;
+  };
+
+  it('the O(n) loop: small calls are fast, fibonacci(1000000) in the Tests phase is the call the watchdog stops', async () => {
+    const loop = bodyWith(/for \(let i = 0; i < n; i\+\+\)/);
+    const { ex, stoppedAt, slowestMs } = await simulateWatchdog(loop, 90);
+    expect(stoppedAt).toEqual({ label: 'fibonacci(1000000)', phase: 'tests' });
+    expect(slowestMs).toBeLessThan(ex.spec.budgetMs / 10); // every unit-test call up to n = 90 is fast
+    const verdict = timeoutResults([], { reason: 'call', label: stoppedAt!.label, phase: 'tests', elapsedMs: 1510, phaseMs: 1520 }, ex.spec.budgetMs, 15_000);
+    expect(statuses(verdict)).toEqual(['tests:skipped', 'properties:skipped', 'invariants:fail']);
+    expect(verdict[2]!.headline).toBe('Rejected: fibonacci(1000000) did not return within 1500 ms (bounded)');
+    printed.push(`  fibonacci invariants (simulated watchdog, loop) ${verdict[2]!.headline}`);
+  });
+
+  it('the naive recursion: reaches fibonacci(90) in the Tests phase after quick small calls; the watchdog verdict reads as intended', async () => {
+    const naive = bodyWith(/fibonacci\(n - 1\)/);
+    const { ex, stoppedAt, slowestMs } = await simulateWatchdog(naive, 30);
     expect(stoppedAt).toEqual({ label: 'fibonacci(90)', phase: 'tests' });
-    expect(Math.max(...slowest)).toBeLessThan(ex.spec.budgetMs / 10); // the small unit-test calls are fast
-    expect(exec[0]!.status).toBe('fail'); // only because of the simulated stop
+    expect(slowestMs).toBeLessThan(ex.spec.budgetMs / 10); // the small unit-test calls are fast
     const verdict = timeoutResults([], { reason: 'call', label: stoppedAt!.label, phase: 'tests', elapsedMs: 1525, phaseMs: 1530 }, ex.spec.budgetMs, 15_000);
     expect(statuses(verdict)).toEqual(['tests:skipped', 'properties:skipped', 'invariants:fail']);
     expect(verdict[2]!.headline).toBe('Rejected: fibonacci(90) did not return within 1500 ms (bounded)');
-    printed.push(`  fibonacci invariants (simulated watchdog) ${verdict[2]!.headline}`);
+    printed.push(`  fibonacci invariants (simulated watchdog, recursion) ${verdict[2]!.headline}`);
   });
 });
 
 describe('fibonacci good body', () => {
-  it('is iterative BigInt code and matches the known table for n = 0..90', async () => {
+  it('is iterative fast-doubling BigInt code, matches the known table for n = 0..90 and handles n = 1,000,000 well within budget', async () => {
     const ex = exampleById('fibonacci')!;
     const body = ex.goodBodies[0]!;
-    expect(body).toMatch(/\bfor\s*\(/);
+    expect(body).toMatch(/\bfor\s*\(const bit of n\.toString\(2\)\)/); // fast doubling over the bits of n, O(log n) steps
     expect(body).toContain('0n');
     expect(body).not.toMatch(/fibonacci\s*\(/); // no recursion
     const compiled = await compileCandidate(ex.spec, body);
@@ -297,5 +326,19 @@ describe('fibonacci good body', () => {
     expect(FIB_TABLE.length).toBe(91);
     for (let n = 0; n <= 90; n++) expect(fib(n), `fibonacci(${n})`).toBe(FIB_TABLE[n]);
     expect(FIB_TABLE[90]! > BigInt(Number.MAX_SAFE_INTEGER)).toBe(true);
+    const t0 = performance.now();
+    const big = fib(1_000_000);
+    expect(performance.now() - t0).toBeLessThan(ex.spec.budgetMs / 3);
+    expect(big % 1000000007n).toBe(918091266n);
+    expect(big.toString().length).toBe(208988);
+  });
+
+  it('the browser-only O(n) loop is correct (only too slow): it matches the known table for n = 0..90', async () => {
+    const ex = exampleById('fibonacci')!;
+    const loop = ex.badBodies.find((b) => b.browserOnly && !/fibonacci\s*\(/.test(b.body))!;
+    const compiled = await compileCandidate(ex.spec, loop.body);
+    expect(compiled.gate.status).toBe('pass');
+    const fib = evalMasked<(n: number) => bigint>(compiled.js!, 'fibonacci');
+    for (let n = 0; n <= 90; n++) expect(fib(n), `fibonacci(${n})`).toBe(FIB_TABLE[n]);
   });
 });

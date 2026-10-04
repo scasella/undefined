@@ -1,38 +1,43 @@
 import type { ExampleDef } from './index';
 
 /*
- * fibonacci — the classic exponential trap.
- * The two-line recursive definition is correct and compiles, but fibonacci(90) makes ~10^19 calls: the per-call
- * wall-clock budget (bounded invariant) is the only thing that stops it, and the diagnostic says so. The return type
- * is bigint because fibonacci(90) = 2880067194370816120 is far above Number.MAX_SAFE_INTEGER; a body that adds
- * plain numbers and converts at the end is caught by the unit test at n = 90, one that returns number by the compiler.
+ * fibonacci — correct, but too slow where it counts.
+ * The obvious O(n) bigint loop is right for every small n and takes ~4 s at n = 1,000,000; the per-call wall-clock
+ * budget (bounded invariant) terminates it and the diagnostic names the call and the budget, which is what steers the
+ * model to fast doubling (~4 ms). Measured with gpt-6-luna: it never writes the naive double recursion on its own, so
+ * the demo's bounded-runtime rejection is the loop at n = 1,000,000, not the recursion at n = 90.
+ * The return type is bigint because fibonacci(90) = 2880067194370816120 exceeds Number.MAX_SAFE_INTEGER.
  */
 
-const DOC = `Returns the nth Fibonacci number as an exact bigint, where fibonacci(0) = 0n, fibonacci(1) = 1n and every later value is the sum of the two before it. n is an integer from 0 to 90; the larger values are far beyond Number.MAX_SAFE_INTEGER, which is why the result is a bigint. Callers use it interactively, so every call must return quickly.`;
+const DOC = `Returns the nth Fibonacci number: F(0) = 0, F(1) = 1, and F(n) = F(n - 1) + F(n - 2).`;
 
-const TESTS = String.raw`test('starts 0, 1, 1, 2, 3, 5, 8', () => {
+const TESTS = String.raw`test('first values', () => {
   const expected = [0n, 1n, 1n, 2n, 3n, 5n, 8n];
   for (let n = 0; n < expected.length; n++) eq(fibonacci(n), expected[n]);
 });
 
-test('small values', () => {
+test('small n', () => {
   eq(fibonacci(10), 55n);
   eq(fibonacci(20), 6765n);
 });
 
-test('is exact at the top of the range', () => {
+test('a late value', () => {
   eq(fibonacci(90), 2880067194370816120n);
+});
+
+test('a very late value', () => {
+  const f = fibonacci(1000000);
+  eq(f % 1000000007n, 918091266n);
+  eq(f.toString().length, 208988);
 });
 `;
 
-const PROPERTIES = String.raw`const ns = fc.integer({ min: 0, max: 88 });
-
-property('each value is the sum of the two before it', [ns], (n: number) => {
+const PROPERTIES = String.raw`property('recurrence', [fc.integer({ min: 0, max: 88 })], (n: number) => {
   const sum = fibonacci(n) + fibonacci(n + 1);
   eq(fibonacci(n + 2), sum);
 });
 
-property('never decreases', [fc.integer({ min: 0, max: 89 })], (n: number) => fibonacci(n) <= fibonacci(n + 1));
+property('monotonic', [fc.integer({ min: 0, max: 89 })], (n: number) => fibonacci(n) <= fibonacci(n + 1));
 `;
 
 const DOC_AFTER_BREAK = `Returns the nth Fibonacci number as an exact bigint, where fibonacci(0) = 0n, fibonacci(1) = 1n and fibonacci(n + 2) = fibonacci(n + 1) + fibonacci(n) for every integer n. n is an integer from -90 to 90. Negative n follows the same recurrence run backwards (the "negafibonacci" numbers): fibonacci(-n) = (-1)^(n+1) · fibonacci(n), so fibonacci(-1) = 1n and fibonacci(-2) = -1n. Callers use it interactively, so every call must return quickly.`;
@@ -53,6 +58,12 @@ test('is exact at both ends of the range', () => {
   eq(fibonacci(90), 2880067194370816120n);
   eq(fibonacci(-90), -2880067194370816120n);
 });
+
+test('a very late value', () => {
+  const f = fibonacci(1000000);
+  eq(f % 1000000007n, 918091266n);
+  eq(f.toString().length, 208988);
+});
 `;
 
 const PROPERTIES_AFTER_BREAK = String.raw`const ns = fc.integer({ min: -90, max: 88 });
@@ -72,7 +83,7 @@ property('negative n mirrors positive n up to sign', [fc.integer({ min: 1, max: 
 export const fibonacci: ExampleDef = {
   id: 'fibonacci',
   title: 'fibonacci',
-  blurb: 'The textbook recursion is correct but exponential: fibonacci(90) never returns, and the bounded invariant (a per-call time limit) stops it.',
+  blurb: 'The obvious loop is correct but takes seconds at n = 1,000,000: the bounded invariant (a per-call time limit) stops it, and the diagnostic steers the model to fast doubling.',
   call: 'fibonacci(90)',
   fn: 'fibonacci',
   breakIt: {
@@ -95,29 +106,38 @@ export const fibonacci: ExampleDef = {
   goodBodies: [
     String.raw`let a = 0n;
 let b = 1n;
+for (const bit of n.toString(2)) {
+  const c = a * (2n * b - a);
+  const d = a * a + b * b;
+  if (bit === '1') {
+    a = d;
+    b = c + d;
+  } else {
+    a = c;
+    b = d;
+  }
+}
+return a;`,
+  ],
+  badBodies: [
+    {
+      body: String.raw`let a = 0n;
+let b = 1n;
 for (let i = 0; i < n; i++) {
   const next = a + b;
   a = b;
   b = next;
 }
 return a;`,
-    String.raw`const memo = new Map<number, bigint>();
-const fib = (k: number): bigint => {
-  if (k < 2) return BigInt(k);
-  const hit = memo.get(k);
-  if (hit !== undefined) return hit;
-  const value = fib(k - 1) + fib(k - 2);
-  memo.set(k, value);
-  return value;
-};
-return fib(n);`,
-  ],
-  badBodies: [
+      rejectedBy: 'invariants',
+      why: 'The O(n) bigint loop is correct but needs ~4 s for fibonacci(1000000): the watchdog terminates it at the 1500 ms budget (bounded).',
+      browserOnly: true,
+    },
     {
       body: String.raw`if (n < 2) return BigInt(n);
 return fibonacci(n - 1) + fibonacci(n - 2);`,
       rejectedBy: 'invariants',
-      why: 'Naive double recursion is correct but exponential: fibonacci(90) needs ~10^19 calls, so the watchdog terminates it at the 1500 ms budget (bounded).',
+      why: 'Naive double recursion is exponential: even fibonacci(90) needs ~10^19 calls, so the watchdog terminates it (bounded).',
       browserOnly: true,
     },
     {
@@ -155,10 +175,16 @@ return a;`,
     String.raw`const k = Math.abs(n);
 let a = 0n;
 let b = 1n;
-for (let i = 0; i < k; i++) {
-  const next = a + b;
-  a = b;
-  b = next;
+for (const bit of k.toString(2)) {
+  const c = a * (2n * b - a);
+  const d = a * a + b * b;
+  if (bit === '1') {
+    a = d;
+    b = c + d;
+  } else {
+    a = c;
+    b = d;
+  }
 }
 return n < 0 && k % 2 === 0 ? -a : a;`,
   ],

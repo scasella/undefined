@@ -7,41 +7,49 @@ import type { ExampleDef } from './index';
  * a concrete case. `\w`-based cleaning keeps "_" and is caught by the output-shape property.
  */
 
-const DOC = `Turns a title into a URL slug: lowercase ASCII words (letters a–z and digits 0–9) joined by single hyphens. Letters outside a–z are converted to their usual ASCII spelling rather than dropped: accents are removed (é → e, ü → u) and special letters are spelled out (ß → ss). Every run of other characters (spaces, punctuation, symbols, existing hyphens) becomes a single hyphen, and the slug never starts or ends with a hyphen. A title without any letters or digits gives the empty string.`;
+const DOC = `Turns a title into a URL slug.`;
 
-const TESTS = String.raw`test('lowercases and joins words with hyphens', () => {
+const TESTS = String.raw`test('lowercases words', () => {
   eq(slugify('Hello World'), 'hello-world');
 });
 
-test('removes accents', () => {
+test('accents', () => {
   eq(slugify('Crème Brûlée'), 'creme-brulee');
   eq(slugify('Ångström Über'), 'angstrom-uber');
 });
 
-test('spells out special letters in German, Nordic and Polish words', () => {
+test('special letters', () => {
   eq(slugify('Straße'), 'strasse');
   eq(slugify('Smørrebrød'), 'smorrebrod');
   eq(slugify('Łódź'), 'lodz');
   eq(slugify('Ærø'), 'aero');
 });
 
-test('collapses runs of spaces and punctuation into one hyphen', () => {
-  eq(slugify('rock  &  roll... live'), 'rock-roll-live');
+test('ampersands', () => {
+  eq(slugify('Tom & Jerry'), 'tom-and-jerry');
 });
 
-test('trims separators from both ends', () => {
+test('apostrophes', () => {
+  eq(slugify("Don't Stop"), 'dont-stop');
+});
+
+test('repeated separators', () => {
+  eq(slugify('rock  --  roll... live'), 'rock-roll-live');
+});
+
+test('leading and trailing punctuation', () => {
   eq(slugify('  ...Hello, World!!  '), 'hello-world');
 });
 
-test('keeps digits', () => {
+test('digits', () => {
   eq(slugify('Top 10 Tips for 2024'), 'top-10-tips-for-2024');
 });
 
-test('keeps existing hyphens without doubling them', () => {
+test('existing hyphens', () => {
   eq(slugify('well-known - fact'), 'well-known-fact');
 });
 
-test('gives an empty string when there is nothing to keep', () => {
+test('nothing to keep', () => {
   eq(slugify(''), '');
   eq(slugify('!!! --- ???'), '');
 });
@@ -119,6 +127,7 @@ property('slugifying a slug changes nothing', [titles], (title: string) => {
 
 /** Shared transliteration step of the good bodies, parameterised by separator. */
 function goodBody(sep: '-' | '_'): string {
+  const amp = sep === '-' ? "\n  .replace(/&/g, ' and ')\n  .replace(/['’]/g, '')" : '';
   return String.raw`const special: Record<string, string> = {
   'ß': 'ss', 'æ': 'ae', 'œ': 'oe', 'ø': 'o', 'ł': 'l', 'đ': 'd', 'ð': 'd', 'þ': 'th', 'ı': 'i', 'ŋ': 'ng',
 };
@@ -127,7 +136,7 @@ const ascii = title
   .normalize('NFKD')
   .replace(/\p{M}+/gu, '')
   .toLowerCase()
-  .replace(/[ßæœøłđðþıŋ]/g, (ch) => special[ch] ?? ch);
+  .replace(/[ßæœøłđðþıŋ]/g, (ch) => special[ch] ?? ch)${amp};
 return ascii.replace(/[^a-z0-9]+/g, '${sep}').replace(/^${sep}+|${sep}+$/g, '');`;
 }
 
@@ -160,6 +169,8 @@ export const slugify: ExampleDef = {
 let out = '';
 for (const ch of title.toLowerCase().normalize('NFD')) {
   if (/[a-z0-9]/.test(ch)) out += ch;
+  else if (ch === '&') out += ' and ';
+  else if (ch === "'" || ch === '’') continue;
   else if (map[ch] !== undefined) out += map[ch];
   else if (/\p{M}/u.test(ch)) continue;
   else out += ' ';
@@ -195,6 +206,8 @@ return title
   .normalize('NFD')
   .replace(/[̀-ͯ]/g, '')
   .replace(/[ßæøł]/g, (ch) => special[ch] ?? ch)
+  .replace(/&/g, ' and ')
+  .replace(/['’]/g, '')
   .replace(/[^a-z0-9]+/g, '-');`,
       rejectedBy: 'tests',
       why: 'Never trims: leading and trailing punctuation leave hyphens at the ends of the slug.',
@@ -206,6 +219,8 @@ return title
   .normalize('NFD')
   .replace(/[̀-ͯ]/g, '')
   .replace(/[ßæøł]/g, (ch) => special[ch] ?? ch)
+  .replace(/&/g, ' and ')
+  .replace(/['’]/g, '')
   .replace(/[^\w]+/g, '-')
   .replace(/^-+|-+$/g, '');`,
       rejectedBy: 'properties',

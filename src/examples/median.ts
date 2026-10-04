@@ -5,38 +5,37 @@ import type { ExampleDef } from './index';
  * Natural first-attempt mistakes and the check that catches each:
  *   - `.sort()` without a comparator sorts as strings     → properties (reference comparison)
  *   - even length returns one middle value, not the mean  → tests
- *   - empty list returns NaN / undefined                  → tests
+ *   - empty list throws instead of returning NaN          → tests
  *   - `numbers.sort(...)` sorts the caller's array        → invariants (pure: frozen-argument replay)
  */
 
-const DOC = `Returns the median of a list of numbers: the middle value once the numbers are sorted in ascending numeric order. When the list has an even number of values there are two middle values, and the median is their average. An empty list has no median, so the function throws a RangeError. The input array belongs to the caller and must be left exactly as it was.`;
+const DOC = `Returns the median of a list of numbers.`;
 
-const TESTS = String.raw`test('returns the middle value of an odd-length list', () => {
+const TESTS = String.raw`test('odd-length list', () => {
   eq(median([5, 1, 3]), 3);
 });
 
-test('averages the two middle values of an even-length list', () => {
+test('even-length list', () => {
   eq(median([1, 2]), 1.5);
   eq(median([8, 2, 6, 4]), 5);
 });
 
-test('a single value is its own median', () => {
+test('single value', () => {
   eq(median([7]), 7);
 });
 
-test('works with negative and fractional values', () => {
+test('negative and fractional values', () => {
   eq(median([0.5, -1, 2]), 0.5);
 });
 
-test('throws a RangeError for an empty list', () => {
-  let result: unknown;
+test('empty list', () => {
+  let actual: unknown;
   try {
-    result = median([]);
+    actual = median([]);
   } catch (e) {
-    if (e instanceof RangeError) return;
-    throw e;
+    actual = 'threw ' + (e as Error).name;
   }
-  eq(result, 'a thrown RangeError');
+  eq(actual, NaN);
 });
 `;
 
@@ -133,20 +132,18 @@ export const median: ExampleDef = {
   },
   breakPatch: { doc: DOC_AFTER_BREAK, tests: TESTS_AFTER_BREAK, properties: PROPERTIES_AFTER_BREAK },
   goodBodies: [
-    String.raw`if (numbers.length === 0) {
-  throw new RangeError('median of an empty list is undefined');
-}
+    String.raw`if (numbers.length === 0) return NaN;
 const sorted = [...numbers].sort((a, b) => a - b);
 const mid = Math.floor(sorted.length / 2);
 return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;`,
-    String.raw`if (numbers.length === 0) throw new RangeError('empty list');
+    String.raw`if (numbers.length === 0) return NaN;
 const sorted = numbers.slice().sort((a, b) => a - b);
 const n = sorted.length;
 return (sorted[Math.floor((n - 1) / 2)] + sorted[Math.floor(n / 2)]) / 2;`,
   ],
   badBodies: [
     {
-      body: String.raw`if (numbers.length === 0) throw new RangeError('empty list');
+      body: String.raw`if (numbers.length === 0) return NaN;
 const sorted = [...numbers].sort();
 const mid = Math.floor(sorted.length / 2);
 return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;`,
@@ -154,21 +151,22 @@ return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) /
       why: 'Array.prototype.sort() without a comparator sorts numbers as strings; small hand-picked tests pass, the reference property finds an input where the order differs.',
     },
     {
-      body: String.raw`if (numbers.length === 0) throw new RangeError('empty list');
+      body: String.raw`if (numbers.length === 0) return NaN;
 const sorted = [...numbers].sort((a, b) => a - b);
 return sorted[Math.floor(sorted.length / 2)];`,
       rejectedBy: 'tests',
       why: 'Returns the upper middle value for an even-length list instead of averaging the two middle values.',
     },
     {
-      body: String.raw`const sorted = [...numbers].sort((a, b) => a - b);
+      body: String.raw`if (numbers.length === 0) throw new Error('empty list');
+const sorted = [...numbers].sort((a, b) => a - b);
 const mid = Math.floor(sorted.length / 2);
 return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;`,
       rejectedBy: 'tests',
-      why: 'Forgets the empty list: undefined + undefined quietly becomes NaN instead of the RangeError the doc asks for.',
+      why: 'Mishandles the empty list: throws an Error where the tests expect NaN.',
     },
     {
-      body: String.raw`if (numbers.length === 0) throw new RangeError('empty list');
+      body: String.raw`if (numbers.length === 0) return NaN;
 numbers.sort((a, b) => a - b);
 const mid = Math.floor(numbers.length / 2);
 return numbers.length % 2 === 1 ? numbers[mid] : (numbers[mid - 1] + numbers[mid]) / 2;`,

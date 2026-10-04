@@ -60,8 +60,7 @@ export function buildPrompt(input: PromptInput): string {
       'REQUIREMENTS FOR THE BODY',
       `- Must compile under TypeScript 'strict' with lib ES2022 only: no DOM and no Node APIs (no window, document, fetch, process, require, console, setTimeout).`,
       `- Pure and deterministic: read only the parameters and standard ES2022 built-ins. No global state, no I/O, no Date or Date.now(), no Math.random(), no performance, no crypto.`,
-      `- Must not mutate its arguments. Copy before sorting or modifying (e.g. [...xs].sort(...)); arguments are deep-frozen during checking.`,
-      `- Fast: each call must return within ${spec.budgetMs} ms. Prefer iterative, linear or n log n algorithms; avoid exponential recursion.`,
+      `- Must not mutate its arguments.`,
       `- Throw an Error only where the contract says the input is invalid.`,
     ].join('\n'),
   );

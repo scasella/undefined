@@ -163,6 +163,14 @@ describe('validateImage', () => {
 });
 
 describe('reverify', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(1_700_000_000_000);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('round trip: export → JSON → validate → reverify keeps hashes and provenance', async () => {
     const history = await buildHistory();
     const res = validateImage(await exported());

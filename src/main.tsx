@@ -21,6 +21,7 @@ async function boot(): Promise<void> {
     renderError(e);
     return;
   }
+  if (import.meta.env.DEV) (window as unknown as { __undefined?: Engine }).__undefined = engine; // maintainer hook (recording sessions)
   render(<App engine={engine} />, root);
   try {
     await engine.init();
