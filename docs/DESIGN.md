@@ -81,7 +81,7 @@ declare const fc: typeof import('fast-check');
 - `property` passes iff the predicate returns anything but `false` and does not throw. On failure, the harness re-runs the predicate on the *shrunk* counterexample with call instrumentation so it can report the exact call, actual and expected (from an `eq` AssertionFailure, or from the reference in `matchesReference`).
 - `matchesReference` calls `reference(...args)` and the candidate with deep-cloned args and compares with the same equality as `eq`.
 - The candidate handed to tests is an *instrumented wrapper* (records last call/args/result; sends enter/leave to the watchdog; samples arg lists for the Invariants replay).
-- Test names are found statically by `shared/specInfo.ts` `listTestNames(src)` (regexp over `test(`/`property(`/`matchesReference(` with a string literal first argument).
+- Test names are found statically by `shared/specInfo.ts` `listTestNames(src)` (a small tokenizer-aware scanner over `test(`/`property(`/`matchesReference(` with a string literal first argument; skips comments and regex literals).
 
 ## What the model sees (decided)
 
@@ -154,7 +154,7 @@ export class Runtime {
   /** Shown values for the UI. */
   envShown(): Promise<Record<string, string>>;
   /** Replace functions + env wholesale (rollback / import / reload). Rebuilds the worker if needed. */
-  reset(functions: Record<string, string /*js*/>, env: Record<string, Json>): Promise<void>;
+  reset(functions: Record<string, string /*js*/ | { js: string; budgetMs?: number }>, env: Record<string, Json>): Promise<{ lost: string[] }>; // lost = REPL variables that could not be restored
   dispose(): void;
 }
 ```
@@ -219,3 +219,12 @@ export interface ExampleDef extends ExampleInfo {
 ## UI contract
 
 The UI is a pure function of `Engine.state` plus calls on `Engine`. It owns no business logic. Panels: REPL, code pane, gate panel (+ the big rejection headline), retry strip, revision log, repo view, mode banner. See the UI task brief.
+
+## Hardening added after adversarial review
+
+- `EvalOutcome` 'undefined-call' carries the encoded argument values; the engine passes them as `ExecGateInput.callArgs`, so a call-origin function's candidate is really executed (frozen-argument replay, masked globals, watchdog). A candidate that was never called yields Invariants `skipped`, never a vacuous pass.
+- `mask.ts` verifies intrinsic integrity (`Object.is`, prototypes, `JSON`, `Math`…) via `takeViolations()` and restores them; `Function` is shadowed; `Date` keeps `instanceof` semantics.
+- Nested undefined names in arguments are ReferenceErrors, never blamed on a committed function.
+- All engine operations that change the program run through one queue; revision ids are assigned at commit.
+- Stored/imported artifacts are recompiled from their bodies; their `js` is never trusted.
+- The service requires a loopback peer and a same-host Origin on POST /generate.
