@@ -2,7 +2,7 @@
 // builder and the real codex invocation) and counts how often each is WRITTEN vs DECLINED, against what we expect.
 // Usage: CAL_N=3 npx vitest run -c scripts/vitest.tune.config.ts scripts/calibrate.tune.ts   (writes .tmp/calibrate-out.json)
 import { it } from 'vitest';
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { createCodexService } from '../server/codexService';
 import { buildPrompt, parseDecline } from '../src/shared/prompt';
 import { specFromCall } from '../src/gates/source';
@@ -62,5 +62,6 @@ it('calibrate', async () => {
     }),
   );
   for (const c of cases) results.push({ ...c, ...tally.get(c)! });
+  mkdirSync('.tmp', { recursive: true });
   writeFileSync('.tmp/calibrate-out.json', JSON.stringify(results, null, 1));
 }, 1_800_000);

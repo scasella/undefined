@@ -1,11 +1,12 @@
 // node scripts/hostile.mjs [startIndex] [endIndex]  — types what strangers type, live, with no spec, into a fresh image
 // each time. Raw results go to .tmp/hostile-raw.json; docs/HOSTILE.md is written from them by hand.
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { startServer, launch, openApp, runCall } from './lib/drive.mjs';
 const calls = JSON.parse(readFileSync(new URL('./hostile-calls.json', import.meta.url)));
 const from = Number(process.argv[2] ?? 0);
 const to = Number(process.argv[3] ?? calls.length);
 const out = existsSync((process.env.RAW ?? '.tmp/hostile-raw.json')) ? JSON.parse(readFileSync((process.env.RAW ?? '.tmp/hostile-raw.json'))) : {};
+mkdirSync('.tmp', { recursive: true });
 const srv = await startServer({ mode: 'dev', port: 5192 });
 const b = await launch();
 try {

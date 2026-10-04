@@ -1,11 +1,12 @@
 // node scripts/sessions.mjs [N=8] [id ...]  — SESSION-level rates through the real app (dev server, real Worker
 // watchdog, the real 3-attempt budget): for each example, N fresh sessions of its pre-typed call. Writes
 // .tmp/sessions-out.json and prints a table. This is the number to quote, not the single-retry sampling of tune.
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { startServer, launch, openApp, runCall, engineCall } from './lib/drive.mjs';
 const N = Number(process.argv[2] ?? 8);
 const ids = process.argv.slice(3).length ? process.argv.slice(3) : ['median', 'slugify', 'fibonacci', 'orders'];
 const CALLS = { median: 'median([3, 1, 4, 2])', slugify: 'slugify("Hello, World! Crème Brûlée")', fibonacci: 'fibonacci(90)', orders: 'topCustomersByRevenue(rows)' };
+mkdirSync('.tmp', { recursive: true });
 const srv = await startServer({ mode: 'dev', port: 5199 });
 const out = {};
 try {

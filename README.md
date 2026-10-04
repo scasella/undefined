@@ -22,7 +22,7 @@ revision of your running program. Everything runs in your browser except the mod
 `codex login` completed. No API keys, no cloud backend, nothing leaves your machine except the prompt to Codex.
 
 ```bash
-git clone <this repo> undefined && cd undefined
+git clone https://github.com/scasella/undefined.git && cd undefined
 npm install
 npm run dev          # opens on http://localhost:5173 with the generation service running (LIVE mode)
 ```
@@ -84,7 +84,7 @@ Remove a pin in **Repo**.
 The **orders** example binds a bundled, fictional `orders.csv` (332 rows) to `rows` and pre-types
 `topCustomersByRevenue(rows)` with no spec. Only Compile and Invariants judge the result, so it is yours to judge: pin
 it. Once the function exists, its **Break it** (in Repo) states what revenue means: refunds excluded, discounts applied,
-rounded to cents. No recording ships for it yet, so it needs live mode.
+rounded to cents. A recorded session ships for it (and for its *Break it*), so it replays on the static site too.
 
 ## How a call is decided
 
@@ -353,11 +353,11 @@ rates above against your own Codex login (results in `.tmp/tune-out.json`).
    1.5 s bound, with the call and elapsed time on screen; the retry commits a fast-doubling version.
 7. **0:50** Open **Repo → median**, press **Break it**. The artifact turns *invalid: spec changed*. Call it again and it
    regenerates.
-8. **0:52** (live mode) Click **orders** and press Enter. The model sees only `type Row` and three sample rows (the
+8. **0:52** Click **orders** and press Enter (it replays from its recording; live mode generates it afresh). The model sees only `type Row` and three sample rows (the
    **Data** drawer shows exactly which). The result renders as a table; press **Pin as test**. From now on every
    regeneration of `topCustomersByRevenue` has to reproduce that result, or Tests rejects it.
 9. **0:54** Back on the committed median, wait a few seconds: under the Accepted banner the confidence line fills in
-   with the mutation check (the recorded median reads *Tests killed 12 of 12 mutants*). When something survives,
+   with the mutation check (the recorded median reads *Your checks caught 12 of 12 deliberately broken copies*). When something survives,
    **See what slipped through** shows the broken copy your checks let through. There is no score, only what ran.
 10. **0:55** Open **Revisions** and click **Roll back to r2**. Then **Image → Export** to download your whole program.
 11. **0:58** **Image → Share this session…**: download `undefined-session.json`, put it in a gist, paste the gist's Raw URL

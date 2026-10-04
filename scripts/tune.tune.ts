@@ -1,7 +1,7 @@
 // Dev tool (not part of the product): samples real candidates from the model for each example and runs the real gates.
 // Usage: TUNE_N=6 TUNE_EX=median,slugify npx vitest run -c scripts/vitest.tune.config.ts
 import { it } from 'vitest';
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { createCodexService } from '../server/codexService';
 import { buildPrompt } from '../src/shared/prompt';
@@ -76,5 +76,6 @@ it('tune', async () => {
     console.log(`\n=== ${ex.id}${broken ? ' (broken)' : ''}`);
     for (const r of runs as any[]) console.log(r.i, r.error ?? JSON.stringify({ ms: r.ms, first: r.first, retry: r.retry }));
   }
+  mkdirSync('.tmp', { recursive: true });
   writeFileSync('.tmp/tune-out.json', JSON.stringify(out, null, 1));
 });

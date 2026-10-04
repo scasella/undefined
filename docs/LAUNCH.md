@@ -178,7 +178,7 @@ Fix exactly what the diagnostics show. Keep what worked. Do not repeat an approa
 | asset | command |
 |---|---|
 | session rates (1a) | `node scripts/sessions.mjs 8` |
-| single-retry sampling (1b) | `TUNE_N=8 npx vitest run -c scripts/vitest.tune.config.ts` |
+| single-retry sampling (1b) | `TUNE_N=8 TUNE_EX=median,slugify,fibonacci npx vitest run -c scripts/vitest.tune.config.ts scripts/tune.tune.ts` |
 | decline calibration (1c) | `CAL_N=3 npx vitest run -c scripts/vitest.tune.config.ts scripts/calibrate.tune.ts` |
 | hostile calls | `node scripts/hostile.mjs` |
 | recordings | `npm run record` |
