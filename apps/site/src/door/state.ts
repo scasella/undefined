@@ -8,7 +8,7 @@ import type { Engine, EngineState } from '@scasella/undefined-engine/types';
 /** The engine, set once by <App/>. */
 export const engineRef = signal<Engine | null>(null);
 
-/** The engine state; reading it in a component subscribes that component (as src/ui/App.tsx does). */
+/** The engine state; reading it in a component subscribes that component. */
 export function useEngineState(engine: Engine): EngineState {
   return engine.state.value;
 }

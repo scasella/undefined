@@ -1,5 +1,7 @@
 # Composition measurements (Phase 3)
 
+> Historical: the UI described here (the REPL "workbench", `apps/site/src/ui/`) was replaced by the front door (`apps/site/src/door/`, [FRONT-DOOR.md](FRONT-DOOR.md)), the site's only UI. Engine behaviour is unchanged; features with no UI now are listed in [FEATURES.md](FEATURES.md#engine-features-with-no-ui).
+
 Live measurements of what changes when other certified functions are in the program: the prompt gains an OTHER FUNCTIONS
 section, the model may call those functions, and a dependent is re-checked when a function it calls changes. Design:
 [COMPOSE-DESIGN.md](COMPOSE-DESIGN.md). Baselines: [EXAMPLES.md](EXAMPLES.md) (session rates, 2026-10-04),

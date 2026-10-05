@@ -1,121 +1,108 @@
 // node apps/site/scripts/parity-measure.mjs [--write] — the BROWSER side of the Node/CLI parity check
-// (docs/EVIDENCE.md "Node and CLI parity"). `npm run build` first.
+// (docs/EVIDENCE.md "Node and CLI parity"). `npm run build:check` first (`npm run measure:parity` does both and writes).
 //
-// Replays every session of every shipped recording through the production build (vite preview: no backend, replay mode,
-// the real Worker watchdog) in headless Chrome, the way a visitor does: session 1 by clicking the example and pressing
-// Enter; session 2 by the Repo tab's "Break it" button, then Enter. For every attempt it reads what the page shows:
-//   - a rejection: the gate rows, the rejecting gate's label and the headline text;
-//   - the accepted attempt: the gate rows, then (after the lazy broken-copy check) the "What was checked" sentence
-//     (ui/evidence.ts plainEvidence), its tooltip (engine shared/evidence.ts describeEvidence: the evidence line the
-//     CLI and eject print) and each surviving mutant's tooltip (survivorLine).
+// Replays every session of every shipped recording in headless Chrome through `vite preview` of dist-check/ (the
+// shipped sources built in development mode so the engine hook window.__undefined exists; no backend, replay mode, the
+// real Worker watchdog): session 1 by engine.loadExample + submit, session 2 by engine.breakIt + submit (the spec change
+// the example ships). For every attempt it reads the engine's own facts (state.generation attempts and their gate
+// results; the committed Artifact and, after the lazy broken-copy check, Artifact.evidence.mutation) and formats them
+// in Node with the same functions the site and the parity suites use:
+//   - a rejection: the gate rows, the rejecting gate's line ("✕ REJECTED BY <GATE> — <class> · #n", explain.ts
+//     rejectionClass) and the headline text (explain.ts plainHeadline);
+//   - the accepted attempt: the gate rows, then the "What was checked" sentence (lib/evidence.ts plainEvidence), the
+//     evidence line (engine shared/evidence.ts describeEvidence: what the CLI and eject print) and each surviving
+//     mutant's line (survivorLine).
 // The recordings themselves carry only the model's bodies (prompt/body/notes/durationMs/progress), not gate results, so
 // this is the only source of the site's measured values. --write saves them to
 // apps/site/src/examples/parity.browser.json, which both parity suites read (src/examples/parity.node.test.ts and
-// packages/cli/test/parity/parity.cli.test.ts). Re-run with --write whenever the recordings change.
+// scripts/cli.parity.ts). Re-run with --write whenever the recordings change.
 import { execSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { startServer, launch, workbench } from './lib/drive.mjs';
+import { runnerImport } from 'vite';
+import { startServer, launch, openApp } from './lib/drive.mjs';
 
-process.chdir(fileURLToPath(new URL('../', import.meta.url)));
+const SITE = fileURLToPath(new URL('../', import.meta.url));
+process.chdir(SITE);
 const WRITE = process.argv.includes('--write');
 const OUT = fileURLToPath(new URL('../src/examples/parity.browser.json', import.meta.url));
-const EX = {
-  median: { button: 'median(', fn: 'median' },
-  slugify: { button: 'slugify(', fn: 'slugify' },
-  fibonacci: { button: 'fibonacci(', fn: 'fibonacci' },
-  orders: { button: 'topCustomersByRevenue(', fn: 'topCustomersByRevenue' },
-};
+const EX = ['median', 'slugify', 'fibonacci', 'orders'];
 
-const srv = await startServer({ mode: 'preview', port: 5207 });
+// the site's own formatting (TypeScript sources, loaded through Vite's module runner)
+const load = async (id) => (await runnerImport(id, { configFile: false, root: SITE, logLevel: 'error' })).module;
+const { plainEvidence } = await load(fileURLToPath(new URL('../src/lib/evidence.ts', import.meta.url)));
+const { plainHeadline, plainGateText, rejectionClass } = await load(fileURLToPath(new URL('../src/lib/explain.ts', import.meta.url)));
+const { describeEvidence, survivorLine } = await load('@scasella/undefined-engine/shared/evidence');
+const GATE_LABEL = { compile: 'Compile', tests: 'Tests', properties: 'Properties', invariants: 'Invariants' };
+const flat = (t) => t.replace(/\s+/g, ' ').trim();
+
+const srv = await startServer({ mode: 'preview', port: 5207, outDir: 'dist-check' });
 const b = await launch({ width: 1440, height: 900 });
 const p = b.page;
 const chrome = b.browser.version();
 
-const GATES = () =>
-  [...document.querySelectorAll('.panel-gates .gate-row')].map((li) => ({
-    gate: li.querySelector('.gate-name')?.textContent?.trim() ?? '',
-    status: (li.className.match(/\bg-(pass|fail|skipped|pending|running|idle|notrun)\b/) ?? [])[1] ?? li.className,
-  }));
-const REJECTION = () => {
-  const a = document.querySelector('.panel-gates .headline-fail');
+/** In the page: the facts of the current generation and, for its committed artifact, the evidence. */
+const FACTS = () => {
+  const s = window.__undefined.state.value;
+  const g = s.generation;
+  const art = g && g.phase === 'committed' ? s.program.functions[g.fn]?.artifact : null;
   return {
-    gateLine: a?.querySelector('.headline-gate')?.innerText.replace(/\s+/g, ' ').trim() ?? null,
-    headline: a?.querySelector('.headline-text')?.innerText.replace(/\s+/g, ' ').trim() ?? null,
+    head: s.headRevision,
+    busy: s.busy,
+    phase: g?.phase ?? null,
+    error: g?.error?.message ?? null,
+    attempts: (g?.attempts ?? []).map((a) => ({ attempt: a.attempt, status: a.status, gates: a.gates, headline: a.candidate?.headline ?? null })),
+    artifact: art && art.revision === g.revision ? { revision: art.revision, evidence: art.evidence, deps: Object.keys(art.deps ?? {}).sort() } : null,
   };
 };
-const ACCEPTED = () => {
-  const c = document.querySelector('.panel-gates .confidence');
-  return {
-    text: c?.innerText.replace(/\s+/g, ' ').trim() ?? null,
-    evidenceLine: c?.getAttribute('title') ?? null,
-    survivors: [...document.querySelectorAll('.panel-gates details.survivors li')].map((li) => li.getAttribute('title')),
-    committed: (document.body.innerText.match(/Accepted · saved as (r\d+)/) ?? [])[1] ?? null,
-  };
-};
-const revisionNow = () => p.evaluate(() => (document.body.innerText.match(/Accepted · saved as (r\d+)/g) ?? []).at(-1) ?? null);
 
-/** Press Enter on what is typed; record every attempt until a NEW "Accepted · saved as rN" and the finished mutation check. */
-async function enterAndMeasure(before) {
-  await p.locator('#repl-input').press('Enter');
-  const attempts = [];
+/** Submit what is typed; wait for a NEW committed revision and its finished broken-copy check; return the attempts. */
+async function submitAndMeasure() {
+  const before = await p.evaluate(() => window.__undefined.state.value.headRevision);
   const t0 = Date.now();
-  // attempt by attempt: a fail verdict (then the next attempt replaces it) or the new commit
-  for (;;) {
-    const st = await p
-      .waitForFunction(
-        ({ before, n }) => {
-          const last = (document.body.innerText.match(/Accepted · saved as r\d+/g) ?? []).at(-1) ?? null;
-          if (last && last !== before) return 'accepted';
-          const v = document.querySelector('.panel-gates')?.getAttribute('data-verdict');
-          const h = document.querySelector('.panel-gates .headline-fail .headline-gate')?.innerText ?? '';
-          // the next attempt's rejection, by its number (#1, #2, …), once its headline is rendered
-          if (v === 'fail' && new RegExp(`#${n}\\b`).test(h) && document.querySelector('.panel-gates .headline-fail .headline-text')) return 'fail';
-          return false;
-        },
-        { before, n: attempts.length + 1 },
-        { timeout: 180000, polling: 50 },
-      )
-      .then((h) => h.jsonValue());
-    if (st === 'fail') {
-      attempts.push({ verdict: 'rejected', gates: await p.evaluate(GATES), rejection: await p.evaluate(REJECTION) });
-      continue;
-    }
-    break;
-  }
-  const gates = await p.evaluate(GATES);
+  await p.evaluate(() => void window.__undefined.submit());
+  await p.waitForFunction((h) => { const s = window.__undefined.state.value; return !s.busy && s.headRevision > h && s.generation?.phase === 'committed'; }, before, { timeout: 180000, polling: 50 });
   const committedMs = Date.now() - t0;
-  // the lazy broken-copy check starts after the commit and an idle pause: wait for its finished sentence
-  await p.waitForFunction(() => document.querySelector('.panel-gates [data-mutation="done"]'), null, { timeout: 180000 });
-  await p.waitForTimeout(300);
-  attempts.push({ verdict: 'accepted', gates, ...(await p.evaluate(ACCEPTED)) });
+  // the lazy broken-copy check starts after the commit and an idle pause (engine.ts scheduleMutation): wait for its report
+  await p.waitForFunction(() => {
+    const s = window.__undefined.state.value;
+    const g = s.generation;
+    const a = g && s.program.functions[g.fn]?.artifact;
+    return !!a && a.revision === g.revision && !!a.evidence?.mutation && (!s.mutation || s.mutation.phase === 'done');
+  }, null, { timeout: 180000, polling: 100 });
+  const f = await p.evaluate(FACTS);
+  const gates = (a) => a.gates.map((x) => ({ gate: GATE_LABEL[x.gate], status: x.status }));
+  const attempts = f.attempts.map((a) => {
+    if (a.status === 'rejected') {
+      const fail = a.gates.find((x) => x.status === 'fail');
+      const note = fail.note && fail.note !== 'spec error' ? ` · ${plainGateText(fail.note)}` : '';
+      const gateLine = `✕ REJECTED BY ${GATE_LABEL[fail.gate]} — ${rejectionClass(fail)} · #${a.attempt}${note}`.toUpperCase();
+      return { verdict: 'rejected', gates: gates(a), rejection: { gateLine, headline: flat(plainHeadline(fail.headline ?? a.headline ?? `Rejected by ${fail.gate}`)) } };
+    }
+    const ev = f.artifact.evidence;
+    return {
+      verdict: 'accepted',
+      gates: gates(a),
+      text: flat(plainEvidence(ev, f.artifact.deps)),
+      evidenceLine: describeEvidence(ev, f.artifact.deps),
+      survivors: (ev.mutation?.survivors ?? []).map(survivorLine),
+      committed: `r${f.artifact.revision}`,
+    };
+  });
   return { attempts, committedMs };
 }
 
 const out = {};
 try {
-  for (const [id, ex] of Object.entries(EX)) {
-    await p.goto(workbench(srv.url));
-    await p.evaluate(async () => {
-      localStorage.clear();
-      await new Promise((r) => {
-        const q = indexedDB.deleteDatabase('undefined-image');
-        q.onsuccess = q.onerror = q.onblocked = () => r();
-        setTimeout(r, 1500);
-      });
-    });
-    await p.goto(workbench(srv.url));
-    await p.waitForSelector('#repl-input');
-    if (id !== 'median') await p.locator('button.example', { hasText: ex.button }).click();
-    const s1 = await enterAndMeasure(await revisionNow());
-    console.log(id, 'session 1', JSON.stringify(s1.attempts.map((a) => a.verdict === 'rejected' ? a.rejection.gateLine : a.text)));
-    // session 2: the Repo tab's Break it button for this function, then Enter on the call it pre-types
-    await p.locator('#tab-repo').click();
-    const before = await revisionNow();
-    await p.locator(`article.fn-card[aria-labelledby="fn-${ex.fn}"] .breakit button`).click();
-    await p.waitForFunction(() => document.querySelector('#repl-input')?.value?.length > 0, null, { timeout: 30000 });
-    const s2 = await enterAndMeasure(before);
-    console.log(id, 'session 2', JSON.stringify(s2.attempts.map((a) => a.verdict === 'rejected' ? a.rejection.gateLine : a.text)));
+  for (const id of EX) {
+    await openApp(p, srv.url);
+    await p.evaluate((x) => window.__undefined.loadExample(x), id);
+    const s1 = await submitAndMeasure();
+    console.log(id, 'session 1', JSON.stringify(s1.attempts.map((a) => (a.verdict === 'rejected' ? a.rejection.gateLine : a.text))));
+    // session 2: the example's "Break it" spec change, then the call it pre-types
+    await p.evaluate((x) => window.__undefined.breakIt(x), id);
+    const s2 = await submitAndMeasure();
+    console.log(id, 'session 2', JSON.stringify(s2.attempts.map((a) => (a.verdict === 'rejected' ? a.rejection.gateLine : a.text))));
     out[id] = [s1.attempts, s2.attempts];
   }
 } finally {
@@ -125,11 +112,11 @@ try {
 
 const doc = {
   measuredAt: new Date().toISOString(),
-  how: 'node apps/site/scripts/parity-measure.mjs --write (production build, vite preview, replay mode, headless Chrome, real Worker watchdog)',
+  how: 'node apps/site/scripts/parity-measure.mjs --write (dist-check: the site built in development mode for the engine hook, vite preview, replay mode, headless Chrome, real Worker watchdog)',
   head: execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim(),
   dirtyTree: execSync('git status --porcelain', { encoding: 'utf8' }).trim().length > 0,
   chrome,
-  recordings: Object.fromEntries(Object.keys(EX).map((id) => [id, JSON.parse(readFileSync(`public/recordings/${id}.json`, 'utf8')).sessions.map((s) => s.specHash)])),
+  recordings: Object.fromEntries(EX.map((id) => [id, JSON.parse(readFileSync(`public/recordings/${id}.json`, 'utf8')).sessions.map((s) => s.specHash)])),
   examples: out,
 };
 if (WRITE) {

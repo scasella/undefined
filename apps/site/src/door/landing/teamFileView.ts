@@ -5,7 +5,7 @@
  * The zip card describes what Eject really produces for the example's calculation (engine eject/eject.ts ejectFiles:
  * `<name>-eject/` holding `<name>.ts`, `<name>.test.ts`, `provenance.json`, `README.md`); teamFileView.test.ts pins
  * the names to the real ejectFiles output. The counts come from the seeded agreement (model/agreements.ts). The
- * limits come from data/dataset.ts DATASET_LIMITS and the formats ui/data.ts accepts.
+ * limits come from data/dataset.ts DATASET_LIMITS and the formats lib/data.ts accepts.
  */
 import { DATASET_LIMITS } from '../../data/dataset';
 import { AGREEMENT_FN, AGREEMENT_TESTS, HOUSE_RULES, MADE_UP_TABLES } from '../model/agreements';

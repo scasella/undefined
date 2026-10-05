@@ -36,8 +36,11 @@ jobs:
       # (apps/site/src/examples/parity.browser.json; ~15 s); only the killed / killed-by-bound split may differ
       - run: npm run check:parity -w apps/site
   replay:
-    # The static build must work with no backend: serve it and replay every shipped example through the real UI
-    # (gates run live in headless Chrome, which the runner image provides).
+    # The static site must work with no backend. `npm run build` checks the shipped build compiles; `check:replay` then
+    # builds the same sources in development mode (dist-check/, which carries the engine hook the shipped dist/ must not;
+    # check:csp guards that), serves it with `vite preview` (replay mode, no model calls) and replays every shipped
+    # recording through the engine plus the front door's own pages (gates run live in headless Chrome, which the
+    # runner image provides).
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

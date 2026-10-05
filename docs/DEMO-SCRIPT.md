@@ -1,5 +1,7 @@
 # A 60-second demo script
 
+> Historical: the UI described here (the REPL "workbench", `apps/site/src/ui/`) was replaced by the front door (`apps/site/src/door/`, [FRONT-DOOR.md](FRONT-DOOR.md)), the site's only UI. Engine behaviour is unchanged; features with no UI now are listed in [FEATURES.md](FEATURES.md#engine-features-with-no-ui).
+
 A walk-through for presenting Undefined live or in replay. Timings are approximate; replayed sessions follow the
 recordings in `apps/site/public/recordings/`.
 
@@ -32,4 +34,4 @@ recordings in `apps/site/public/recordings/`.
     the gates running live in their browser.
 
 To open on a different example, start from `?opener=fibonacci`, `?opener=slugify` or `?opener=orders` (see
-[Try a different opener](FEATURES.md#try-a-different-opener-opener)).
+[Try a different opener](FEATURES.md#engine-features-with-no-ui)).

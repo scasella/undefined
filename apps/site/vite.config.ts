@@ -1,4 +1,3 @@
-import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vitest/config';
 import preact from '@preact/preset-vite';
 import { codexService } from './server/codexPlugin';
@@ -35,12 +34,8 @@ export default defineConfig({
   preview: { headers: previewHeader ? { 'Content-Security-Policy': PRODUCTION_CSP } : {} },
   worker: { format: 'es' },
   optimizeDeps: { include: ['typescript', 'fast-check'] },
-  // two pages: the front door (index.html, src/door) and the workbench (workbench.html, the original REPL UI)
-  build: {
-    target: 'es2022',
-    chunkSizeWarningLimit: 4000,
-    rollupOptions: { input: { index: fileURLToPath(new URL('./index.html', import.meta.url)), workbench: fileURLToPath(new URL('./workbench.html', import.meta.url)) } },
-  },
+  // one page: index.html, the front door (src/door)
+  build: { target: 'es2022', chunkSizeWarningLimit: 4000 },
   // setupFiles: the compile gate's TypeScript lib source (src/gates/libs.ts), as core/engine.ts registers it in the app.
   test: { name: 'site', environment: 'node', include: ['src/**/*.test.ts', 'server/**/*.test.ts'], setupFiles: ['./src/gates/libs.ts'] },
 });

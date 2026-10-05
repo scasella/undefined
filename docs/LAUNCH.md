@@ -193,8 +193,10 @@ numbers above), and what each section must not claim.
 | hostile calls | `node apps/site/scripts/hostile.mjs` |
 | recordings | `npm run record` |
 | transcripts | `node apps/site/scripts/transcripts.mjs` |
-| replay check on the production build | `npm run build && npm run check:replay` |
-| screenshots in both schemes and sizes | `node apps/site/scripts/shots.mjs` |
-| `docs/opening.gif`, `docs/demo.mp4` | `node apps/site/scripts/capture.mjs` |
-| `docs/opening-<id>.gif` (the opening for `?opener=<id>`) | `node apps/site/scripts/capture.mjs --opener=<id>` |
-| `docs/social.png` and `apps/site/public/social.png` (link preview, 1200x630, from the real rejection card) | `node apps/site/scripts/social.mjs` |
+| replay check (the site's sources built in development mode for the engine hook, `dist-check/`; no model calls) | `npm run check:replay` |
+| browser parity measurement (`apps/site/src/examples/parity.browser.json`) | `npm run measure:parity -w apps/site` |
+
+`docs/opening.gif`, `docs/opening-fibonacci.gif`, `docs/demo.mp4`, `docs/social.png` and `apps/site/public/social.png`
+(the link preview) show the **previous UI** (the REPL, since replaced by the front door). The scripts that made them
+(`capture.mjs`, `shots.mjs`, `social.mjs`) drove that UI and were removed with it; the files are kept as they are and are
+not regenerated.

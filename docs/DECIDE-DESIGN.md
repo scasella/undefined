@@ -1,5 +1,7 @@
 # Decide: spec gaps become questions (internal design, Phase 2)
 
+> Historical: the UI described here (the REPL "workbench", `apps/site/src/ui/`) was replaced by the front door (`apps/site/src/door/`, [FRONT-DOOR.md](FRONT-DOOR.md)), the site's only UI. Engine behaviour is unchanged; features with no UI now are listed in [FEATURES.md](FEATURES.md#engine-features-with-no-ui).
+
 Status: CORE (steps 1-8) and UI (steps 9-12) implemented: apps/site/src/ui/components/Decide.tsx,
 apps/site/src/ui/decide.ts, GatePanel/Repo/Evidence/Eject wiring, replay-check Decide block. As built, the replay-mode waiving
 ruling is warned about before Confirm and then runs (the engine's needs-live path), with Run live / Check / Remove as

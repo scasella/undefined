@@ -1,5 +1,5 @@
 // node scripts/byo-sessions.mjs [N=3] [set ...]   — live smoke of the bring-your-own-data suggestion chips (docs/BYO-DATA-MEASUREMENTS.md).
-// node scripts/byo-sessions.mjs chips              — only drop + Load each CSV and print the chips the real UI offers (no model call).
+// node scripts/byo-sessions.mjs chips              — only load each CSV and print the suggested calls (no model call).
 // BYO_APPEND=1 node scripts/byo-sessions.mjs rescore — re-run check() over the stored results after a checker fix (no server).
 //
 // Question: when a reader drops a realistic CSV and clicks one of the suggested calls (src/data/suggest.ts), does the
@@ -13,10 +13,9 @@
 // CSV shows all five templates; together these cover each template at least once.)
 //
 // A "set" is `<csv>:<template>` (template = countBy | totalBy | top5 | average | range); default: every chip each CSV
-// shows. Each set is N fresh sessions, each driven through the real UI exactly as a reader would:
-//   fresh image (lib/drive.mjs openApp) → dispatch dragenter/dragover/drop with the CSV File on window (the page-wide
-//   DropOverlay) → the data drawer opens pre-filled → wait for the preview, click "Load as <name>" → the chips render →
-//   click the chip of the template (it pre-types the call) → press Enter in #repl-input → wait until idle.
+// shows. Each set is N fresh sessions, each driven through the engine hook (window.__undefined, dev server):
+//   fresh image (lib/drive.mjs openApp) → engine.previewDataset (the name from the file and the suggested calls) →
+//   engine.loadDataset under that name → setInput(the suggested call of the template) → submit → wait until idle.
 // The send-samples setting is left at the product default and recorded.
 //
 // Per session: chips offered, every attempt (status, source, declined reason, failing gate + headline, the model's
@@ -165,38 +164,25 @@ function check(template, want, got) {
   return { correct: false, why: 'unknown template' };
 }
 
-// ───────────── driving the page ─────────────
-async function dropFile(page, file, text) {
-  await page.evaluate(
-    ({ file, text }) => {
-      const dt = new DataTransfer();
-      dt.items.add(new File([text], file, { type: 'text/csv' }));
-      for (const type of ['dragenter', 'dragover', 'drop']) window.dispatchEvent(new DragEvent(type, { dataTransfer: dt, bubbles: true, cancelable: true }));
-    },
-    { file, text },
-  );
-  try {
-    await page.waitForSelector('dialog.drawer[open]', { timeout: 5000 });
-    return 'drop';
-  } catch {
-    await page.locator('input.data-start-input').first().setInputFiles({ name: file, mimeType: 'text/csv', buffer: Buffer.from(text) });
-    await page.waitForSelector('dialog.drawer[open]', { timeout: 5000 });
-    return 'file-input';
-  }
-}
-
+// ───────────── driving the engine ─────────────
+/**
+ * Preview the CSV as the front door does (engine.previewDataset: the name from the file, the column types and the
+ * suggested calls, src/data/suggest.ts, no model asked), then load it under that name (engine.loadDataset). Returns the
+ * suggested calls ("chips"), at most three, minus functions that already exist.
+ */
 async function loadCsv(page, csv) {
   const d = CSVS[csv];
-  const via = await dropFile(page, d.file, toCsv(d.rows));
-  const load = page.locator('dialog.drawer[open] .form-actions .btn-primary');
-  await page.waitForFunction(() => {
-    const b = document.querySelector('dialog.drawer[open] .form-actions .btn-primary');
-    return b && !b.disabled && /^Load as/.test(b.textContent ?? '');
-  }, null, { timeout: 15000 });
-  await load.click();
-  await page.waitForSelector('.suggest-chip', { timeout: 15000 });
-  const chips = await page.locator('.suggest-chip').allTextContents();
-  return { via, chips: chips.map((c) => c.trim()) };
+  const r = await page.evaluate(async ({ file, text }) => {
+    const e = window.__undefined;
+    const pv = await e.previewDataset({ text, filename: file });
+    if (!pv.ok) return { error: pv.error };
+    await e.loadDataset({ text, filename: file, name: pv.name, source: 'file' });
+    const fns = e.state.value.program.functions;
+    return { name: pv.name, chips: (pv.suggestions ?? []).filter((x) => !Object.prototype.hasOwnProperty.call(fns, x.fn)).slice(0, 3).map((x) => x.call) };
+  }, { file: d.file, text: toCsv(d.rows) });
+  if (r.error) throw new Error(`${d.file}: ${r.error}`);
+  await page.waitForFunction(() => !window.__undefined.state.value.busy, null, { timeout: 30000 });
+  return { via: 'engine', chips: r.chips };
 }
 
 const OUTCOME = () => {
@@ -229,11 +215,10 @@ async function session(page, url, csv, template) {
   const { via, chips } = await loadCsv(page, csv);
   const chip = chips.find((c) => TEMPLATES[template].test(c.replace(/\(.*$/, ''))); // match the name, not "name(arg)"
   if (!chip) return { via, chips, outcome: 'no-chip' };
-  await page.locator('.suggest-chip', { hasText: chip }).first().click();
+  await page.evaluate((c) => window.__undefined.setInput(c), chip);
   const typed = await page.evaluate(() => window.__undefined.state.value.replInput);
-  await page.locator('#repl-input').focus();
   const t0 = Date.now();
-  await page.keyboard.press('Enter');
+  await page.evaluate(() => void window.__undefined.submit());
   await page.waitForTimeout(400);
   await page.waitForFunction(() => !window.__undefined.state.value.busy, null, { timeout: 900000, polling: 250 });
   const ms = Date.now() - t0;

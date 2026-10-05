@@ -22,8 +22,8 @@ import { join } from 'node:path';
 import { survivorLine } from '@scasella/undefined-engine/shared/evidence';
 import { NO_TESTS_REASON } from '@scasella/undefined-engine/mutation/classify';
 import { certifyFile, createNodeGateHost, type NodeGateHost } from '@scasella/undefined-engine/node';
-import { plainEvidence } from '../ui/evidence';
-import { plainHeadline } from '../ui/explain';
+import { plainEvidence } from '../lib/evidence';
+import { plainHeadline } from '../lib/explain';
 import { expectedVerdict, gateId, IDS, loadBrowser, loadRecording, mergeTimeLimit, sourceFile, specFile } from './parityFixtures';
 
 const browser = loadBrowser();

@@ -4,9 +4,13 @@ import { chromium } from 'playwright-core';
 
 const root = new URL('../../', import.meta.url).pathname;
 
-/** Start `vite` (dev: live service + engine hook) or `vite preview` (static build, replay mode). Returns {url, stop}. */
-export async function startServer({ mode = 'dev', port = 5190 } = {}) {
-  const args = mode === 'preview' ? ['vite', 'preview', '--port', String(port), '--strictPort'] : ['vite', '--port', String(port), '--strictPort', '--no-open'];
+/**
+ * Start `vite` (dev: live service + engine hook) or `vite preview` (a static build, replay mode). `outDir` picks the
+ * build preview serves: 'dist' (the shipped one, no engine hook) or 'dist-check' (`npm run build:check`: the same
+ * sources built in development mode, so the engine hook is there). Returns {url, stop}.
+ */
+export async function startServer({ mode = 'dev', port = 5190, outDir = 'dist' } = {}) {
+  const args = mode === 'preview' ? ['vite', 'preview', '--configLoader', 'runner', '--outDir', outDir, '--port', String(port), '--strictPort'] : ['vite', '--configLoader', 'runner', '--port', String(port), '--strictPort', '--no-open'];
   const child = spawn('npx', args, { cwd: root, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
   let log = '';
   child.stdout.on('data', (d) => (log += d));
@@ -47,36 +51,52 @@ export async function launch({ width = 1440, height = 900, dsf = 1, mobile = fal
   return { browser, context, page, close: () => browser.close() };
 }
 
+/** Where a fresh load clears storage: a same-origin static file, so no app code holds the image database open. */
+const BLANK = 'recordings/index.json';
+
 /**
- * The workbench page (the original REPL UI: #repl-input, .panel-gates, button.example …) for a server URL. The site root
- * (index.html) is the front door (src/door); every script that drives the REPL by selector goes through this. A URL whose
- * path already names a page is returned unchanged; the query (?opener=, ?fixture=, …) and hash are kept.
- * workbench('http://localhost:5194/', '?opener=orders') → 'http://localhost:5194/workbench.html?opener=orders'
+ * Clear this origin's storage (localStorage and every IndexedDB database) from a same-origin page that runs no app code,
+ * waiting until each delete has really completed (onsuccess / onerror). A delete that stays blocked past `capMs` throws:
+ * it would otherwise leave a stale image behind and the next load would not be fresh.
  */
-export function workbench(url, query = '') {
-  const u = new URL(url);
-  if (u.pathname.endsWith('/')) u.pathname += 'workbench.html';
-  if (query) u.search = query;
-  return u.href;
+export async function clearStorage(page, base, { capMs = 20000 } = {}) {
+  await page.goto(new URL(BLANK, base).href);
+  const left = await page.evaluate(async (cap) => {
+    localStorage.clear();
+    sessionStorage.clear();
+    const names = (await indexedDB.databases?.())?.map((d) => d.name).filter(Boolean) ?? ['undefined-image'];
+    const stuck = [];
+    await Promise.all(
+      names.map(
+        (name) =>
+          new Promise((res) => {
+            const t = setTimeout(() => (stuck.push(name), res()), cap);
+            const r = indexedDB.deleteDatabase(name);
+            r.onsuccess = r.onerror = () => (clearTimeout(t), res());
+            // onblocked: another connection is still open; the delete completes (onsuccess) once it closes
+          }),
+      ),
+    );
+    return stuck;
+  }, capMs);
+  if (left.length) throw new Error(`could not delete IndexedDB ${left.join(', ')} within ${capMs} ms`);
 }
 
-/** Open the workbench (see workbench()) and wait until the engine is ready. In dev the engine is on window.__undefined. */
-export async function openApp(page, base, { fresh = true } = {}) {
-  const url = workbench(base);
-  await page.goto(url);
-  if (fresh) {
-    await page.evaluate(async () => {
-      localStorage.clear();
-      await new Promise((res) => {
-        const r = indexedDB.deleteDatabase('undefined-image');
-        r.onsuccess = r.onerror = r.onblocked = () => res();
-        setTimeout(res, 1500);
-      });
-    });
-    await page.goto(url);
+/**
+ * Open the site (the front door: index.html at `base`, with `base`'s hash if any, e.g. '#/start') and wait until the
+ * engine is ready. `fresh` clears storage first (see clearStorage). The engine is on window.__undefined when the page
+ * was built in development mode: `vite` (dev) or `npm run build:check` (dist-check, served by startServer({mode:
+ * 'preview', outDir: 'dist-check'})). The shipped dist/ has no hook, and this throws on it.
+ */
+export async function openApp(page, base, { fresh = true, timeoutMs = 30000 } = {}) {
+  if (fresh) await clearStorage(page, base);
+  await page.goto(base);
+  try {
+    await page.waitForFunction(() => !!window.__undefined && window.__undefined.state.value.ready, null, { timeout: timeoutMs });
+  } catch (e) {
+    const hook = await page.evaluate(() => !!window.__undefined).catch(() => false);
+    throw new Error(hook ? `the engine did not become ready within ${timeoutMs} ms` : 'no engine hook (window.__undefined): serve `vite` (dev) or the dist-check build (npm run build:check), not dist/', { cause: e });
   }
-  await page.waitForSelector('#repl-input', { timeout: 30000 });
-  await page.waitForFunction(() => !window.__undefined || window.__undefined.state.value.ready, null, { timeout: 30000 });
 }
 
 /** Summarise engine state (dev hook) in one JSON-able object. */
@@ -132,3 +152,25 @@ export async function engineCall(page, method, ...args) {
 
 /** Run something in the page with the engine in scope. */
 export const inPage = (page, fn, arg) => page.evaluate(fn, arg);
+
+/**
+ * In the page: the GapRef of a rejected attempt whose check said the spec was silent (null otherwise). The same rule
+ * the door's session uses: a committed grow points into the artifact's candidate history, anything else carries the
+ * diagnostic. Usage: `await page.evaluate(gapRefInPage, 0)` (the first attempt of the current generation).
+ */
+export function gapRefInPage(attemptIndex) {
+  const s = window.__undefined.state.value;
+  const gen = s.generation;
+  const a = gen?.attempts[attemptIndex];
+  if (!gen || !a) return null;
+  const gates = a.candidate?.gates ?? a.gates;
+  const fail = gates.find((g) => g.status === 'fail');
+  const d = fail?.diagnostics[0];
+  if (!fail || !d || (d.kind !== 'test' && d.kind !== 'property') || !d.silentOn) return null;
+  const art = s.program.functions[gen.fn]?.artifact;
+  if (gen.kind !== 'recheck' && gen.phase === 'committed' && gen.revision !== undefined && art && art.revision === gen.revision && a.candidate) {
+    const i = art.candidates.findIndex((c) => c.id === a.candidate.id);
+    if (i >= 0) return { fn: gen.fn, revision: gen.revision, candidate: i, gate: fail.gate, index: 0 };
+  }
+  return { fn: gen.fn, diagnostic: d };
+}

@@ -1,7 +1,6 @@
 /**
- * "Hand this to your data team": the same ejection as the workbench's Eject (src/ui/components/Eject.tsx, built by the
- * engine's eject/eject.ts): a zip with <fn>.ts, <fn>.test.ts (its examples, locked answers and house rules for vitest +
- * fast-check), provenance.json and a README, which runs on its own. Nothing here is illustrative: it is the real program.
+ * "Hand this to your data team": the engine's ejection (eject/eject.ts): a zip with <fn>.ts, <fn>.test.ts (its
+ * examples, locked answers and house rules for vitest + fast-check), provenance.json and a README, which runs on its own. Nothing here is illustrative: it is the real program.
  */
 import type { Engine, EngineState, Hash, Json, Program } from '@scasella/undefined-engine/types';
 
@@ -35,7 +34,7 @@ export function handoffView({ ejectBlockerIn, ejectClosure }: EjectModule, progr
   };
 }
 
-/** Build the zip for `fn` exactly as the workbench's Eject does. Throws the engine's reason when it cannot. */
+/** Build the zip for `fn` with the engine's ejectZip. Throws the engine's reason when it cannot. */
 export async function handoffZip(
   { ejectBlockerIn, ejectClosure, ejectZip }: EjectModule,
   engine: Engine,

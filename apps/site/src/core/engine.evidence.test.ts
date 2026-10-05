@@ -316,7 +316,7 @@ describe('the mutation check needs a passing baseline', () => {
   it('a committed function that fails its own checks (a pin it contradicts) gets no kills: the report is skipped and says why', async () => {
     const { encodeValue } = await import('@scasella/undefined-engine/shared/serialize');
     const { MUTATION_BASELINE_FAILED } = await import('@scasella/undefined-engine/shared/evidence');
-    const { plainMutation } = await import('../ui/evidence');
+    const { plainMutation } = await import('../lib/evidence');
     const seen: ExecGateInput[] = [];
     const spy: EngineDeps['execGates'] = async (input, onGate) => {
       if (input.phases) seen.push(input);

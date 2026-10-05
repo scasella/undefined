@@ -1,5 +1,7 @@
 # Launch essay: a suggested outline
 
+> Historical: the UI described here (the REPL "workbench", `apps/site/src/ui/`) was replaced by the front door (`apps/site/src/door/`, [FRONT-DOOR.md](FRONT-DOOR.md)), the site's only UI. Engine behaviour is unchanged; features with no UI now are listed in [FEATURES.md](FEATURES.md#engine-features-with-no-ui).
+
 An outline, not the essay. Each section lists the evidence to cite (with the exact numbers and where they live) and what
 the section must **not** claim. Every live number below comes from one model on one day: `gpt-6-luna`, reasoning effort
 `low`, Codex CLI 0.159.2, Chrome 154 headless, measured 2026-10-04 ([LAUNCH.md](LAUNCH.md), setup paragraph). Say that
@@ -109,7 +111,7 @@ recorded body (an earlier fibonacci recording read 8 of 12 + 2 survived).
 ## 7. Tests that accrete from use, and leaving with your code
 
 - Pin a result as a test; the data scratchpad's typed rows; the demo video ends on a pinned orders result
-  ([FEATURES.md](FEATURES.md#data-scratchpad); [demo.mp4](demo.mp4)).
+  ([FEATURES.md](FEATURES.md#data); [demo.mp4](demo.mp4)).
 - Eject: every recorded session ejects to a project where vitest passes and strict `tsc` is clean (`npm run check:eject`;
   [FEATURES.md](FEATURES.md#eject)).
 - Share a session as a recording that replays with live gates ([REPLAY.md](REPLAY.md#share-a-session)).
@@ -155,7 +157,7 @@ names are proposals, [PACKAGES.md](PACKAGES.md)); parity beyond the shipped reco
 A program as a log of accepted changes. Keep it to what exists; anything new is labelled as an idea.
 
 - Revisions and one-click rollback, which is itself a revision, so history is never rewritten; datasets come back with
-  rollback like any other variable ([FEATURES.md](FEATURES.md#what-you-can-do), [data scratchpad](FEATURES.md#data-scratchpad)).
+  rollback like any other variable ([FEATURES.md](FEATURES.md#how-the-engine-treats-a-call), [data scratchpad](FEATURES.md#data)).
 - Sessions as files that replay with live gates, and the optional one-click link server
   ([REPLAY.md](REPLAY.md#share-a-session); [SHARE-DEPLOY.md](SHARE-DEPLOY.md)).
 - Eject as the exit: the function and its contract leave as an ordinary project ([FEATURES.md](FEATURES.md#eject)).

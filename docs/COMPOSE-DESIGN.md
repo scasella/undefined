@@ -1,5 +1,7 @@
 # Phase 3 design: composition and a usable REPL
 
+> Historical: the UI described here (the REPL "workbench", `apps/site/src/ui/`) was replaced by the front door (`apps/site/src/door/`, [FRONT-DOOR.md](FRONT-DOOR.md)), the site's only UI. Engine behaviour is unchanged; features with no UI now are listed in [FEATURES.md](FEATURES.md#engine-features-with-no-ui).
+
 Status: §A (composition core), §B (REPL) and the UI of §D step 3 are implemented, with the corrections listed in §E,
 §F and §G; the live measurements of §C were taken on 2026-10-05 (new harness `apps/site/scripts/compose-sessions.mjs`
 instead of a `--precommit` flag) and are in [COMPOSE-MEASUREMENTS.md](COMPOSE-MEASUREMENTS.md); they changed the

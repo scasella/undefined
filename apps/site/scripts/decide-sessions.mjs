@@ -19,15 +19,14 @@
 // Each set is N fresh sessions; a ruling needs its own fresh grow, so the match and differ sets are separate sessions.
 // Default: median:match median:differ slugify:match slugify:differ fibonacci:none.
 //
-// The ruling is taken through the page: the "spec was silent … · Decide" line under the accepted verdict is clicked,
-// the alternative's radio is picked and Decide is pressed (the same DOM path scripts/replay-check.mjs drives). Where the
-// grow exhausted its budget there is no accepted verdict, so the harness calls engine.decide with the same GapRef the
-// rejection card builds (src/ui/decide.ts gapRefFor) — the exact call Decide.tsx makes; `via` records which.
+// The ruling is taken through the engine hook: engine.decide with the GapRef of the first rejected attempt
+// (lib/drive.mjs gapRefInPage, the rule the front door's session uses), whether the grow committed or exhausted its
+// budget; `via` is always 'engine' (it was 'page' when the original REPL UI's Decide card was clicked).
 //
 // Writes .tmp/decide-sessions-out.json after every session and prints one line per session. Needs `codex` logged in;
 // aborts if the app is not in live mode. Dev tooling only, never bundled; no telemetry.
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
-import { startServer, launch, openApp, runCall, engineCall } from './lib/drive.mjs';
+import { startServer, launch, openApp, runCall, engineCall, gapRefInPage } from './lib/drive.mjs';
 process.chdir(new URL('../', import.meta.url).pathname); // paths below are relative to apps/site, wherever this is run from
 
 const N = Number(process.argv[2] ?? 8);
@@ -38,8 +37,8 @@ mkdirSync('.tmp', { recursive: true });
 const out = existsSync(OUT) && process.env.DECIDE_APPEND ? JSON.parse(readFileSync(OUT, 'utf8')) : { started: new Date().toISOString(), sets: {} };
 const save = () => writeFileSync(OUT, JSON.stringify(out, null, 1));
 
-/** First attempt of the current grow: gate, diagnostics' markers, body. Runs in the page (vite dev serves /src). */
-const FIRST = async () => {
+/** First attempt of the current grow: gate, diagnostics' markers, body. Runs in the page; `ref` is gapRefInPage(0). */
+const FIRST = (ref) => {
   const s = window.__undefined.state.value;
   const g = s.generation;
   if (!g) return null;
@@ -48,13 +47,7 @@ const FIRST = async () => {
   const gates = a.candidate?.gates ?? a.gates;
   const fail = gates.find((x) => x.status === 'fail');
   const diags = fail ? fail.diagnostics : [];
-  let ref = null;
-  let q = null;
-  if (fail) {
-    const m = await import('/src/ui/decide.ts');
-    ref = m.gapRefFor(g, a, s.program);
-    q = ref ? window.__undefined.gapQuestion(ref) : null;
-  }
+  const q = fail && ref ? window.__undefined.gapQuestion(ref) : null;
   return {
     status: a.status,
     declined: !!a.candidate?.declined,
@@ -121,22 +114,10 @@ async function waitIdle(page, timeoutMs) {
 async function rule(page, id, first, alt) {
   const before = await page.evaluate(() => ({ genBefore: window.__undefined.state.value.generation?.id ?? null, revsBefore: window.__undefined.state.value.revisions.length }));
   const t0 = Date.now();
-  let via = 'engine';
-  if (first.phase === 'committed' && (await page.locator('.silent-decide').count())) {
-    via = 'page';
-    await page.locator('.silent-decide').first().click();
-    await page.waitForSelector('details.decide[open]', { timeout: 10000 });
-    await page.locator(`details.decide[open] input[type=radio][value="${alt.id}"]`).check();
-    await page.locator('details.decide[open] .decide-confirm').click();
-  } else {
-    await page.evaluate(async ({ altId }) => {
-      const s = window.__undefined.state.value;
-      const g = s.generation;
-      const m = await import('/src/ui/decide.ts');
-      const ref = m.gapRefFor(g, g.attempts[0], s.program);
-      void window.__undefined.decide(ref, { alternative: altId }, { reason: 'measurement run' });
-    }, { altId: alt.id });
-  }
+  const via = 'engine';
+  // the first (rejected) attempt's gap, the same GapRef the front door's session builds (lib/drive.mjs gapRefInPage)
+  const ref = await page.evaluate(gapRefInPage, 0);
+  await page.evaluate(({ ref, altId }) => void window.__undefined.decide(ref, { alternative: altId }, { reason: 'measurement run' }), { ref, altId: alt.id });
   await waitIdle(page, 900000);
   const after = await page.evaluate(AFTER, { fn: id, ...before });
   const ms = Date.now() - t0;
@@ -164,7 +145,7 @@ try {
       if (id !== 'median') await engineCall(b.page, 'loadExample', id);
       await runCall(b.page, CALLS[id], { timeoutMs: 400000 });
       const growMs = Date.now() - t0;
-      const first = await b.page.evaluate(FIRST);
+      const first = await b.page.evaluate(FIRST, await b.page.evaluate(gapRefInPage, 0));
       const cls = !first || first.status === 'none' ? 'error' : first.declined ? 'declined' : first.status === 'accepted' ? 'accepted' : first.firstMarked ? 'gap' : 'fault';
       const run = { i, at: new Date().toISOString(), growMs, class: cls, first };
       if (cls === 'gap' && ruling !== 'none') {

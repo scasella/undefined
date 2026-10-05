@@ -1,5 +1,7 @@
 # Undefined — design & module contracts
 
+> Historical: the UI described here (the REPL "workbench", `apps/site/src/ui/`) was replaced by the front door (`apps/site/src/door/`, [FRONT-DOOR.md](FRONT-DOOR.md)), the site's only UI. Engine behaviour is unchanged; features with no UI now are listed in [FEATURES.md](FEATURES.md#engine-features-with-no-ui).
+
 The model is the *upstream* source of code. The ordinary toolchain (compiler, tests, property checks, invariants)
 is the *downstream consumer* that decides what gets accepted. Everything here exists to make that inversion legible.
 

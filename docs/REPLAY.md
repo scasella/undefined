@@ -1,5 +1,7 @@
 # Replay, recordings and sharing
 
+> Note: buttons and panels named here (Session →, Repo, Checks, Share…) belonged to the REPL "workbench" UI, which was removed; the front door ([FRONT-DOOR.md](FRONT-DOOR.md)) is the only UI. The engine behaviour described is unchanged; [FEATURES.md](FEATURES.md#engine-features-with-no-ui) says how each feature is reached now.
+
 How the static site replays recorded sessions, how maintainers re-record them, and how to share a session of your own.
 For the optional one-click upload server, see [SHARE-DEPLOY.md](SHARE-DEPLOY.md).
 

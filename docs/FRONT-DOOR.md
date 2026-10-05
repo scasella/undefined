@@ -1,9 +1,11 @@
 # Front door — the build contract
 
 This is the implementation of **Round 3 · Front door — lead with the claim** from the design canvas
-(https://claude.ai/artifact/HoacAnvbwSGQo2YWvRrcGW, boards `V3-Door-Landing` and `V3-Door-FirstRun`). It replaces the
-default GUI. The original REPL UI is kept, untouched, as the **workbench** (`workbench.html`, `src/workbench.tsx`,
-`src/ui/**`, `src/styles.css`) so nothing the engine can do is lost; the front door links to it from the footer.
+(https://claude.ai/artifact/HoacAnvbwSGQo2YWvRrcGW, boards `V3-Door-Landing` and `V3-Door-FirstRun`). It is the
+site's only UI. The original REPL UI (the "workbench": `workbench.html`, `src/workbench.tsx`, `src/ui/**`,
+`src/styles.css`) was kept beside it for a while and then removed; the engine features only it exposed are listed in
+[FEATURES.md](FEATURES.md#engine-features-with-no-ui). Old `?opener=` / `?recording=` links open the front door and are
+ignored (`main.tsx` creates the engine with no location).
 
 The design's two boards were exported to a local scratch folder for this build:
 `/private/tmp/claude-501/-Users-scasella-Downloads-undefined/1d2057a6-2d62-475a-a34d-cc89e81cc3c7/scratchpad/artifact-files/88132483-b0c6-49de-9c3e-7f525634f077/project/V3-Door-Landing.dc.html`
@@ -17,7 +19,6 @@ spacing, colours, motion, a11y attributes), translated into Preact + CSS files w
 |---|---|---|
 | `#/` (default) | Landing: telemetry bar, hero claim, live example stage (check trace + answer + agreement rail), evidence strip, order-of-work, definition ladder, "agree once", "it asks", "says no" + privacy, team file + honest limits, footer, honesty bar | `V3-Door-Landing` |
 | `#/start` | First run: bring a file (drop / paste / sample), column preview, ask a question, live check trace, answer, right rail (what the AI will see, your agreement, demo note) | `V3-Door-FirstRun` |
-| `workbench.html` | The previous app, unchanged | — |
 
 ## Vocabulary map (the design's words are plain-language names for engine features)
 
@@ -35,7 +36,7 @@ spacing, colours, motion, a11y attributes), translated into Preact + CSS files w
 | A question only you can answer | A rejection whose diagnostic carries `silentOn` → `Engine.gapQuestion(ref)` → `Engine.decide(ref, choice, {reason})` |
 | It says no | `GenerationView.declined` (decline protocol: `cannot-be-pure`, `needs-spec`) |
 | What the AI will see / 3 example rows | `Engine.previewDataset().sampleText`, `typeDecl`, `Engine.setSendSamples`, `Candidate.prompt` |
-| Hand your data team a file | Eject (`src/eject`, `ui/components/Eject.tsx` shows how the zip is built) |
+| Hand your data team a file | Eject (the engine's `eject/eject.ts`, called by `model/handoff.ts`) |
 | "Demo · recorded answers, real checks" | `state.mode === 'replay'` |
 | Basic checks vs Full checks | A spec-less call (only Compile + Invariants gate it) vs a spec with tests/properties/pins |
 
@@ -85,13 +86,14 @@ landing/                  Landing.tsx + one file per section (+ css)
 start/                    Start.tsx + one file per section (+ css)
 ```
 
-Conventions: Preact 11 + `@preact/signals` (as in `src/ui`); TypeScript strict; no new dependencies; CSS in per-file
+Conventions: Preact 11 + `@preact/signals`; TypeScript strict; no new dependencies; CSS in per-file
 `.css` next to the component (imported by it), class names prefixed `fd-`, colours/shadows/radii from `tokens.css`
 variables; light theme only (the check trace is a dark *surface*, not a theme); respect `prefers-reduced-motion`
 (the design's `@media (prefers-reduced-motion: reduce)` block kills animation: keep that, and make sure the end state
 is still correct without animation); 44px minimum targets; visible focus; `aria-live` regions as in the design;
-works down to 390px wide (flex-wrap layouts in the design already do). Do not edit `packages/engine/**`, `src/core/**`,
-`src/ui/**`, `src/workbench.tsx`, `src/styles.css`. If the engine truly needs a change, make the smallest one and report it.
+works down to 390px wide (flex-wrap layouts in the design already do). Do not edit `packages/engine/**` or `src/core/**`
+from door work. If the engine truly needs a change, make the smallest one and report it. Pure helpers the door shares
+with tests and scripts live in `src/lib/` (`data.ts`, `evidence.ts`, `explain.ts`).
 
 Pure modules have `*.test.ts` next to them (vitest, node env, no DOM). Anything that needs the DOM is kept thin.
 `npm run typecheck` and `npm test` must stay green; other agents are editing other files at the same time, so ignore
@@ -128,4 +130,5 @@ recordings of one function with different specs coexist.
   one carries a spec with a locked answer that refers to the orders data).
 - **Known limitation.** A browser whose stored image already holds `topCustomersByRevenue` with a spec that has no
   recording (e.g. the seeded agreement installed by an older build) asks against that stored spec and gets the
-  no-recording state; the session never deletes a function. Reset (start over) clears it.
+  no-recording state; the session never deletes a function. `engine.resetImage()` (no button on the page today) or
+  clearing this site's data clears it.

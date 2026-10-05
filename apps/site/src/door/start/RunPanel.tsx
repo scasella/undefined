@@ -66,7 +66,7 @@ export function RunPanel({ engine, session }: { engine: Engine; session?: Sessio
   );
 }
 
-/** Under a committed answer: download the function with its checks (the workbench's Eject), with a spoken result. */
+/** Under a committed answer: download the function with its checks (the engine's eject), with a spoken result. */
 function Handoff({ engine, fn, runId }: { engine: Engine; fn: string; runId: number }) {
   const st = engine.state.value;
   const [mod, setMod] = useState<EjectModule | null>(null);

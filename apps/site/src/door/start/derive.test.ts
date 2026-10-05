@@ -38,7 +38,7 @@ import {
   type RunRef,
 } from './derive';
 
-// ───── fixtures in the exact shapes the engine produces (see ui/dev/fixtures.ts, sandbox/gateExecutor.ts) ─────
+// ───── fixtures in the exact shapes the engine produces (see sandbox/gateExecutor.ts) ─────
 
 const FN = 'topCustomersByRevenue';
 const CALL = `${FN}(orders)`;

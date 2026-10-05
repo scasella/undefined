@@ -1,5 +1,7 @@
 # Copy options: the argument above the fold
 
+> Historical: the UI described here (the REPL "workbench", `apps/site/src/ui/`) was replaced by the front door (`apps/site/src/door/`, [FRONT-DOOR.md](FRONT-DOOR.md)), the site's only UI. Engine behaviour is unchanged; features with no UI now are listed in [FEATURES.md](FEATURES.md#engine-features-with-no-ui).
+
 Two plain sentences sit under the masthead, above the example chips and the console
 (`apps/site/src/ui/components/Argument.tsx`, styled by `.argument` in `apps/site/src/styles.css`). They state the inversion for a
 first-time visitor: compilers used to judge human code; now the model writes and the toolchain judges. Version A ships.

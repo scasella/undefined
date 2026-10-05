@@ -1,8 +1,10 @@
 # Bring-your-own-data measurements
 
+> Historical: the UI described here (the REPL "workbench", `apps/site/src/ui/`) was replaced by the front door (`apps/site/src/door/`, [FRONT-DOOR.md](FRONT-DOOR.md)), the site's only UI. Engine behaviour is unchanged; features with no UI now are listed in [FEATURES.md](FEATURES.md#engine-features-with-no-ui).
+
 The question: a reader drops a realistic CSV and clicks one of the suggested calls (`apps/site/src/data/suggest.ts`).
 Does the live model write the function, or decline it with NEEDS_SPEC / CANNOT_BE_PURE? Do the gates accept it, and is
-the answer right? Feature description: [FEATURES.md § Data scratchpad](FEATURES.md#data-scratchpad). Harness:
+the answer right? Feature description: [FEATURES.md § Data](FEATURES.md#data). Harness:
 `apps/site/scripts/byo-sessions.mjs`.
 
 **When and with what.** Monday 2026-10-05, 09:50 to 09:55 EDT (13:50 to 13:55 UTC). `gpt-6-luna`, reasoning effort `low`,

@@ -1,5 +1,7 @@
 # Phase 4 design: the engine as a product (workspace, Node runner, CLI, Action)
 
+> Historical: the UI described here (the REPL "workbench", `apps/site/src/ui/`) was replaced by the front door (`apps/site/src/door/`, [FRONT-DOOR.md](FRONT-DOOR.md)), the site's only UI. Engine behaviour is unchanged; features with no UI now are listed in [FEATURES.md](FEATURES.md#engine-features-with-no-ui).
+
 Status: step 1 (restructure) implemented, see §10; the engine API, the Node host and spec ingestion (steps 2–3 and the
 ingestion half of 4) implemented, see §11; the CLI (step 4) implemented, see §12; the Action (step 6) implemented, see §13; the parity
 fixture and the docs were built in the Phase 4 commit as [EVIDENCE.md](EVIDENCE.md#node-and-cli-parity) describes. Written against HEAD `0d1c13c`. Every claim about current behaviour cites the

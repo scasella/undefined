@@ -23,7 +23,8 @@
 // median is regrown live; records the same status per step. COMPOSE_PORT (default 5199) picks the dev server port, so a
 // run can go beside scripts/sessions.mjs.
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
-import { startServer, launch, openApp, runCall, engineCall } from './lib/drive.mjs';
+import { fileURLToPath } from 'node:url';
+import { startServer, launch, openApp, runCall, engineCall, gapRefInPage } from './lib/drive.mjs';
 process.chdir(new URL('../', import.meta.url).pathname); // paths below are relative to apps/site, wherever this is run from
 
 const EXAMPLE_CALLS = { median: 'median([3, 1, 4, 2])', slugify: 'slugify("Hello, World! Crème Brûlée")', fibonacci: 'fibonacci(90)', orders: 'topCustomersByRevenue(rows)' };
@@ -82,16 +83,36 @@ const GROW = ({ fn, dep }) => {
   };
 };
 
-/** functionStatus (what the Repo chip and line say) for each named function, plus the current generation's kind. */
-const STATUS = async (names) => {
-  const m = await import('/src/ui/select.ts');
+/**
+ * Each named function's status, as the original REPL's Repo tab said it (certified rN / invalid: spec changed / out of
+ * date: x changed in rN / waiting for x / no code yet; the rule is the engine's compose/graph.ts dependencyStatus, loaded
+ * from the dev server by its file path), plus the current generation's kind.
+ */
+const GRAPH = `/@fs${fileURLToPath(new URL('../../../packages/engine/src/compose/graph.ts', import.meta.url))}`;
+const STATUS = async ({ names, graph }) => {
+  const { dependencyStatus } = await import(graph);
+  const and = (xs) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`);
   const s = window.__undefined.state.value;
   const fns = {};
   for (const n of names) {
     const rec = s.program.functions[n];
     if (!rec) { fns[n] = 'absent'; continue; }
-    const st = m.functionStatus(rec, s.program);
-    fns[n] = { kind: st.kind, text: m.functionStatusText(st), uses: m.usesOf(rec), revision: rec.artifact?.revision ?? null, body: rec.artifact?.body ?? null };
+    const a = rec.artifact;
+    let kind;
+    let text;
+    if (!a) [kind, text] = ['none', 'no code yet — written on the first call'];
+    else if (a.specHash !== rec.specHash || a.testsHash !== rec.testsHash) {
+      const what = a.specHash !== rec.specHash && a.testsHash !== rec.testsHash ? 'spec and tests' : a.specHash !== rec.specHash ? 'spec' : 'tests';
+      [kind, text] = ['stale', `invalid: ${what} changed — regenerates on next call`];
+    } else {
+      const st = dependencyStatus(s.program, n);
+      if (st.kind === 'changed') {
+        const changed = st.calls.filter((c) => c.state === 'changed');
+        [kind, text] = ['changed', `out of date: ${and(changed.map((c) => c.name))} changed in ${and([...new Set(changed.map((c) => `r${c.nowRevision ?? c.certifiedRevision}`))])}`];
+      } else if (st.kind === 'waiting') [kind, text] = ['waiting', `waiting for ${and(st.waitingFor)}`];
+      else [kind, text] = ['certified', `certified r${a.revision}`];
+    }
+    fns[n] = { kind, text, uses: Object.keys(a?.deps ?? {}).sort(), revision: a?.revision ?? null, body: a?.body ?? null };
   }
   const g = s.generation;
   return {
@@ -148,19 +169,15 @@ try {
     for (let tries = 1; ; tries++) {
       await openApp(b.page, srv.url);
       await precommit(b.page, 'median');
-      ({ ref, alt } = await b.page.evaluate(async () => {
-        const s = window.__undefined.state.value;
-        const g = s.generation;
-        const m = await import('/src/ui/decide.ts');
-        const ref = m.gapRefFor(g, g.attempts[0], s.program);
+      ({ ref, alt } = await b.page.evaluate((ref) => {
         const q = ref && window.__undefined.gapQuestion(ref);
         const alt = q?.alternatives.find((x) => !x.disabled && !x.agrees && x.outcome && 'throws' in x.outcome) ?? null;
         return { ref, alt: alt && { id: alt.id, label: alt.label } };
-      }));
+      }, await b.page.evaluate(gapRefInPage, 0)));
       if (!ref || !alt) throw new Error('median recording gave no decidable gap');
       await runCall(b.page, SCENARIOS.medianOfMedians, { timeoutMs: 400000 });
       const g = await b.page.evaluate(GROW, { fn: 'medianOfMedians', dep: 'median' });
-      steps.push({ step: `grow medianOfMedians (try ${tries})`, grow: g, status: await b.page.evaluate(STATUS, names) });
+      steps.push({ step: `grow medianOfMedians (try ${tries})`, grow: g, status: await b.page.evaluate(STATUS, { names, graph: GRAPH }) });
       save();
       console.log('grow medianOfMedians', g.phase, 'deps', g.deps.join(','));
       if (g.committed && g.deps.includes('median')) break;
@@ -168,20 +185,20 @@ try {
     }
     let t = Date.now();
     await openApp(b.page, srv.url, { fresh: false });
-    steps.push({ step: 'reload the page (image kept, loaded recording dropped)', ms: Date.now() - t, status: await b.page.evaluate(STATUS, names) });
+    steps.push({ step: 'reload the page (image kept, loaded recording dropped)', ms: Date.now() - t, status: await b.page.evaluate(STATUS, { names, graph: GRAPH }) });
     t = Date.now();
     await b.page.evaluate(({ ref, altId }) => void window.__undefined.decide(ref, { alternative: altId }, { reason: 'measurement run' }), { ref, altId: alt.id });
     await b.page.waitForTimeout(400);
     await b.page.waitForFunction(() => !window.__undefined.state.value.busy, null, { timeout: 900000, polling: 200 });
-    steps.push({ step: `decide on median's gap: ${alt.label}`, ms: Date.now() - t, grow: await b.page.evaluate(GROW, { fn: 'median', dep: 'median' }), status: await b.page.evaluate(STATUS, names) });
+    steps.push({ step: `decide on median's gap: ${alt.label}`, ms: Date.now() - t, grow: await b.page.evaluate(GROW, { fn: 'median', dep: 'median' }), status: await b.page.evaluate(STATUS, { names, graph: GRAPH }) });
     save();
     console.log('after decide', JSON.stringify(steps.at(-1).status.fns));
     t = Date.now();
     await runCall(b.page, SCENARIOS.medianOfMedians, { timeoutMs: 600000 });
-    steps.push({ step: 'call medianOfMedians after the ruling', ms: Date.now() - t, status: await b.page.evaluate(STATUS, names) });
+    steps.push({ step: 'call medianOfMedians after the ruling', ms: Date.now() - t, status: await b.page.evaluate(STATUS, { names, graph: GRAPH }) });
     t = Date.now();
     await runCall(b.page, 'medianOfMedians([[], [1, 2]])', { timeoutMs: 600000 });
-    steps.push({ step: 'call medianOfMedians([[], [1, 2]])', ms: Date.now() - t, status: await b.page.evaluate(STATUS, names) });
+    steps.push({ step: 'call medianOfMedians([[], [1, 2]])', ms: Date.now() - t, status: await b.page.evaluate(STATUS, { names, graph: GRAPH }) });
     save();
     console.log('final', JSON.stringify(steps.at(-1).status.fns), JSON.stringify(steps.at(-1).status.repl));
   } else if (STALE) {
@@ -196,7 +213,7 @@ try {
       tries++;
       await runCall(b.page, SCENARIOS.slugifyAll, { timeoutMs: 400000 });
       const g = await b.page.evaluate(GROW, { fn: 'slugifyAll', dep: 'slugify' });
-      steps.push({ step: `grow slugifyAll (try ${tries})`, grow: g, status: await b.page.evaluate(STATUS, names) });
+      steps.push({ step: `grow slugifyAll (try ${tries})`, grow: g, status: await b.page.evaluate(STATUS, { names, graph: GRAPH }) });
       save();
       console.log('grow slugifyAll', g.phase, 'deps', g.deps.join(','), g.attempts.map((a) => a.gate ?? a.status).join(','));
       if (g.committed && g.deps.includes('slugify')) break;
@@ -210,17 +227,17 @@ try {
     // composed artifact from the stored image (compose-design §D's biggest risk).
     let t = Date.now();
     await openApp(b.page, srv.url, { fresh: false });
-    steps.push({ step: 'reload the page (image kept, loaded recording dropped)', ms: Date.now() - t, status: await b.page.evaluate(STATUS, names) });
+    steps.push({ step: 'reload the page (image kept, loaded recording dropped)', ms: Date.now() - t, status: await b.page.evaluate(STATUS, { names, graph: GRAPH }) });
     save();
     console.log('after reload', JSON.stringify(steps.at(-1).status.fns));
     t = Date.now();
     await engineCall(b.page, 'breakIt', 'slugify');
-    steps.push({ step: 'break it: slugify (spec edited)', ms: Date.now() - t, status: await b.page.evaluate(STATUS, names) });
+    steps.push({ step: 'break it: slugify (spec edited)', ms: Date.now() - t, status: await b.page.evaluate(STATUS, { names, graph: GRAPH }) });
     save();
     console.log('after break', JSON.stringify(steps.at(-1).status.fns));
     t = Date.now();
     await runCall(b.page, SCENARIOS.slugifyAll, { timeoutMs: 600000 });
-    steps.push({ step: 'call slugifyAll after the break', ms: Date.now() - t, grow: await b.page.evaluate(GROW, { fn: 'slugify', dep: 'slugify' }), status: await b.page.evaluate(STATUS, names) });
+    steps.push({ step: 'call slugifyAll after the break', ms: Date.now() - t, grow: await b.page.evaluate(GROW, { fn: 'slugify', dep: 'slugify' }), status: await b.page.evaluate(STATUS, { names, graph: GRAPH }) });
     save();
     console.log('after call', JSON.stringify(steps.at(-1).status.fns), JSON.stringify(steps.at(-1).status.generation));
     // if the call left slugifyAll needing a re-check, ask for one explicitly (the Repo's Re-check button)
@@ -228,12 +245,12 @@ try {
     if (st.kind === 'changed') {
       t = Date.now();
       await engineCall(b.page, 'recheck', 'slugifyAll');
-      steps.push({ step: 'explicit re-check of slugifyAll', ms: Date.now() - t, status: await b.page.evaluate(STATUS, names) });
+      steps.push({ step: 'explicit re-check of slugifyAll', ms: Date.now() - t, status: await b.page.evaluate(STATUS, { names, graph: GRAPH }) });
       save();
     }
     t = Date.now();
     await runCall(b.page, SCENARIOS.slugifyAll, { timeoutMs: 600000 });
-    steps.push({ step: 'call slugifyAll again', ms: Date.now() - t, status: await b.page.evaluate(STATUS, names) });
+    steps.push({ step: 'call slugifyAll again', ms: Date.now() - t, status: await b.page.evaluate(STATUS, { names, graph: GRAPH }) });
     out.totalMs = Date.now() - t0;
     save();
     console.log('final', JSON.stringify(steps.at(-1).status.fns), JSON.stringify(steps.at(-1).status.repl));

@@ -1,5 +1,7 @@
 node_modules
 dist
+# apps/site `npm run build:check`: the development-mode build the check scripts drive (never deployed)
+dist-check
 .DS_Store
 *.log
 .tmp

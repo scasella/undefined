@@ -1,5 +1,7 @@
 # Evidence and measurements
 
+> Note: buttons and panels named here (Session →, Repo, Checks, Share…) belonged to the REPL "workbench" UI, which was removed; the front door ([FRONT-DOOR.md](FRONT-DOOR.md)) is the only UI. The engine behaviour described is unchanged; [FEATURES.md](FEATURES.md#engine-features-with-no-ui) says how each feature is reached now.
+
 What the app tells you about a committed function, how the mutation check works, and the kill rates measured on the
 shipped examples. The session-level rejection rates of the examples are in [EXAMPLES.md](EXAMPLES.md).
 

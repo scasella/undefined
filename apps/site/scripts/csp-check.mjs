@@ -1,11 +1,10 @@
-// node scripts/csp-check.mjs  — run after `npm run build`. Static guard: both production pages (index.html, the front
-// door, and workbench.html, the REPL) must ship a Content-Security-Policy that keeps both sandbox workers (which inherit it through their blob: wrapper) from loading script from anywhere but this
+// node scripts/csp-check.mjs  — run after `npm run build`. Static guard: the production page (index.html, the front
+// door, the only page) must ship a Content-Security-Policy that keeps both sandbox workers (which inherit it through their blob: wrapper) from loading script from anywhere but this
 // site, and the dev-only hooks must not be in the bundle. It does not simulate an attack; it fails when the policy is weakened.
 import { readFileSync, readdirSync } from 'node:fs';
 process.chdir(new URL('../', import.meta.url).pathname); // paths below are relative to apps/site, wherever this is run from
 const fails = [];
-// Two pages ship (vite.config.ts build.rollupOptions.input): the front door and the workbench. Each must carry the policy.
-for (const page of ['index.html', 'workbench.html']) {
+for (const page of ['index.html']) {
   let html;
   try { html = readFileSync(`dist/${page}`, 'utf8'); } catch { fails.push(`dist/${page} is missing (run \`npm run build\` first)`); continue; }
   const m = html.match(/<meta http-equiv="Content-Security-Policy" content="([^"]*)"/);
@@ -30,4 +29,4 @@ for (const f of readdirSync('dist/assets').filter((n) => n.endsWith('.js'))) {
   if (/window\.__undefined|createFixtureEngine/.test(t)) fails.push(`dev-only code found in dist/assets/${f}`);
 }
 if (fails.length) { console.error('FAIL\n- ' + fails.join('\n- ')); process.exit(1); }
-console.log('PASS: production CSP (index.html, workbench.html) and bundle contents');
+console.log('PASS: production CSP (index.html) and bundle contents');

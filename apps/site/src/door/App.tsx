@@ -56,7 +56,7 @@ export function BootError({ text }: { text: string }) {
           Startup failed: <code>{text}</code>
         </p>
         <p>
-          Reload the page to try again, or open the <a href="workbench.html">workbench</a>.
+          Reload the page to try again.
         </p>
       </div>
     </div>

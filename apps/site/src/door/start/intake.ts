@@ -10,7 +10,7 @@ import type { DatasetRef } from '@scasella/undefined-engine/types';
 import { parseCsv } from '../../data/csv';
 import { coerceCsvRows } from '../../data/infer';
 import { parseJsonData } from '../../data/json';
-import { binaryProblem, dataFileProblem, datasetNameFromFile, delimiterHint } from '../../ui/data';
+import { binaryProblem, dataFileProblem, datasetNameFromFile, delimiterHint } from '../../lib/data';
 import { formatCount, type DataRow } from '../model/figures';
 
 export type ParsedRows = { ok: true; rows: DataRow[]; warnings: string[] } | { ok: false; error: string };
@@ -40,7 +40,7 @@ export function parseRows(text: string, filename?: string): ParsedRows {
   }
 }
 
-/** A picked/dropped file that cannot be data, before it is read (spreadsheet, wrong type, far too big): the workbench's words. */
+/** A picked/dropped file that cannot be data, before it is read (spreadsheet, wrong type, far too big): lib/data.ts dataFileProblem. */
 export function fileProblem(file: { name: string; size: number }): string | null {
   return dataFileProblem(file);
 }
@@ -55,8 +55,8 @@ export function textProblem(text: string, filename?: string): string | null {
   const binary = binaryProblem(label, text);
   if (binary) return binary;
   const kind = jsonFileKind(text);
-  if (kind === 'recording') return `${label} is a recording, not data. Open it in the workbench to replay it.`;
-  if (kind === 'image') return `${label} is a program image, not data. Open it in the workbench to import it.`;
+  if (kind === 'recording') return `${label} is a recording, not data. This page reads data only: a CSV or JSON table.`;
+  if (kind === 'image') return `${label} is a program image, not data. This page reads data only: a CSV or JSON table.`;
   return null;
 }
 
@@ -78,15 +78,14 @@ export function delimiterProblem(text: string, columnCount: number): string | nu
 
 /**
  * The variable the user's own file is bound to: the file's base name as a camelCase identifier (`Sales Q3.csv` →
- * `salesQ3`), `data` for pasted text; never `rows` and never a name in `taken` (ui/data.ts datasetNameFromFile, the
- * workbench's rule). `replacing` is the name the page bound last (a new file takes its place instead of `sales2`).
+ * `salesQ3`), `data` for pasted text; never `rows` and never a name in `taken` (lib/data.ts datasetNameFromFile). `replacing` is the name the page bound last (a new file takes its place instead of `sales2`).
  */
 export function ownDatasetName(filename: string | undefined, taken: Iterable<string>, replacing?: string | null): string {
   const used = [...taken].filter((n) => n !== replacing);
   return datasetNameFromFile(filename, used);
 }
 
-/** Names a new dataset must not take: functions, bound datasets and console variables (as the workbench's takenNames). */
+/** Names a new dataset must not take: functions, bound datasets and console variables (the engine's rule for a new binding). */
 export function takenNames(state: { program: { functions: Record<string, unknown> }; datasets: ReadonlyArray<{ name: string }>; env?: Record<string, unknown> }): string[] {
   return [...Object.keys(state.program.functions), ...state.datasets.map((d) => d.name), ...Object.keys(state.env ?? {})];
 }

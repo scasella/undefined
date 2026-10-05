@@ -1,5 +1,7 @@
 # Decide: measured
 
+> Historical: the UI described here (the REPL "workbench", `apps/site/src/ui/`) was replaced by the front door (`apps/site/src/door/`, [FRONT-DOOR.md](FRONT-DOOR.md)), the site's only UI. Engine behaviour is unchanged; features with no UI now are listed in [FEATURES.md](FEATURES.md#engine-features-with-no-ui).
+
 Live measurement of the Decide flow ([DECIDE-DESIGN.md](DECIDE-DESIGN.md), [FEATURES.md](FEATURES.md#decide-spec-gaps-become-questions)).
 It answers two questions for `median`, `slugify` and `fibonacci`:
 

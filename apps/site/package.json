@@ -15,18 +15,16 @@
     "test": "vitest run --configLoader runner",
     "record": "node scripts/record.mjs",
     "record:door": "node scripts/record-door.mjs",
-    "check:replay": "node scripts/replay-check.mjs",
+    "build:check": "NODE_ENV=development vite build --configLoader runner --mode development --outDir dist-check",
+    "check:replay": "npm run build:check && node scripts/replay-check.mjs",
     "check:csp": "node scripts/csp-check.mjs",
     "check:eject": "node scripts/eject-check.mjs",
     "check:parity": "vitest run --configLoader runner -c scripts/vitest.parity.config.ts",
-    "measure:parity": "node scripts/parity-measure.mjs --write"
+    "measure:parity": "npm run build:check && node scripts/parity-measure.mjs --write"
   },
   "dependencies": {
-    "@fontsource-variable/fraunces": "^5.3.0",
     "@fontsource-variable/geist": "^5.3.0",
     "@fontsource-variable/geist-mono": "^5.3.0",
-    "@fontsource-variable/ibm-plex-sans": "^5.3.0",
-    "@fontsource/ibm-plex-mono": "^5.3.0",
     "@preact/signals": "^2.11.3",
     "@scasella/undefined-engine": "0.1.0",
     "fast-check": "^4.10.2",

@@ -250,9 +250,22 @@ describe('short gate status cells', () => {
 
 describe('dependency refusals in the Checks panel', () => {
   it('names a cycle refusal by the compile gate, not as a model mistake', async () => {
-    const { SCENARIOS } = await import('./dev/fixtures');
     const { dependencyRefusal, rejectionClass, whoDecided } = await import('./explain');
-    const fail = SCENARIOS['cycle-rejected']().generation!.attempts[0]!.gates[0]!;
+    // the compile gate's real verdict on a draft of slugifyAll that calls uniqueSlugs back (captured from compileCandidate)
+    const snippet = 'return uniqueSlugs(titles).map((s) => s.replace(/-\\d+$/, ""));';
+    const fail = {
+      gate: 'compile',
+      status: 'fail',
+      ms: 11,
+      summary: '3 errors',
+      counts: { passed: 0, total: 1 },
+      headline: 'Rejected: line 1: slugifyAll cannot call uniqueSlugs: uniqueSlugs already calls slugifyAll (uniqueSlugs → slugifyAll): generated functions cannot call each other in a cycle.',
+      diagnostics: [
+        { kind: 'compile', code: 0, message: 'slugifyAll cannot call uniqueSlugs: uniqueSlugs already calls slugifyAll (uniqueSlugs → slugifyAll): generated functions cannot call each other in a cycle.', category: 'error', line: 1, col: 8, endLine: 1, endCol: 19, snippet },
+        { kind: 'compile', code: 2304, message: "Cannot find name 'uniqueSlugs'.", category: 'error', line: 1, col: 8, endLine: 1, endCol: 19, snippet },
+        { kind: 'compile', code: 7006, message: "Parameter 's' implicitly has an 'any' type.", category: 'error', line: 1, col: 33, endLine: 1, endCol: 34, snippet },
+      ],
+    } as GateResult;
     expect(dependencyRefusal(fail.diagnostics[0])).toEqual({ caller: 'slugifyAll', callee: 'uniqueSlugs', cycle: true });
     expect(rejectionClass(fail)).toBe('would call itself in a cycle');
     expect(whoDecided(fail, 1)[0]).toContain('uniqueSlugs, which already calls slugifyAll');

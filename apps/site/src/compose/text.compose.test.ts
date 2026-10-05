@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Evidence, GateResult } from '@scasella/undefined-engine/types';
 import { describeEvidence } from '@scasella/undefined-engine/shared/evidence';
-import { plainEvidence } from '../ui/evidence';
-import { modelSawSummary, promptFeatures, promptOthers, whoDecided } from '../ui/explain';
+import { plainEvidence } from '../lib/evidence';
+import { modelSawSummary, promptFeatures, promptOthers, whoDecided } from '../lib/explain';
 import { buildPrompt } from '../shared/prompt';
 
 const EV: Evidence = { compiled: true, unitTests: 2, pinnedTests: 0, properties: [{ name: 'p', runs: 100 }], sampledCalls: 3 };

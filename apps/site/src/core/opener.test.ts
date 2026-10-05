@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { EXAMPLES } from '../examples';
 import { recordingParamFromLocation } from '../share/source';
-import { shareLinkFor } from '../ui/share';
 import { openerFromSearch } from './opener';
 
 const IDS = EXAMPLES.map((e) => e.id);
@@ -28,11 +27,5 @@ describe('openerFromSearch', () => {
     expect(recordingParamFromLocation('?opener=orders&recording=https%3A%2F%2Fe.com%2Fr.json', '')).toBe('https://e.com/r.json');
     expect(recordingParamFromLocation('?opener=orders', '#recording=https://e.com/x.json')).toBe('https://e.com/x.json');
     expect(recordingParamFromLocation('?opener=orders', '')).toBeNull();
-  });
-
-  it('never leaks into a share link', () => {
-    const r = shareLinkFor('https://x.github.io/undefined/?opener=orders#y', 'https://e.com/r.json');
-    expect(r.ok).toBe(true);
-    if (r.ok) expect(r.link).not.toContain('opener');
   });
 });

@@ -49,7 +49,7 @@
  * ── Actions (all return false / do nothing when not allowed: engine not ready, busy, nothing bound) ──────────────
  *   useSample(id)              bind the bundled sample (skipped when the same sample is already bound), default question
  *   intakeText({text, filename?})   preview with the engine first (refusals become intake.problem), then bind; name
- *                              derived from the file name (ui/data.ts datasetNameFromFile), `data` for pasted text
+ *                              derived from the file name (lib/data.ts datasetNameFromFile), `data` for pasted text
  *   intakeFile(file)           File → refusals (spreadsheet, size, binary) → intakeText
  *   selectQuestion(id)         select; installs the seeded agreement now when there is one (idempotent)
  *   ask()                      install the seed if needed, setInput(call), submit(); returns when the run settled

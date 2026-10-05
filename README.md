@@ -6,19 +6,16 @@
 
 **[Try it in your browser](https://scasella.github.io/undefined/)** (a demo: recorded `gpt-6-luna` answers, real checks running in your browser, no install, no account). To ask new questions about your own file, [run it on your computer](#run-it-on-your-computer).
 
-The site has two pages:
-
-- **The front door** ([`index.html`](https://scasella.github.io/undefined/), the default): bring a spreadsheet export
-  (CSV, TSV or JSON), ask a question in plain words, watch the AI's calculation get checked before you see the answer:
-  your examples, your locked answers, your house rules, and what was *not* checked. `#/start` is the first-run page.
-  Its contract and vocabulary are in [docs/FRONT-DOOR.md](docs/FRONT-DOOR.md).
-- **The workbench** ([`workbench.html`](https://scasella.github.io/undefined/workbench.html), linked from the front
-  door's footer): the original REPL, where every engine feature lives (call any function, Decide, pin, revisions,
-  Eject, share links). Everything below about the console, openers and sharing is the workbench.
+The site is one page, **the front door** ([`index.html`](https://scasella.github.io/undefined/)): bring a spreadsheet
+export (CSV, TSV or JSON), pick a question, watch the AI's calculation get checked before you see the answer: your
+examples, your locked answers, your house rules, and what was *not* checked. `#/start` is the first-run page. Its
+contract and vocabulary are in [docs/FRONT-DOOR.md](docs/FRONT-DOOR.md). The original REPL UI (the workbench) was
+removed; engine features it alone exposed (free-form calls, spec editing, rollback, share links, the session log) are
+engine API only now, listed in [docs/FEATURES.md](docs/FEATURES.md#engine-features-with-no-ui).
 
 ![The opening sequence: an undefined call, a rejected candidate, a retry, a commit](docs/opening.gif)
 
-[Watch the 40-second demo](docs/demo.mp4) (2880×1800 MP4: the opening sequence; then Decide: rule that `median([])` returns NaN, and the committed `median` is re-certified in place with no model call; then the data scratchpad: load a dataset, call a function over it with no spec, get a table, pin the result as a test).
+[Watch the 40-second demo](docs/demo.mp4) (recorded in the previous REPL UI, since removed; the engine behaviour it shows is unchanged. 2880×1800 MP4: the opening sequence; then Decide: rule that `median([])` returns NaN, and the committed `median` is re-certified in place with no model call; then the data scratchpad: load a dataset, call a function over it with no spec, get a table, pin the result as a test).
 
 Compilers used to sit upstream of everything: a human wrote code, the compiler judged it. LLMs invert that pipeline. The
 model becomes the *upstream source* of code, and the ordinary toolchain (a strict TypeScript compiler, unit tests,
@@ -32,18 +29,15 @@ revision of your running program. Everything runs in your browser except the mod
 
 ## Try it
 
-- **In your browser:** [the workbench](https://scasella.github.io/undefined/workbench.html) opens with `median([3, 1, 4, 2])`
-  in the console. Press Enter, watch the first draft get rejected and the retry committed. The other examples are one click away.
-- **Another opener:** [`workbench.html?opener=fibonacci`](https://scasella.github.io/undefined/workbench.html?opener=fibonacci), `?opener=slugify`
-  or `?opener=orders` starts on that example (first visit only; an older link to the site root with `?opener=` or
-  `?recording=` is passed on to the workbench). [The fibonacci opener](docs/opening-fibonacci.gif).
-- **Make it yours:** call any function that doesn't exist. With no spec, only Compile and Invariants judge it; pin a
-  result as a test or write a one-line spec to make the gate stricter. [All features](docs/FEATURES.md).
-- **Decide** where the spec was silent: a rejection a check marks as a spec gap becomes a question (`median([])`: throw,
-  `NaN`, `0`, or your own). Your ruling becomes a test and the function is re-checked. [How](docs/FEATURES.md#decide-spec-gaps-become-questions).
-- **Eject** a committed function: a zip with `<name>.ts`, its tests for vitest + fast-check, `provenance.json` and a
-  README, runnable without the app. [Details](docs/FEATURES.md#eject).
-- **Share** a session as a `?recording=` link. [How](docs/REPLAY.md#share-a-session).
+- **In your browser:** [`#/start`](https://scasella.github.io/undefined/#/start): pick the orders sample and *Top 5
+  customers by revenue*, press **Ask**, and watch the checks run on the recorded answer. Your own file loads and
+  previews too; new questions about it need [the local copy](#run-it-on-your-computer).
+- **Lock an answer:** *Does this look right? Lock this answer* turns it into a check every later version must pass.
+- **Decide** where the spec was silent: a rejection a check marks as a spec gap becomes *a question only you can
+  answer*. Your ruling becomes a house rule and the function is re-checked. [How](docs/FEATURES.md#decide-spec-gaps-become-questions).
+- **Hand it to your data team:** a committed answer downloads as a zip with `<name>.ts`, its tests for vitest +
+  fast-check, `provenance.json` and a README, runnable without the app. [Details](docs/FEATURES.md#eject).
+- **Everything else** the engine does: [docs/FEATURES.md](docs/FEATURES.md).
 
 ## Run it on your computer
 
@@ -61,7 +55,6 @@ below; [layout](docs/ARCHITECTURE.md#layout)); every command runs from the root.
 git clone https://github.com/scasella/undefined.git && cd undefined
 npm install
 npm run dev          # http://localhost:5173: the front door, with the generation service running (LIVE mode)
-                     # http://localhost:5173/workbench.html: the workbench (the REPL), same service
 npm test && npm run typecheck && npm run build    # tests for every package, then the static site in apps/site/dist/
 ```
 
@@ -69,14 +62,10 @@ Open `http://localhost:5173/#/start`, bring your file (or a sample) and ask. The
 on your computer, real checks*; if it still says *Demo*, the generation service could not reach Codex (check
 `codex login`).
 
-In live mode a fresh browser opens the workbench on **Use your data**: drop or paste a CSV/JSON file and call a function on it that
-does not exist yet (**Start with examples** switches to the example-first opening and is remembered).
-
-**Replay mode (no Codex needed):** the static build in `apps/site/dist/` (both pages, `index.html` and
-`workbench.html`) needs no backend and no environment variables
-(deployable to GitHub Pages). With no generation service reachable it replays recorded `gpt-6-luna` sessions; the
-front door says *Demo · recorded answers, real checks* and the workbench's header pill *"Replay · gates run live"*: the candidates are recorded, **every gate still executes live in your
-browser**. `npm run preview` serves it locally.
+**Replay mode (no Codex needed):** the static build in `apps/site/dist/` (one page, `index.html`) needs no backend and
+no environment variables (deployable to GitHub Pages). With no generation service reachable it replays recorded
+`gpt-6-luna` sessions and says *Demo · recorded answers, real checks*: the candidates are recorded, **every gate still
+executes live in your browser**. `npm run preview` serves it locally.
 
 ## The engine
 
@@ -115,30 +104,28 @@ formats, limits: [docs/ENGINE.md](docs/ENGINE.md); npm names: [docs/PACKAGES.md]
   prompt to the model provider. It holds the signature, the doc, the *names* of your tests and properties (never their
   bodies), the argument types of the call, declared types and sample rows. A retry adds the rejected draft, the gates'
   diagnostics and, when the error is fed back, the failing call; these can quote argument values and results, except
-  as described in [Data scratchpad](docs/FEATURES.md#data-scratchpad) while data is loaded.
-- **A recording link** (`?recording=<url>`): that one URL is fetched. **Sharing** uploads nothing: it downloads a file,
-  unless the site was built with the optional `VITE_SHARE_ENDPOINT` and you press **Create link**, which uploads the
-  recording to the host the dialog names ([docs/SHARE-DEPLOY.md](docs/SHARE-DEPLOY.md)).
+  as described in [Data](docs/FEATURES.md#data) while data is loaded.
+- **Recording links** (`?recording=<url>`) are ignored by the front door: nothing is fetched. Sharing a session is
+  engine API only now ([docs/REPLAY.md](docs/REPLAY.md#share-a-session)).
 - Your program, data and the optional session log stay in this browser's IndexedDB. The CLI makes no network calls;
   the Action calls only the GitHub API, for its one comment. No accounts, telemetry or analytics anywhere.
 
 ## Limits and known gaps
 
 - **Neither sandbox is a security boundary:** not the browser workers, not the Node runner ([docs/SECURITY.md](docs/SECURITY.md)).
-- **REPL lines** are single lines (statements separated by `;`; declarations of functions and classes, `import`/`export`
-  and top-level `await` are refused); after a function grows, only the statement that called it re-runs ([details](docs/FEATURES.md)).
+- **Questions are suggested, not typed:** the front door asks only the questions it suggests for your file (worked out
+  from the column types). Free-form calls are engine API only ([details](docs/FEATURES.md#engine-features-with-no-ui)).
 - **Composition** (a generated function calling another certified one) was measured once
   ([docs/COMPOSE-MEASUREMENTS.md](docs/COMPOSE-MEASUREMENTS.md)); no cycles, and a dependent is re-checked when a callee changes.
 - A self-recursive function with no declared return type cannot compile (TS7023); one extra attempt is allowed.
-- Two tabs share one stored program and do not merge edits (the page warns); with IndexedDB blocked, state is in-memory
+- Two tabs share one stored program and do not merge edits (the engine flags it in its state; the front door shows no warning); with IndexedDB blocked, state is in-memory
   for the session. No async tests.
 - The measured rejection rates are one day's rates for one model, not a guarantee ([docs/EXAMPLES.md](docs/EXAMPLES.md)).
 
 ## Documentation
 
 [FRONT-DOOR](docs/FRONT-DOOR.md) (the front door: pages, vocabulary, honesty rules, recordings) ·
-[FEATURES](docs/FEATURES.md) (everything you can do: Decide, the data scratchpad, pinning, Eject, `?opener=`, the
-session log) · [EXAMPLES](docs/EXAMPLES.md) (the four examples, measured rates) · [EVIDENCE](docs/EVIDENCE.md) (the
+[FEATURES](docs/FEATURES.md) (what the front door does, and the engine features with no UI) · [EXAMPLES](docs/EXAMPLES.md) (the four examples, measured rates) · [EVIDENCE](docs/EVIDENCE.md) (the
 confidence line, mutation testing, kill rates, Node/CLI parity) · [ENGINE](docs/ENGINE.md) (engine, CLI and Action: API,
 spec formats, exit codes, JSON) · [PACKAGES](docs/PACKAGES.md) (npm names) · [ARCHITECTURE](docs/ARCHITECTURE.md) ·
 [SECURITY](docs/SECURITY.md) · [REPLAY](docs/REPLAY.md) · [COMPOSE-MEASUREMENTS](docs/COMPOSE-MEASUREMENTS.md) ·

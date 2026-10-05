@@ -22,8 +22,8 @@ import { fileURLToPath } from 'node:url';
 import type { Evidence, MutationReport } from '@scasella/undefined-engine/types';
 import { survivorLine } from '@scasella/undefined-engine/shared/evidence';
 import { NO_TESTS_REASON } from '@scasella/undefined-engine/mutation/classify';
-import { plainEvidence } from '../src/ui/evidence';
-import { plainHeadline } from '../src/ui/explain';
+import { plainEvidence } from '../src/lib/evidence';
+import { plainHeadline } from '../src/lib/explain';
 import { expectedVerdict, gateId, IDS, loadBrowser, loadRecording, mergeTimeLimit, sourceFile, specFile } from '../src/examples/parityFixtures';
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));

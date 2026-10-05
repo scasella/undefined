@@ -3,20 +3,15 @@
 How a call is decided, what the model sees, the local generation service and the source layout. Module contracts are in
 [DESIGN.md](DESIGN.md); the security properties of the sandbox are in [SECURITY.md](SECURITY.md).
 
-## Two pages, one engine
+## One page, one engine
 
-The static site ships two pages, both built by `apps/site/vite.config.ts` (`build.rollupOptions.input`) into
-`apps/site/dist/`, both carrying the production Content-Security-Policy `<meta>` (`npm run check:csp` asserts it on each):
-
-- `index.html` → `src/door/main.tsx`: the **front door** (landing `#/`, first run `#/start`), a guided, plain-language
-  surface over the engine. Contract, vocabulary map, honesty rules, layout and recordings: [FRONT-DOOR.md](FRONT-DOOR.md).
-  A root URL carrying the workbench's `?opener=` / `?recording=` is redirected to `workbench.html` (`src/door/legacyLinks.ts`).
-- `workbench.html` → `src/workbench.tsx`: the **workbench**, the original REPL UI (`src/ui/`, `src/styles.css`) with
-  every engine feature. The maintainer scripts that drive the UI by selector (`apps/site/scripts/*.mjs`) open this page
-  through `workbench()` in `scripts/lib/drive.mjs`.
-
-Both create the same engine (`src/core/engine.ts`) against the same IndexedDB image, so a function grown on one page
-is there on the other. Everything below describes the engine; it is the same under either page.
+The static site ships one page, `apps/site/index.html` → `src/door/main.tsx`: the **front door** (landing `#/`, first
+run `#/start`), a guided, plain-language surface over the engine. `apps/site/vite.config.ts` builds it into
+`apps/site/dist/` with the production Content-Security-Policy `<meta>` (`npm run check:csp` asserts it). Contract,
+vocabulary map, honesty rules, layout and recordings: [FRONT-DOOR.md](FRONT-DOOR.md). The page creates the engine
+(`src/core/engine.ts`) with no location, so URL parameters the engine understands (`?opener=`, `?recording=`) are
+ignored. The original REPL UI (the workbench, `src/ui/`) was removed; the engine features only it exposed are listed in
+[FEATURES.md](FEATURES.md#engine-features-with-no-ui). Everything below describes the engine.
 
 ## How a call is decided
 
@@ -37,13 +32,12 @@ REPL call ──► runtime worker (name lookup is a Proxy scope) ──► name
 ```
 
 A line of several statements runs one statement at a time; after a grow only the statement that made the call runs
-again (earlier statements never re-run), and the console prints which (`engine.ts rerunText`). A committed function's
+again (earlier statements never re-run), and the engine says which (`engine.ts rerunText`). A committed function's
 status through the functions it calls is derived, never stored (`compose/graph.ts dependencyStatus`: current, changed,
-waiting); the UI reads it through `ui/select.ts functionStatus(rec, program)`, the Repo's **Re-check** calls
-`Engine.recheck(fn)`, the Draft's *uses …* line comes from the compile gate's `CompileOutput.deps` (kept on the
-UI-only `AttemptView.uses`, not persisted), and a re-check after a callee changed carries `GenerationView.recheck.callees`
-so Checks names the callee instead of an added check. Every decision shows who made it: which gate, which line or counterexample. A rejected candidate stays visible in the
-candidate strip, so you can see the toolchain turning work away. If the budget runs out, the call fails cleanly and the
+waiting); `Engine.recheck(fn)` re-checks a caller against a changed callee, which functions a draft uses comes from the compile gate's `CompileOutput.deps` (kept on
+`AttemptView.uses`, not persisted), and a re-check after a callee changed carries `GenerationView.recheck.callees`. Every
+decision records who made it: which gate, which line or counterexample. Rejected candidates stay in the run
+(`state.generation`); the front door shows them as drafts thrown out. If the budget runs out, the call fails cleanly and the
 program is unchanged.
 
 **What the model sees:** the signature, the doc, the *names* of your tests and properties (never their bodies or the
@@ -52,11 +46,9 @@ and on retries the previous attempt plus structured diagnostics. When other func
 certified (and calling them would not close a cycle), an OTHER FUNCTIONS section lists their signatures and the first
 sentence of their docs, never their code; with none, the prompt is byte-identical to a program without composition
 (`apps/site/src/compose/golden.test.ts`). Every candidate keeps the exact prompt it was generated
-from: open *What the model saw* under the candidate (or in the Repo tab's candidate history) to read it, headed by a plain
-summary of what was and was not sent. For replayed sessions that is the prompt stored in the recording (older recordings predate
-the budget line, and the summary says only what their prompt contains). The gates know more than the model; that is the
-point. When a failing check declares that the doc never covered the case, the rejection card says so: the spec was
-silent, your tests decided, and the candidate's choice was defensible.
+from (`Candidate.prompt`); on `#/start` the *What the AI will see* rail shows the last one after a run. For replayed sessions that is the prompt stored in the recording (older recordings predate
+the budget line). The gates know more than the model; that is the point. When a failing check declares that the doc
+never covered the case, the rejection is a question for you (Decide), not a verdict on the model.
 
 **Gate semantics worth knowing.** An invariant violation seen in *any* phase is reported by the Invariants gate. The
 runaway candidate in `fibonacci` is killed while the Tests gate is running, so Tests and Properties show as "interrupted"
@@ -78,7 +70,7 @@ codex exec - --model gpt-6-luna --sandbox read-only --skip-git-repo-check --ephe
 ```
 
 The service does nothing else: no compiling, testing, or caching. It kills the whole process group on timeout or client
-disconnect, streams Codex's progress to the browser, and returns structured errors the **Checks** panel displays with the fix
+disconnect, streams Codex's progress to the browser, and returns structured errors that the front door shows with the fix
 (`npm i -g @openai/codex`, `codex login`). It only answers same-host requests. Environment overrides:
 `UNDEFINED_MODEL`, `UNDEFINED_EFFORT` (default `low`; your own Codex config may default to something much slower),
 `UNDEFINED_TIMEOUT_MS`, `UNDEFINED_CODEX_BIN`.
@@ -113,7 +105,7 @@ packages/engine/src/
   node/              Node only (never imported by the site): the gate host (a worker_thread + node:vm realm with the
                      same watchdog; NOT a secure sandbox, docs/SECURITY.md), TypeScript libs from disk, certifyFile()
 apps/site/
-  index.html         the front door's page (src/door/main.tsx); workbench.html the workbench's (src/workbench.tsx)
+  index.html         the only page: the front door (src/door/main.tsx)
   vite.config.ts  public/recordings/ (recorded sessions)
   server/            Vite middleware: the codex generation service, dev-only recording save; share/ the optional share Worker
   src/core/          engine (orchestrator), IndexedDB store, generators (live, replay), REPL line splitting
@@ -121,7 +113,9 @@ apps/site/
   src/sandbox/       worker spawning (blob: wrapper, CSP), the gate and REPL runtime workers, the site's gate runner (default worker)
   src/shared/        prompt builder, REPL statement splitter
   src/examples/      median, slugify, fibonacci, orders (+ known-good and known-bad candidates used by tests)
-  src/share/ src/sessionlog/ src/data/ src/ui/   shared recordings, the opt-in session log, data scratchpad, the workbench UI
+  src/share/ src/sessionlog/ src/data/   shared recordings, the opt-in session log (engine API only), data parsing and typing
+  src/lib/           pure helpers shared by the front door and tests: data intake refusals and naming (data.ts), plain
+                     evidence and gate wording (evidence.ts, explain.ts, also used by scripts/cli.parity.ts)
   src/door/          the front door (landing + first run): components/, model/ (pure, tested view-models), landing/, start/
   scripts/           checks (replay, csp, eject), recording (record.mjs; record-door.mjs for the front door), screenshots, tune.tune.ts (see below)
 packages/cli/      undefined-certify: args, the certify command over the engine's certify(), human and --json reports,

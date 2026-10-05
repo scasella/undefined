@@ -58,7 +58,7 @@ describe('intake', () => {
     expect(textProblem('', 'q3.csv')).toBe('q3.csv is empty. Nothing to load.');
     expect(textProblem('PK\u0000\u0003', 'q3.csv')).toBe('q3.csv looks binary; export it as CSV.');
     expect(jsonFileKind('{"format":"undefined-recording","sessions":[]}')).toBe('recording');
-    expect(textProblem('{"format":"undefined-image"}', 'x.json')).toBe('x.json is a program image, not data. Open it in the workbench to import it.');
+    expect(textProblem('{"format":"undefined-image"}', 'x.json')).toBe('x.json is a program image, not data. This page reads data only: a CSV or JSON table.');
     expect(delimiterProblem('a;b;c\n1;2;3', 1)).toBe('Only 1 column found. Is the delimiter ";"?');
     expect(delimiterProblem('name\nAda', 1)).toBeNull();
     expect(delimiterProblem('a;b\n1;2', 2)).toBeNull();
