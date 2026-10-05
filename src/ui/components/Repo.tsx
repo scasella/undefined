@@ -9,6 +9,9 @@ import { GeneratedBadge, StatusIcon } from './common';
 import { ModelSaw } from './ModelSaw';
 import { ArtifactEvidence } from './Evidence';
 import { EjectButton } from './Eject';
+import { afterRemoval, DecideBlock, focusLater } from './Decide';
+import { decisionNote, decisionsOf, decisionSummary, waiverText } from '../../decide/decisions';
+import { decisionTestName } from '../decide';
 
 const TEST_API = `// Globals in scope: the function under test by its own name, plus
 test(name: string, body: () => void, meta?: { silentOn?: string; reasonable?: string }): void
@@ -176,7 +179,7 @@ function ArtifactView({ a, spec, stale, state, engine }: { a: Artifact; spec: Fu
       <details class="history">
         <summary>Every draft, and which gate turned it away</summary>
         <ol>
-          {a.candidates.map((c) => (
+          {a.candidates.map((c, i) => (
             <li key={c.id} class={`hist hist-${c.verdict}`}>
               <p>
                 <strong>#{c.attempt}</strong> {c.verdict}
@@ -196,12 +199,27 @@ function ArtifactView({ a, spec, stale, state, engine }: { a: Artifact; spec: Fu
                 <CodeView signature={signatureOf(spec, a.returnType)} body={c.body} />
               </details>
               {c.prompt && <ModelSaw prompt={c.prompt} spec={spec} attempt={c.attempt} />}
+              <HistoryDecide a={a} index={i} state={state} engine={engine} />
             </li>
           ))}
         </ol>
       </details>
     </div>
   );
+}
+
+/** Decide on a stored rejected draft whose check said the spec was silent (works after a reload too). */
+function HistoryDecide({ a, index, state, engine }: { a: Artifact; index: number; state: EngineState; engine: Engine }) {
+  const c = a.candidates[index]!;
+  const fn = Object.values(state.program.functions).find((r) => r.artifact === a)?.spec.name;
+  if (!fn || c.verdict !== 'rejected' || !c.rejectedBy) return null;
+  const g = c.gates.find((x) => x.gate === c.rejectedBy);
+  const d = g?.diagnostics[0];
+  if (!d || (d.kind !== 'test' && d.kind !== 'property') || !d.silentOn) return null;
+  const ref = { fn, revision: a.revision, candidate: index, gate: c.rejectedBy, index: 0 };
+  const q = engine.gapQuestion(ref) ?? engine.gapQuestion({ fn, diagnostic: d });
+  if (!q) return null;
+  return <DecideBlock engine={engine} state={state} gapRef={engine.gapQuestion(ref) ? ref : { fn, diagnostic: d }} q={q} attempt={c.attempt} openKey={`repo:${fn}:${c.id}`} />;
 }
 
 /** The results pinned as unit tests on one function: they are part of its checks, but outside both hashes. */
@@ -236,6 +254,89 @@ function PinnedTests({ rec, engine, busy }: { rec: FunctionRecord; engine: Engin
                 </span>
                 {expectedSummary(p.expected, 140)}
               </code>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+/**
+ * The user's rulings on spec gaps: each a generated test (or rule) in the spec, listed with when and why, the test it
+ * added, and Remove (which re-checks the committed function against the spec without it).
+ */
+function Decisions({ rec, engine, busy }: { rec: FunctionRecord; engine: Engine; busy: boolean }) {
+  const ds = decisionsOf(rec.spec);
+  const [confirming, setConfirming] = useState<string | null>(null);
+  if (ds.length === 0) return null;
+  const fn = rec.spec.name;
+  return (
+    <section class="decisions" aria-labelledby={`decisions-${fn}`}>
+      <h4 id={`decisions-${fn}`}>Decisions ({ds.length})</h4>
+      <p class="muted small">Where a check said the spec was silent, you ruled. Each ruling is a test in the spec; the model is told to follow it.</p>
+      <ul>
+        {ds.map((d) => {
+          const waiver = waiverText(d);
+          return (
+            <li key={d.id} class="decision" data-decision={d.id}>
+              <p class="decision-head">
+                <code class="mono">{decisionSummary(d)}</code>
+              </p>
+              <p class="decision-note">{decisionNote(d).replace(/^d/, 'D')}</p>
+              {waiver && <p class="muted small">It {waiver}.</p>}
+              <details class="decision-source">
+                <summary>{d.placement === 'properties' ? 'The rule it added' : 'The test it added'}</summary>
+                <pre class="code small">
+                  <code>{d.test}</code>
+                </pre>
+              </details>
+              {confirming === d.id ? (
+                <div class="decision-confirm" role="group" aria-label={`Remove the decision ${decisionSummary(d)}`}>
+                  <p class="small">
+                    Remove it? The test <code>{decisionTestName(d)}</code> leaves the spec{d.waives ? ' and your original check applies again' : ''}, and{' '}
+                    {fn} is re-checked against the spec without it. If it fails, the model writes {fn} again.
+                  </p>
+                  <div class="form-actions">
+                    <button
+                      type="button"
+                      class="btn btn-xs"
+                      disabled={busy}
+                      onClick={() => {
+                        setConfirming(null);
+                        const summary = decisionSummary(d);
+                        void engine
+                          .removeDecision(fn, d.id)
+                          .then(() => afterRemoval(engine, fn, summary, () => document.getElementById(`decisions-${fn}`) ?? document.getElementById(`fn-${fn}`)));
+                      }}
+                    >
+                      Remove and re-check
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-xs decision-keep"
+                      onClick={() => {
+                        setConfirming(null);
+                        focusLater(() => document.querySelector<HTMLElement>(`[data-decision="${CSS.escape(d.id)}"] .decision-actions button`));
+                      }}
+                    >
+                      Keep it
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <p class="decision-actions">
+                  <button type="button" class="btn btn-ghost btn-xs" disabled={busy} aria-label={`Remove the decision ${decisionSummary(d)}`}
+                    onClick={() => {
+                      setConfirming(d.id);
+                      // the button is replaced by the confirmation: keep focus there, on the safe choice
+                      focusLater(() => document.querySelector<HTMLElement>(`[data-decision="${CSS.escape(d.id)}"] .decision-keep`));
+                    }}
+                  >
+                    Remove
+                  </button>
+                </p>
+              )}
             </li>
           );
         })}
@@ -302,6 +403,8 @@ function FunctionCard({
     });
   }, [focus, spec.name]);
   const bodyId = `fn-body-${spec.name}`;
+  const g = state.generation;
+  const regrowing = status.kind === 'stale' && !!g?.decision && g.fn === spec.name && (g.phase === 'generating' || g.phase === 'gating');
   return (
     <article ref={cardRef} class={`fn-card${open ? '' : ' is-collapsed'}`} aria-labelledby={`fn-${spec.name}`}>
       <header class="fn-head">
@@ -320,7 +423,7 @@ function FunctionCard({
           {spec.name}
         </h3>
         <code class="fn-sig">{signatureOf(spec, rec.artifact?.returnType)}</code>
-        <span class={`chip fs-${status.kind}`}>{sentenceCase(functionStatusText(status))}</span>
+        <span class={`chip fs-${status.kind}`}>{sentenceCase(regrowing ? 'out of date · being written again against your decision' : functionStatusText(status))}</span>
         {example && (
           <span class="breakit">
             <button
@@ -340,6 +443,7 @@ function FunctionCard({
         <div>
           <h4>Spec</h4>
           <SpecEditor key={JSON.stringify(draftOf(spec))} rec={rec} engine={engine} busy={busy} />
+          <Decisions rec={rec} engine={engine} busy={busy} />
           <PinnedTests rec={rec} engine={engine} busy={busy} />
         </div>
         <div>

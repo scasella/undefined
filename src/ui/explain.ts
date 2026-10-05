@@ -4,6 +4,7 @@
  */
 import type { Declined, Diagnostic, FunctionSpec, GateResult } from '../types';
 import { listTestNames } from '../shared/specInfo';
+import { effectiveChecks } from '../decide/decisions';
 
 /**
  * One or two short lines for under the rejection headline, from the failing gate's first diagnostic (the same one
@@ -87,9 +88,11 @@ export function promptFeatures(prompt: string): { budget: boolean; previous: boo
  * found with listTestNames); every other clause is read off the prompt that was really sent, so the summary never
  * claims something the prompt below it does not contain (older recorded prompts have no time-budget line).
  */
-export function modelSawSummary(spec: Pick<FunctionSpec, 'tests' | 'properties'> | undefined, prompt: string): { sent: string; notSent: string } {
-  const tests = spec ? listTestNames(spec.tests).length : 0;
-  const props = spec ? listTestNames(spec.properties).length : 0;
+export function modelSawSummary(spec: Pick<FunctionSpec, 'tests' | 'properties' | 'decisions'> | undefined, prompt: string): { sent: string; notSent: string } {
+  // the effective checks: the decisions' generated tests are named in the prompt too
+  const eff = spec ? effectiveChecks(spec) : undefined;
+  const tests = eff ? listTestNames(eff.tests).length : 0;
+  const props = eff ? listTestNames(eff.properties).length : 0;
   const f = promptFeatures(prompt);
   const parts = ['the signature', 'your doc'];
   parts.push(

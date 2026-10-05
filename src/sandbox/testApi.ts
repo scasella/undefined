@@ -113,6 +113,8 @@ export class AssertionFailure extends Error {
   readonly expectedShown: string;
   /** False for failures whose `actual` is not a value under test (e.g. `throws` saw no error). */
   readonly actualIsValue: boolean;
+  /** The check wanted the call to throw (`throws` saw no error; a reference threw where the candidate returned). */
+  expectsThrow?: boolean;
   constructor(
     public readonly actual: unknown,
     public readonly expected: unknown,
@@ -159,7 +161,11 @@ export function throws(fn: () => unknown, match?: RegExp | string): void {
     error = e;
   }
   const wanted = match === undefined ? 'an error' : `an error matching ${typeof match === 'string' ? JSON.stringify(match) : String(match)}`;
-  if (!threw) throw new AssertionFailure(undefined, undefined, `expected ${wanted}, but nothing was thrown`, { actual: 'no error', expected: wanted });
+  if (!threw) {
+    const f = new AssertionFailure(undefined, undefined, `expected ${wanted}, but nothing was thrown`, { actual: 'no error', expected: wanted });
+    f.expectsThrow = true;
+    throw f;
+  }
   if (match === undefined) return;
   const text = error instanceof Error || (typeof error === 'object' && error !== null && 'message' in error)
     ? String((error as { message: unknown }).message)
@@ -189,7 +195,14 @@ export interface SilenceMeta {
   silentOn?: string;
   /** One sentence on why a candidate's different choice there is defensible. */
   reasonable?: string;
+  /**
+   * Opt-in: the defensible answers the spec could choose between at the silent call, declared by the check's author
+   * (offered by the Decide card next to the fixed table). `{ label, value }` or `{ label, throws: true }`.
+   */
+  alternatives?: DeclaredAlternative[];
 }
+
+export type DeclaredAlternative = { label: string; value: unknown } | { label: string; throws: true };
 
 export type TestMeta = SilenceMeta;
 
@@ -258,6 +271,18 @@ function checkOpts(fn: string, name: string, opts: unknown, allowRuns: boolean):
     if (typeof v !== 'string' || v.trim() === '') throw new TypeError(`${fn}("${name}"): ${k} must be a non-empty string`);
     out[k] = v;
   }
+  if (o.alternatives !== undefined) {
+    const a = o.alternatives;
+    if (!Array.isArray(a)) throw new TypeError(`${fn}("${name}"): alternatives must be an array of { label, value } or { label, throws: true }`);
+    out.alternatives = a.map((x: unknown, i: number) => {
+      if (typeof x !== 'object' || x === null) throw new TypeError(`${fn}("${name}"): alternatives[${i}] must be an object`);
+      const r = x as Record<string, unknown>;
+      if (typeof r.label !== 'string' || r.label.trim() === '') throw new TypeError(`${fn}("${name}"): alternatives[${i}].label must be a non-empty string`);
+      if (r.throws === true) return { label: r.label, throws: true as const };
+      if (!('value' in r)) throw new TypeError(`${fn}("${name}"): alternatives[${i}] needs a value (or throws: true)`);
+      return { label: r.label, value: r.value };
+    });
+  }
   if (o.when !== undefined) {
     if (!allowRuns) throw new TypeError(`${fn}("${name}"): when only applies to properties (a unit test has no counterexample)`);
     if (typeof o.when !== 'function') throw new TypeError(`${fn}("${name}"): when must be a function of the property's arguments`);
@@ -308,7 +333,9 @@ export function createTestApi(candidate: (...args: unknown[]) => unknown, cases:
             if (isInvariantViolation(e)) throw e;
             return;
           }
-          throw new AssertionFailure(actual, refError, undefined, { expected: `to throw (reference threw ${show(refError)})` });
+          const f = new AssertionFailure(actual, refError, undefined, { expected: `to throw (reference threw ${show(refError)})` });
+          f.expectsThrow = true;
+          throw f;
         }
         let actual: unknown;
         try {
@@ -318,6 +345,8 @@ export function createTestApi(candidate: (...args: unknown[]) => unknown, cases:
             // lets the failure description say what the reference returned where the candidate threw
             try {
               Object.defineProperty(e, '__expectedShown', { value: show(expected), configurable: true });
+              // the raw value too, so a "spec was silent" diagnostic can carry what the reference wanted (Decide)
+              Object.defineProperty(e, '__expectedRaw', { value: expected, configurable: true });
             } catch {
               /* frozen error object: the plain 'threw' description still applies */
             }

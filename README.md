@@ -29,6 +29,8 @@ revision of your running program. Everything runs in your browser except the mod
   `median`). [What the fibonacci opener looks like](docs/opening-fibonacci.gif).
 - **Make it yours:** call any function that doesn't exist. With no spec, only Compile and Invariants judge it; pin a
   result as a test or write a one-line spec to make the gate stricter. [All features](docs/FEATURES.md).
+- **Decide** where the spec was silent: a rejection a check marks as a spec gap becomes a question (`median([])`: throw,
+  `NaN`, `0`, or your own). Your ruling becomes a test and the function is re-checked. [How](docs/FEATURES.md#decide-spec-gaps-become-questions).
 - **Eject** a committed function: a zip with `<name>.ts`, its tests for vitest + fast-check, `provenance.json` and a
   README, runnable without the app. [Details](docs/FEATURES.md#eject).
 - **Share** a session as a `?recording=` link. [How](docs/REPLAY.md#share-a-session).
@@ -91,7 +93,7 @@ npm run typecheck
 
 ## Documentation
 
-- [docs/FEATURES.md](docs/FEATURES.md): everything you can do, the data scratchpad, pinning, Eject, `?opener=`, the local session log.
+- [docs/FEATURES.md](docs/FEATURES.md): everything you can do, Decide, the data scratchpad, pinning, Eject, `?opener=`, the local session log.
 - [docs/EXAMPLES.md](docs/EXAMPLES.md): the four examples, why each first draft is rejected, measured session rates.
 - [docs/EVIDENCE.md](docs/EVIDENCE.md): the confidence line, mutation testing, measured kill rates.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how a call is decided, what the model sees, the generation service, source layout.

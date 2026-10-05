@@ -35,20 +35,27 @@ export function addedOutcome(rec: FunctionRecord | undefined, gen: GenerationVie
 
 const n = (k: number, one: string, many: string): string => `${k} ${k === 1 ? one : many}`;
 
-/** "4 tests passed." / "3 tests and 2 pinned results passed." / "No tests." */
-function plainTests(unit: number, pinned: number): string {
+/**
+ * "4 tests passed." / "3 tests and 2 pinned results passed." / "No tests." With decisions (unit tests generated from
+ * the user's rulings, counted in `unit`): "6 tests passed, including 2 decisions."
+ */
+function plainTests(unit: number, pinned: number, decisions = 0): string {
   if (unit === 0 && pinned === 0) return 'No tests.';
   if (unit === 0) return `${n(pinned, 'pinned result', 'pinned results')} reproduced.`;
-  return pinned === 0 ? `${n(unit, 'test', 'tests')} passed.` : `${n(unit, 'test', 'tests')} and ${n(pinned, 'pinned result', 'pinned results')} passed.`;
+  const d = Math.min(decisions, unit);
+  const incl = d === 0 ? '' : unit === 1 ? ', your decision' : `, including ${n(d, 'decision', 'decisions')}`;
+  return pinned === 0 ? `${n(unit, 'test', 'tests')} passed${incl}.` : `${n(unit, 'test', 'tests')} and ${n(pinned, 'pinned result', 'pinned results')} passed${incl}.`;
 }
 
 /** "No random-input checks." / "1 rule held for 100 random inputs." / "2 rules held for 100 random inputs each." */
-function plainRules(props: ReadonlyArray<{ runs: number }>): string {
+function plainRules(props: ReadonlyArray<{ runs: number }>, decisions = 0): string {
   if (props.length === 0) return 'No random-input checks.';
-  if (props.length === 1) return `1 rule held for ${n(props[0]!.runs, 'random input', 'random inputs')}.`;
+  const d = Math.min(decisions, props.length);
+  const incl = d === 0 ? '' : props.length === 1 ? ', your decision' : `, including ${n(d, 'decision', 'decisions')}`;
+  if (props.length === 1) return `1 rule held for ${n(props[0]!.runs, 'random input', 'random inputs')}${incl}.`;
   const runs = props.map((p) => p.runs);
-  if (runs.every((r) => r === runs[0])) return `${props.length} rules held for ${n(runs[0]!, 'random input', 'random inputs')} each.`;
-  return `${props.length} rules held for ${runs.reduce((a, b) => a + b, 0)} random inputs in all.`;
+  if (runs.every((r) => r === runs[0])) return `${props.length} rules held for ${n(runs[0]!, 'random input', 'random inputs')} each${incl}.`;
+  return `${props.length} rules held for ${runs.reduce((a, b) => a + b, 0)} random inputs in all${incl}.`;
 }
 
 function plainReplays(k: number): string {
@@ -73,7 +80,7 @@ export function plainMutation(r: MutationReport | undefined): string {
 
 /** The evidence line under an accepted function: facts, no score. */
 export function plainEvidence(ev: Evidence): string {
-  return [ev.compiled ? 'Compiled.' : 'Did not compile.', plainTests(ev.unitTests, ev.pinnedTests), plainRules(ev.properties), plainReplays(ev.sampledCalls), plainMutation(ev.mutation)].join(' ');
+  return [ev.compiled ? 'Compiled.' : 'Did not compile.', plainTests(ev.unitTests, ev.pinnedTests, ev.decisions ?? 0), plainRules(ev.properties, ev.decisionProperties ?? 0), plainReplays(ev.sampledCalls), plainMutation(ev.mutation)].join(' ');
 }
 
 /** The broken-copy check while it is waiting or running; null when nothing is in flight for `fn`. */

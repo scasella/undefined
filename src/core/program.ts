@@ -3,7 +3,7 @@
  * Programs and Revisions are treated as immutable values throughout the app.
  */
 import { hashesFor } from '../shared/hash';
-import type { Artifact, Candidate, DatasetRef, FunctionRecord, FunctionSpec, Hash, Pin, Program, Revision } from '../types';
+import type { Artifact, Candidate, DatasetRef, Decision, FunctionRecord, FunctionSpec, Hash, Pin, Program, Revision } from '../types';
 
 export function emptyProgram(): Program {
   return { functions: {} };
@@ -72,6 +72,23 @@ export function withPins(p: Program, fn: string, pins: Pin[]): Program {
   const { pins: _old, ...spec } = rec.spec;
   const next: FunctionSpec = pins.length > 0 ? { ...spec, pins } : spec;
   return { ...p, functions: { ...p.functions, [fn]: { ...rec, spec: next } } };
+}
+
+/**
+ * A spec with its decisions replaced. An empty list REMOVES the field, so a spec without decisions is byte-identical
+ * (JSON, hashes) to one that never had any. Unlike pins, decisions are part of testsHash: callers recompute the
+ * record with withSpec (the artifact goes stale unless it is re-checked and restamped).
+ */
+export function specWithDecisions(spec: FunctionSpec, decisions: readonly Decision[]): FunctionSpec {
+  const { decisions: _old, ...rest } = spec;
+  return decisions.length > 0 ? { ...rest, decisions: [...decisions] } : rest;
+}
+
+/** Replace a function's decisions (record hashes recomputed; see specWithDecisions). Throws when there is no `fn`. */
+export async function withDecisions(p: Program, fn: string, decisions: readonly Decision[]): Promise<Program> {
+  const rec = p.functions[fn];
+  if (!rec) throw new Error(`cannot decide: no function named ${fn}`);
+  return withSpec(p, specWithDecisions(rec.spec, decisions));
 }
 
 /** Every dataset hash a program refers to: bound datasets plus dataset arguments of pins. */

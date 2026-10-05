@@ -11,11 +11,16 @@
  * silent" markers (silentOn / reasonable / when) never change a verdict in the app; here they only add a sentence
  * to the failure message, under the same rule (`when` must hold at the shrunk counterexample).
  *
+ * Decisions (the user's rulings where a check said the spec was silent) are their own section, each with its
+ * "decided by you on <date>: <reason>" note; a check a decision replaced is waived exactly as in the app (a waived unit
+ * test is skipped with a note; a waived property passes vacuously where its `when` holds, and is skipped without one).
+ *
  * NOT reproduced: the Invariants gate (purity by frozen-argument replay, the per-call time budget) and the sandbox
  * itself. The README says so.
  */
-import type { DatasetRef, FunctionRecord, Hash, Json, Pin, Revision } from '../types';
+import type { DatasetRef, Decision, FunctionRecord, Hash, Json, Pin, Revision, WaivedCheck } from '../types';
 import { describeEvidence } from '../shared/evidence';
+import { decisionsOf, decisionSummary, waivedBy } from '../decide/decisions';
 import { gateSeed } from '../shared/hash';
 import { isStale } from '../core/program';
 import { tsLiteral, tsRowsLiteral } from './literal';
@@ -169,7 +174,7 @@ const API_NAMES = ['test', 'eq', 'throws', 'property', 'matchesReference', 'fc']
  * identifiers in the spec's test code. `omit` is an API name the function itself takes (it then shadows it, as in
  * the app).
  */
-function prelude(omit: string | null): string {
+function prelude(omit: string | null, waived: readonly WaivedCheck[]): string {
   const api = (n: (typeof API_NAMES)[number], code: string): string => (n === omit ? `// (\`${n}\` is the function under test, so the API's ${n} is not defined)\n` : code);
   return String.raw`// ───────── Undefined's Test API, inlined (src/sandbox/testApi.ts) ─────────
 // test(name, body, marker?)         a unit test (synchronous)
@@ -304,7 +309,18 @@ function __uClone<T>(v: T): T {
 /** The gate's fixed fast-check seed: gateSeed(specHash, testsHash) of the certified spec. */
 const __uSEED = __SEED__;
 
+/**
+ * Checks replaced by your decisions (see "your decisions" below): a unit test here is skipped; a property here passes
+ * where its "when" holds (the case the spec was silent on, which your decision now rules) and is skipped without one.
+ */
+const __uWaived: Array<{ kind: 'test' | 'property'; name: string }> = ${JSON.stringify(waived)};
+const __uIsWaived = (kind: 'test' | 'property', name: string): boolean => __uWaived.some((w) => w.kind === kind && w.name === name);
+
 ${api('test', `function test(name: string, body: () => void, marker?: __uMarker): void {
+  if (__uIsWaived('test', name)) {
+    __uIt.skip(\`\${name} (replaced by your decision)\`, () => {});
+    return;
+  }
   __uIt(name, () => {
     try {
       const r = body() as unknown;
@@ -344,8 +360,22 @@ ${api('throws', `function throws(fn: () => unknown, match?: RegExp | string): vo
 }
 `)}
 function __uRunProperty(name: string, arbs: unknown[], predicate: (...args: any[]) => unknown, opts: __uPropertyOpts = {}): void {
+  const waivedWhen = __uIsWaived('property', name) ? opts.when : undefined;
+  if (__uIsWaived('property', name) && waivedWhen === undefined) {
+    __uIt.skip(${'`${name} (replaced by your decision)`'}, () => {});
+    return;
+  }
   __uIt(name, () => {
     const pred = (...args: unknown[]): boolean => {
+      if (waivedWhen !== undefined) {
+        let inDomain = false;
+        try {
+          inDomain = waivedWhen(...args.map(__uClone)) === true;
+        } catch {
+          inDomain = false;
+        }
+        if (inDomain) return true; // replaced by your decision where the spec was silent
+      }
       const r = predicate(...args.map(__uClone));
       if (typeof r === 'object' && r !== null && typeof (r as { then?: unknown }).then === 'function') {
         throw new Error('async predicates are not supported');
@@ -472,13 +502,37 @@ const __uSubject = ${name} as unknown as (...args: unknown[]) => unknown;
     sections.push(`// ───────── pinned results (spec.pins): each call must return exactly what was pinned ─────────\n__uDescribe('pinned results', () => {\n${pins.map((p) => pinTest(p, constFor)).join('\n')}});\n`);
   }
   if (hasProps) sections.push(`// ───────── properties (spec.properties) ─────────\n__uDescribe('properties', () => {\n${indentCode(spec.properties)}\n});\n`);
+  const decisions = decisionsOf(spec);
+  if (decisions.length > 0) sections.push(decisionsSection(decisions));
   if (sections.length === 0) {
     sections.push(`// The spec has no unit tests, no pinned results and no properties: in Undefined only the Compile and Invariants
 // gates checked this function. Add tests here (or pin a result in the app and eject again).
 __uIt.todo(${JSON.stringify(`${name}: no tests yet`)});\n`);
   }
 
-  return [header, prelude(omit).replace('__SEED__', String(seed)), ...datasetBlocks, ...sections].join('\n');
+  return [header, prelude(omit, waivedBy(decisions)).replace('__SEED__', String(seed)), ...datasetBlocks, ...sections].join('\n');
+}
+
+/** `2026-10-04` (UTC). */
+function isoDate(at: number): string {
+  return new Date(at).toISOString().slice(0, 10);
+}
+
+/** One line of comment text (a reason cannot end the comment or add lines). */
+function commentText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+/** The decisions as their own section: each generated test as stored, under its "decided by you" note. */
+function decisionsSection(decisions: readonly Decision[]): string {
+  const blocks = decisions.map((d) => {
+    const note = `// decided by you on ${isoDate(d.decidedAt)}${d.reason ? `: ${commentText(d.reason)}` : ''}`;
+    const replaces = d.waives
+      ? `\n// replaces the ${d.answers.checkKind === 'test' ? 'test' : 'property'} ${JSON.stringify(d.answers.check)}${d.answers.checkKind === 'property' ? ' where the spec was silent' : ''} (${commentText(d.answers.silentOn)})`
+      : '';
+    return `${note}${replaces}\n${indentCode(d.test)}`;
+  });
+  return `// ───────── your decisions (where a check said the spec was silent, you ruled) ─────────\n__uDescribe('your decisions', () => {\n${blocks.join('\n\n')}\n});\n`;
 }
 
 // ───────────────────────── provenance.json ─────────────────────────
@@ -517,6 +571,16 @@ export function provenance(rec: FunctionRecord, input: Pick<EjectInput, 'revisio
     mutation: a.evidence?.mutation ?? null,
     recertified: a.recertified ?? [],
     pins: (spec.pins ?? []).map((p) => ({ id: p.id, label: p.label, pinnedAt: new Date(p.pinnedAt).toISOString() })),
+    decisions: decisionsOf(spec).map((d) => ({
+      id: d.id,
+      call: d.call,
+      ruling: d.ruling.label,
+      summary: decisionSummary(d),
+      answers: { check: d.answers.check, silentOn: d.answers.silentOn },
+      replaces: d.waives ? d.answers.check : null,
+      decidedAt: new Date(d.decidedAt).toISOString(),
+      ...(d.reason ? { reason: d.reason } : {}),
+    })),
     datasets: (input.datasetRefs ?? [])
       .filter((d) => pinHashes.has(d.hash))
       .map((d) => ({ name: d.name, hash: d.hash, rows: d.rowCount, columns: d.columns, typeDecl: d.typeDecl, source: d.source, ...(d.filename ? { filename: d.filename } : {}) })),
@@ -542,9 +606,14 @@ export function readme(rec: FunctionRecord, v: { vitest: string; fastCheck: stri
   const { spec } = rec;
   const a = rec.artifact!;
   const name = spec.name;
-  const tests = spec.tests.trim() !== '' || spec.properties.trim() !== '' || (spec.pins ?? []).length > 0;
+  const tests = spec.tests.trim() !== '' || spec.properties.trim() !== '' || (spec.pins ?? []).length > 0 || decisionsOf(spec).length > 0;
+  const n = decisionsOf(spec).length;
+  const decided =
+    n === 0
+      ? ''
+      : ` It also holds ${n === 1 ? 'one decision' : `${n} decisions`}: where a check said the spec was silent, you ruled what ${name} should do, and each ruling is a test in the "your decisions" section (listed in \`provenance.json\`).`;
   return `# ${name}
 
-\`${name}.ts\` is a function written by ${a.model || 'a model'}${a.codexVersion ? ` via Codex ${a.codexVersion}` : ''} and accepted by Undefined's checks at revision r${a.revision}; \`${name}.test.ts\` holds ${tests ? "the spec's unit tests, pinned results and properties" : 'a placeholder (the spec had no tests)'} as vitest + fast-check tests with Undefined's small Test API inlined at the top, and \`provenance.json\` records the spec and tests hashes, the model, the full candidate history and what was checked. To run the tests, copy the folder into a project and run \`npm install -D vitest@${v.vitest} fast-check@${v.fastCheck} typescript@${v.typescript}\` and then \`npx vitest run\`. Properties use Undefined's fixed seed, so a failure reproduces. The Invariants gate is not reproduced here: in the app every call was also replayed on frozen arguments (purity) and held to ${spec.budgetMs} ms per call (bounded runtime). A passing run means the code passes these checks, not that it is correct where the checks are silent.
+\`${name}.ts\` is a function written by ${a.model || 'a model'}${a.codexVersion ? ` via Codex ${a.codexVersion}` : ''} and accepted by Undefined's checks at revision r${a.revision}; \`${name}.test.ts\` holds ${tests ? "the spec's unit tests, pinned results and properties" : 'a placeholder (the spec had no tests)'} as vitest + fast-check tests with Undefined's small Test API inlined at the top, and \`provenance.json\` records the spec and tests hashes, the model, the full candidate history and what was checked. To run the tests, copy the folder into a project and run \`npm install -D vitest@${v.vitest} fast-check@${v.fastCheck} typescript@${v.typescript}\` and then \`npx vitest run\`. Properties use Undefined's fixed seed, so a failure reproduces. The Invariants gate is not reproduced here: in the app every call was also replayed on frozen arguments (purity) and held to ${spec.budgetMs} ms per call (bounded runtime). A passing run means the code passes these checks, not that it is correct where the checks are silent.${decided}
 `;
 }

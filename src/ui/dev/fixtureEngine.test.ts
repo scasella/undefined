@@ -218,3 +218,34 @@ describe('fixture engine', () => {
     pendingRecording.value = null;
   });
 });
+
+describe('fixture scenarios: Decide', () => {
+  it('provides the decide states, consistent with the contract', () => {
+    for (const name of ['decide-median', 'decide-median-recertified', 'decide-median-needs-live', 'decide-slugify']) {
+      expect(SCENARIO_NAMES).toContain(name);
+      checkInvariants(SCENARIOS[name]!());
+    }
+    const done = SCENARIOS['decide-median-recertified']!();
+    expect(done.program.functions.median!.spec.decisions).toHaveLength(1);
+    expect(done.program.functions.median!.artifact!.evidence!.decisions).toBe(1);
+    const live = SCENARIOS['decide-median-needs-live']!();
+    expect(live.generation).toMatchObject({ phase: 'failed', decision: { call: 'median([])' }, error: { code: 'no_recording' } });
+  });
+
+  it('gapQuestion, decide and removeDecision work over the fixture state', async () => {
+    const e = createFixtureEngine('decide-median');
+    const ref = { fn: 'median', revision: 2, candidate: 0, gate: 'properties' as const, index: 0 };
+    const q = e.gapQuestion(ref)!;
+    expect(q.call).toBe('median([])');
+    expect(q.alternatives.map((a) => a.id)).toEqual(['tests', 'candidate', 'zero', 'undefined']);
+    expect(await e.previewExpectation('median', 'NaN')).toMatchObject({ ok: true, shown: 'NaN' });
+    await e.decide(ref, { alternative: 'tests' }, { reason: 'why' });
+    const s = e.state.value;
+    expect(s.program.functions.median!.spec.decisions![0]).toMatchObject({ reason: 'why', waives: false });
+    expect(s.revisions.at(-1)!.kind).toBe('decision');
+    await e.decide(ref, { alternative: 'candidate' });
+    expect(e.state.value.generation).toMatchObject({ phase: 'failed', error: { code: 'no_recording' } });
+    await e.removeDecision('median', e.state.value.program.functions.median!.spec.decisions![0]!.id);
+    expect(e.state.value.program.functions.median!.spec.decisions).toBeUndefined();
+  });
+});

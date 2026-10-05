@@ -46,6 +46,64 @@ export interface FunctionSpec {
   pins?: Pin[];
   /** Type declarations the signature depends on, e.g. a dataset's `type Row = {…}`. Hashed with the spec. */
   typeDecls?: string;
+  /**
+   * Rulings the user made where a check said the spec was silent ("Decide", docs/DECIDE-DESIGN.md). Each adds a
+   * generated test (and may waive the check it answers on its silent domain). Part of testsHash ONLY when non-empty;
+   * an empty list is never stored (the field is removed), so a spec without decisions hashes exactly as before.
+   */
+  decisions?: Decision[];
+}
+
+// ───────────────────────── decisions (spec gaps the user ruled on) ─────────────────────────
+
+/** What kind of input the spec was silent on, worked out from the counterexample (decide/gaps.ts classifyGap). */
+export type GapKind = 'empty' | 'non-finite' | 'negative' | 'non-integer' | 'duplicates' | 'non-ascii' | 'symbols' | 'other';
+
+/** One outcome of a call; `returns` holds the shared/serialize.ts ENCODED value (so NaN, -0, undefined survive JSON). */
+export type Outcome = { returns: Json } | { throws: true };
+
+/** Which check a decision answers, and what the check said the spec was silent on. */
+export interface DecisionAnswers {
+  check: string;
+  checkKind: 'test' | 'property';
+  silentOn: string;
+  gate: 'tests' | 'properties';
+}
+
+export type DecisionRuling =
+  /** A value or "throws": picked from the alternatives, or a typed expression whose value encoded cleanly. */
+  | { kind: 'outcome'; outcome: Outcome; label: string }
+  /** A typed expression kept as source (relational, or a value that does not encode): always waiving, never replays. */
+  | { kind: 'expr'; expr: string; label: string };
+
+export interface Decision {
+  /** Content-derived, unique within the spec. */
+  id: string;
+  kind: GapKind;
+  /** Display text of the call, e.g. `median([])`. */
+  call: string;
+  /** ENCODED arguments of that exact call (the generated test is built from these, never from `call`). */
+  args: Json[];
+  ruling: DecisionRuling;
+  /** Where the generated source goes. Hashed. */
+  placement: 'tests' | 'properties';
+  /** Set for a rule ruling (placement 'properties'): its domain in words and the parameter, e.g. `every negative n`. */
+  rule?: { phrase: string; param: string };
+  answers: DecisionAnswers;
+  /** The ruling disagrees with what the answered check expects: that check is waived on its silent domain. Hashed. */
+  waives: boolean;
+  /** The generated test source, stored verbatim and hashed verbatim (never regenerated from the other fields). */
+  test: string;
+  /** ms since epoch. NOT hashed. */
+  decidedAt: number;
+  /** Free text. NOT hashed, never sent to the model. */
+  reason?: string;
+}
+
+/** A check switched off on its silent domain by a disagreeing decision (decide/decisions.ts effectiveChecks). */
+export interface WaivedCheck {
+  kind: 'test' | 'property';
+  name: string;
 }
 
 /** A call and its result captured from the REPL, turned into a unit test. */
@@ -136,6 +194,10 @@ export interface Evidence {
   /** Calls replayed on frozen arguments by the Invariants gate. */
   sampledCalls: number;
   mutation?: MutationReport;
+  /** Unit tests (included in unitTests) that came from the user's decisions. Absent when 0. */
+  decisions?: number;
+  /** Properties (included in properties) that came from the user's rule decisions. Absent when 0. */
+  decisionProperties?: number;
 }
 
 /** Four buckets, never folded together. Survivors may be equivalent mutants. */
@@ -166,7 +228,7 @@ export interface MutantInfo {
   mutated: string;
 }
 
-export type RevisionKind = 'init' | 'commit' | 'spec-edit' | 'rollback' | 'import' | 'example' | 'delete' | 'recertify' | 'pin' | 'dataset';
+export type RevisionKind = 'init' | 'commit' | 'spec-edit' | 'rollback' | 'import' | 'example' | 'delete' | 'recertify' | 'pin' | 'dataset' | 'decision';
 
 /** One numbered, immutable snapshot of the whole program AND its live state. */
 export interface Revision {
@@ -188,7 +250,8 @@ export interface Revision {
 /** The exportable/importable whole-program file. */
 export interface Image {
   format: 'undefined-image';
-  version: 1;
+  /** 2 only when some revision holds decisions (older builds reject it instead of silently dropping them); else 1. */
+  version: 1 | 2;
   exportedAt: string;
   head: number;
   revisions: Revision[];
@@ -220,7 +283,7 @@ export type Diagnostic =
       /** The offending source line (trimmed of trailing whitespace). */
       snippet: string;
     }
-  | {
+  | ({
       kind: 'test';
       name: string;
       message: string;
@@ -234,8 +297,8 @@ export type Diagnostic =
       actual?: string;
       /** Thrown error text when the failure was an exception. */
       error?: string;
-    }
-  | {
+    } & DecideFields)
+  | ({
       kind: 'property';
       name: string;
       silentOn?: string;
@@ -251,7 +314,7 @@ export type Diagnostic =
       shrinks: number;
       runs: number;
       seed: number;
-    }
+    } & DecideFields)
   | {
       kind: 'invariant';
       invariant: 'pure' | 'bounded';
@@ -263,6 +326,31 @@ export type Diagnostic =
       elapsedMs?: number;
       detail?: string;
     };
+
+/**
+ * Optional facts on a failing test/property diagnostic that let the user rule on a spec gap ("Decide"). Set by the
+ * gate executor ONLY when the check carries an applying silentOn marker and the failure is about one exact call
+ * (it returned the wrong value, or it threw). All ENCODED (shared/serialize.ts), so they survive JSON storage. They
+ * never reach the model (prompt.ts prints named display fields only) and are not hashed.
+ */
+export interface DecideFields {
+  /** Encoded arguments of `call`, cloned before the call (the candidate could mutate them). */
+  args?: Json[];
+  /** What the check wanted at that call. */
+  expectedOutcome?: Outcome;
+  /** What the candidate did at that call. */
+  actualOutcome?: Outcome;
+  /** Alternatives the check itself declared (opt-in marker option `alternatives`), already evaluated and encoded. */
+  alternatives?: Array<{ label: string; outcome: Outcome }>;
+  /**
+   * Set on a marked PROPERTY whose marker has no `when`: it claims silence on every input, so a waiver would switch
+   * the whole property off. Such a check can only be ruled on with an answer that agrees with it (gapQuestion, decide).
+   */
+  everyInput?: true;
+  /** Encoded raw values of an eq() failure, independent of the call (the "type your own" probe reads these). */
+  actualValue?: Json;
+  expectedValue?: Json;
+}
 
 export interface GateResult {
   gate: GateId;
@@ -330,6 +418,12 @@ export interface GenerateRequest {
   attempt: number;
   /** Full prompt text (shared/prompt.ts builds it in the browser). */
   prompt: string;
+  /**
+   * Set only when the spec has decisions and every one of them agrees with the checks it answers ("implied"): the
+   * testsHash of the same spec without its decisions. Replay tries the exact key first, then this one, so an implied
+   * ruling still replays the session recorded before the decision existed. The live generator ignores it.
+   */
+  fallbackTestsHash?: Hash;
 }
 
 export interface GenerateResult {
@@ -423,7 +517,8 @@ export interface RecordedSession {
 }
 export interface Recording {
   format: 'undefined-recording';
-  version: 1 | 2;
+  /** 3 only when some session's spec carries decisions; 2 when any session carries a v2 field; else 1. */
+  version: 1 | 2 | 3;
   id: string;
   title: string;
   recordedAt: string;
@@ -577,9 +672,83 @@ export interface GenerationView {
    * the commit) and failed it. One attempt holding the four gate results of that re-check. Absent = 'grow'.
    */
   kind?: 'grow' | 'recheck';
-  /** Set when kind is 'recheck'. */
-  recheck?: { reason: string };
+  /**
+   * Set when kind is 'recheck'. `decision`: the re-check was of a decision the user made after the commit (the UI
+   * says so instead of the added-check line); absent for an added suggested check.
+   */
+  recheck?: { reason: string; decision?: { id: string; call: string } };
+  /** Set on a grow started because the committed function failed a decision ("re-growing against your decision"). */
+  decision?: { id: string; call: string };
 }
+
+// ───────────────────────── deciding a spec gap (UI-facing) ─────────────────────────
+
+/**
+ * Where a "spec was silent" diagnostic lives. The first form points into PERSISTED state (an artifact's candidate
+ * history in revision `revision`), so it survives reloads, imports and rollbacks; the second carries the diagnostic
+ * of a grow that committed nothing (its candidates are only in the GenerationView).
+ */
+export type GapRef =
+  | { fn: string; revision: number; candidate: number; gate: GateId; index: number }
+  | { fn: string; diagnostic: Diagnostic };
+
+/** Where an alternative comes from (shown as a small tag). Never the model as a proposer. */
+export type AlternativeSource = 'tests' | 'candidate' | 'common' | 'declared';
+
+export interface GapAlternative {
+  /** Stable within the question: 'tests', 'candidate', 'throws', 'nan', 'zero', 'undefined', 'declared-0', … */
+  id: string;
+  /** Shown text of the ruling: `NaN`, `throws`, `"dont-stop"`. */
+  label: string;
+  source: AlternativeSource;
+  /** Absent for a relational (rule) alternative. */
+  outcome?: Outcome;
+  /** Relational alternatives: `same as median([2])` (unit test eq(f(x), f(floor x))). */
+  relational?: { args: Json[]; label: string };
+  /** Set when shown but not selectable, with the reason. */
+  disabled?: string;
+  /** True when choosing it agrees with what the failing check expects (adds a test, waives nothing). */
+  agrees: boolean;
+}
+
+/** Everything the Decide card shows for one gap (decide/gaps.ts gapQuestion; never model-written). */
+export interface GapQuestion {
+  fn: string;
+  kind: GapKind;
+  /** `median([])` */
+  call: string;
+  /** Encoded args of the call. */
+  args: Json[];
+  silentOn: string;
+  reasonable?: string;
+  check: { name: string; kind: 'test' | 'property'; gate: 'tests' | 'properties' };
+  /** What your check expected / what the candidate did, as shown text (`NaN`, `threw Error: …`). */
+  expectedShown: string;
+  actualShown: string;
+  alternatives: GapAlternative[];
+  /** Rule scope is offered (single number/bigint parameter and a rule kind): `for every negative n`. */
+  ruleScope?: { label: string };
+  /** A decision already ruled on this exact call (deciding again replaces it). */
+  existing?: string;
+  /**
+   * Set when only a ruling that agrees with the check can be taken (a property marked silent on EVERY input: replacing
+   * it for one call would switch it off everywhere). The text says why; disagreeing alternatives are disabled.
+   */
+  onlyAgreeing?: string;
+}
+
+export type DecideChoice = { alternative: string } | { expr: string } | { throws: true };
+
+export interface DecideOptions {
+  /** 'rule' places a property for every input of the gap's kind (only when GapQuestion.ruleScope is set). */
+  scope?: 'call' | 'rule';
+  reason?: string;
+}
+
+/** What the "type your own" line shows before Confirm (Engine.previewExpectation). */
+export type ExpectationPreview =
+  | { ok: true; shown: string; outcome?: Outcome; mentionsFn: boolean }
+  | { ok: false; error: string };
 
 export interface ExampleInfo {
   id: string;
@@ -772,6 +941,24 @@ export interface Engine {
    * it: passing re-certifies it in place (no regeneration); failing leaves it stale and shows the counterexample.
    */
   addSuggestedProperty(fn: string, suggestionId: string): Promise<void>;
+  /**
+   * The Decide card's content for a "spec was silent" diagnostic: the call, what the check expected, what the
+   * candidate did, and the alternatives (fixed table + the check's own answer + the candidate's observed answer +
+   * whatever the check declared). null when the diagnostic cannot be decided (no marker, no exact call, an argument
+   * that cannot be serialised, or the function is gone). Pure; changes nothing.
+   */
+  gapQuestion(ref: GapRef): GapQuestion | null;
+  /**
+   * Rule on the gap: the ruling becomes a generated test (and, when it disagrees with the check, a waiver of that
+   * check on its silent domain), the spec's tests hash changes, and the committed function is re-checked in place:
+   * re-certified when it already satisfies the ruling, otherwise re-grown with the ruling in the prompt (in replay
+   * mode a ruling the recorded checks did not imply says it needs live mode). Problems become a notice.
+   */
+  decide(ref: GapRef, choice: DecideChoice, opts?: DecideOptions): Promise<void>;
+  /** Remove a decision; the committed function is re-checked against the weaker spec (or revalidated if stale). */
+  removeDecision(fn: string, decisionId: string): Promise<void>;
+  /** Evaluate a typed expectation in the gate worker (same mask as tests). Never throws. */
+  previewExpectation(fn: string, expr: string): Promise<ExpectationPreview>;
   /** Fetch (a user-supplied URL) or parse (dropped/picked text) a recording and say what loading it would do. Never throws. */
   previewRecording(input: { text?: string; url?: string; source?: string }): Promise<RecordingPreview>;
   /**

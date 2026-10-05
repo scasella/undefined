@@ -59,7 +59,9 @@ try {
     const tsc = spawnSync(npx, ['tsc', '--noEmit', '-p', join(row.label, 'tsconfig.json')], { cwd: project, encoding: 'utf8' });
     const tscErrors = (tsc.stdout.match(/error TS\d+/g) ?? []).length;
     const ran = row.unitTests + row.pinned + row.properties;
-    const ok = tscErrors === 0 && v.status === 0 && failedTests === 0 && (ran === 0 ? todo === 1 : passed === total && passed === ran);
+    // unit tests a decision replaced are skipped in the eject (as in the app): reported, never counted as passed
+    const skipped = row.skipped ?? 0;
+    const ok = tscErrors === 0 && v.status === 0 && failedTests === 0 && (ran === 0 ? todo === 1 : passed + skipped === total && passed === ran);
     if (!ok) {
       failed++;
       console.log(`\n${row.label}: vitest exit ${v.status}\n${(v.stdout + v.stderr).slice(-3000)}`);
@@ -69,7 +71,7 @@ try {
       eject: row.label,
       function: row.fn,
       'unit/pinned/props': `${row.unitTests}/${row.pinned}/${row.properties}`,
-      vitest: ran === 0 ? `${todo} todo (no tests)` : `${passed}/${total} passed`,
+      vitest: ran === 0 ? `${todo} todo (no tests)` : `${passed}/${total} passed${row.skipped ? ` (${row.skipped} skipped: replaced by a decision)` : ''}`,
       tsc: tscErrors === 0 ? 'clean' : `${tscErrors} errors`,
       result: ok ? 'PASS' : 'FAIL',
     });

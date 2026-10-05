@@ -93,3 +93,18 @@ export const pendingRecording = signal<{ input: { text?: string; url?: string; s
  */
 export const pendingImport = signal<{ text: string; source: string; preview: Extract<ImagePreview, { ok: true }> } | null>(null);
 
+
+/** The "Run it live" dialog (opened from the header's mode pill, and from Decide's "needs live mode" message). */
+export const runLiveOpen = signal(false);
+
+/**
+ * Decide (docs/DECIDE-DESIGN.md §6): which rejection's Decide block should be open (`<genId>:<attempt>`, set by the
+ * "Decide" button under an accepted verdict), and a starting choice for it (dev fixtures only).
+ */
+export const decideOpen = signal<string | null>(null);
+export const decidePrefill = signal<{ choice?: string; expr?: string; throws?: boolean; reason?: string } | null>(null);
+/**
+ * What the gate panel's single status announcer says about a decision in progress (re-checking, re-certified). Read
+ * by GatePanel's role="status" line; cleared when the panel moves to another generation.
+ */
+export const decideAnnouncement = signal<string | null>(null);

@@ -19,6 +19,9 @@ import type {
   Candidate,
   DatasetPreview,
   DatasetRef,
+  DecideChoice,
+  DecideOptions,
+  Decision,
   Declined,
   Diagnostic,
   Engine,
@@ -34,6 +37,9 @@ import type {
   GenerateResult,
   GenerationView,
   Generator,
+  GapQuestion,
+  GapRef,
+  ExpectationPreview,
   Hash,
   ImagePreview,
   Json,
@@ -60,10 +66,32 @@ import { generateMutants } from '../mutation/mutate';
 import { NO_TESTS_REASON, skippedReport } from '../mutation/classify';
 import { suggestProperties } from '../suggest/suggest';
 import { appendProperty } from '../suggest/apply';
-import { addedCheckReason, MUTATION_BASELINE_FAILED, MUTATION_BASELINE_SLOW_PREFIX, MUTATION_FAILED_PREFIX } from '../shared/evidence';
+import {
+  addedCheckReason,
+  decidedReason,
+  MUTATION_BASELINE_FAILED,
+  MUTATION_BASELINE_SLOW_PREFIX,
+  MUTATION_FAILED_PREFIX,
+  removedDecisionReason,
+} from '../shared/evidence';
+import {
+  allImplied,
+  buildDecision,
+  callSource,
+  decisionId,
+  decisionsOf,
+  decisionSummary,
+  effectiveChecks,
+  lossy,
+  upsertDecision,
+  withoutDecisions,
+  type RulingSpec,
+} from '../decide/decisions';
+import { gapQuestion as buildGapQuestion } from '../decide/gaps';
+import { ruleDomain } from '../decide/decisions';
 import { MASKED_NAMES } from '../sandbox/mask';
 import { Runtime } from '../sandbox/runtime';
-import { gateSeed, hashesFor, sha256Hex } from '../shared/hash';
+import { gateSeed, hashesFor, sha256Hex, testsHash as testsHashOf } from '../shared/hash';
 import { buildPrompt, declarationLine, parseDecline, type PromptInput } from '../shared/prompt';
 import { FUNCTION_ARG_TYPE } from '../shared/inferType';
 import { decodeEnv, decodeValue } from '../shared/serialize';
@@ -88,6 +116,7 @@ import {
   recordedPrompt,
   RecordingSink,
   ReplayGenerator,
+  RUN_LIVE_FIX,
 } from './generator';
 import {
   describeCommit,
@@ -98,6 +127,7 @@ import {
   newRevision,
   referencedDatasets,
   rollbackRevision,
+  specWithDecisions,
   summarize,
   withArtifact,
   withDataset,
@@ -482,9 +512,21 @@ export function classifyMutant(results: readonly GateResult[]): 'killed' | 'kill
   return 'killed';
 }
 
-/** Facts about what ran against an accepted candidate (compile passed, by construction). */
-export function evidenceOf(gates: readonly GateResult[], mutation?: MutationReport): Evidence {
-  return { compiled: true, ...evidenceFrom(gates), ...(mutation ? { mutation } : {}) };
+/**
+ * Facts about what ran against an accepted candidate (compile passed, by construction). `spec` adds how many of the
+ * unit tests / properties came from the user's decisions (absent when none, so older evidence is unchanged).
+ */
+export function evidenceOf(gates: readonly GateResult[], mutation?: MutationReport, spec?: Pick<FunctionSpec, 'decisions'>): Evidence {
+  const ds = spec ? decisionsOf(spec) : [];
+  const unit = ds.filter((d) => d.placement === 'tests').length;
+  const props = ds.length - unit;
+  return {
+    compiled: true,
+    ...evidenceFrom(gates),
+    ...(mutation ? { mutation } : {}),
+    ...(unit > 0 ? { decisions: unit } : {}),
+    ...(props > 0 ? { decisionProperties: props } : {}),
+  };
 }
 
 // ───────────────────────── data ─────────────────────────
@@ -642,6 +684,8 @@ interface RestartContext {
   artifactRevision?: number;
   /** Datasets the triggering call ran over. */
   dataArgs?: DataArg[];
+  /** A re-grow against the user's decision: there is no REPL input to re-run after it commits. */
+  decision?: { id: string; call: string };
 }
 
 interface GrowRequest {
@@ -656,6 +700,10 @@ interface GrowRequest {
   runtimeFault?: PromptInput['runtimeFault'];
   /** Datasets the triggering call ran over: the prompt describes them (type, count, and samples when allowed). */
   dataArgs?: DataArg[];
+  /** A re-grow because the committed function failed the user's decision: RULING section on the first prompt. */
+  ruling?: PromptInput['ruling'];
+  /** Marks the GenerationView (and the restart context) as a re-grow against this decision. */
+  decision?: { id: string; call: string };
 }
 
 /** A function grown during one REPL input (for the "nothing checked that this is what you meant" note). */
@@ -855,6 +903,8 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
   const sinkFns = new Set<string>();
   const contexts = new Map<string, RestartContext>();
   let growCtrl: AbortController | null = null;
+  /** The check text the current GenerationView (grow or re-check) ran against: Decide refuses stale diagnostics. */
+  let viewChecks: { id: string; tests: string; properties: string } | null = null;
   /** Bumped by reset/dispose so a superseded async flow stops touching state. */
   let epoch = 0;
   let focusNonce = 0;
@@ -1617,8 +1667,11 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
   async function growInner(req: GrowRequest, input: string, sig: AbortSignal): Promise<GrowResult> {
     const { fn, spec } = req;
     const { specHash, testsHash } = await hashesFor(spec);
+    // Decisions that all agree with the checks they answer were implied by the recorded checks: replay may use the
+    // session recorded for the same spec without them (docs/DECIDE-DESIGN.md §5.3).
+    const fallbackTestsHash = allImplied(spec) ? await testsHashOf(withoutDecisions(spec)) : undefined;
     // A loaded recording that holds this exact spec text replays it, even when the live service is up.
-    const gen: Generator | null = loadedReplay?.has(fn, specHash, testsHash) ? loadedReplay : generator;
+    const gen: Generator | null = loadedReplay?.has(fn, specHash, testsHash, fallbackTestsHash) ? loadedReplay : generator;
     const mode = gen?.mode ?? state.value.mode;
     let maxAttempts = Math.max(1, spec.maxAttempts);
     const view: GenerationView = {
@@ -1633,7 +1686,9 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       attempts: [],
       ungated: isUngated(spec),
       mode,
+      ...(req.decision ? { decision: req.decision } : {}),
     };
+    viewChecks = { id: view.id, tests: spec.tests, properties: spec.properties };
     set({ generation: view });
     const pinned = decodePins(spec);
 
@@ -1657,6 +1712,28 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     if (req.runtimeFault) {
       growCtx.fault = { errorName: req.runtimeFault.errorName, message: req.runtimeFault.message, previousBody: req.runtimeFault.previousBody };
     }
+    if (req.decision) growCtx.decision = req.decision;
+
+    // Replay mode with decisions the recorded checks did not imply: there is no recorded answer to replay. Said
+    // before anything is asked (no attempt card), when the generator can tell; otherwise its no_recording is reworded.
+    const decided = decisionsOf(spec);
+    const needsLive = (): GenerateError => {
+      const waiving = decided.find((x) => x.waives);
+      return {
+        code: 'no_recording',
+        message: waiving
+          ? `Your decision (${decisionSummary(waiving)}) differs from what the recorded session was checked against, so there is no recorded answer to replay. Run live to grow ${fn} against it.`
+          : `There is no recorded session for this spec (your ${decided.length === 1 ? 'decision agrees' : 'decisions agree'} with its checks, but this spec text was never recorded). Run live to grow ${fn}.`,
+        fix: [...RUN_LIVE_FIX],
+      };
+    };
+    const canTell = gen && typeof (gen as { has?: unknown }).has === 'function';
+    if (mode === 'replay' && decided.length > 0 && canTell && !(gen as ReplayGenerator).has(fn, specHash, testsHash, fallbackTestsHash)) {
+      const err = needsLive();
+      setGen({ phase: 'failed', error: err });
+      errorEntry('GenerationFailed', err.message, [RESTART.retryGrow, RESTART.dismiss], growCtx);
+      return { kind: 'failed' };
+    }
 
     while (charged < maxAttempts) {
       const index = candidates.length; // 0-based: also the GenerateRequest.attempt (replay indexes by it)
@@ -1678,7 +1755,15 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       if (req.callArgTypes) promptInput.callArgTypes = req.callArgTypes;
       if (req.runtimeFault) promptInput.runtimeFault = withData ? redactFaultForModel(req.runtimeFault, fn, samples) : req.runtimeFault;
       if (req.dataArgs && req.dataArgs.length > 0) promptInput.dataSamples = dataSamplesFor(req.dataArgs, mode);
-      const genReq: GenerateRequest = { fn, specHash, testsHash, attempt: index, prompt: buildPrompt(promptInput) };
+      if (req.ruling && index === 0) promptInput.ruling = req.ruling;
+      const genReq: GenerateRequest = {
+        fn,
+        specHash,
+        testsHash,
+        attempt: index,
+        prompt: buildPrompt(promptInput),
+        ...(fallbackTestsHash ? { fallbackTestsHash } : {}),
+      };
 
       let result: GenerateResult;
       const t0 = deps.now();
@@ -1691,8 +1776,9 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         );
       } catch (e) {
         if (sig.aborted || isAbort(e)) throw new Aborted();
-        const err: GenerateError =
+        let err: GenerateError =
           e instanceof GenerationFailure ? { ...e.info } : { code: 'codex_failed', message: `Generation failed: ${errorText(e)}` };
+        if (err.code === 'no_recording' && mode === 'replay' && decided.length > 0) err = needsLive();
         const problemFix = state.value.service.problem?.fix;
         if (!err.fix && problemFix && state.value.mode === 'live') err.fix = problemFix;
         setAttempt(index, { status: 'aborted' });
@@ -1838,7 +1924,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         // What actually ran, as facts (never a score). No tests, properties or pins: nothing could kill a mutant, so
         // the mutation check is recorded as skipped right away; otherwise it runs lazily once the engine is idle.
         const ungated = isUngated(spec);
-        const evidence = evidenceOf(gated.gates, ungated ? skippedReport(NO_TESTS_REASON, deps.now()) : undefined);
+        const evidence = evidenceOf(gated.gates, ungated ? skippedReport(NO_TESTS_REASON, deps.now()) : undefined, spec);
         const revision = await commit(req, body, gated.compile, specHash, testsHash, model, codexVersion, candidates, maxAttempts, evidence);
         if (!ungated) enqueueMutation(fn);
         log({ kind: 'commit', fn, summary: `${fn} committed as r${revision}`, detail: { revision, attempt: attemptNo, candidates: candidates.length, source: result.source } });
@@ -1881,9 +1967,10 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     return clipText(g.headline, LOG_TEXT_MAX);
   }
 
-  /** No tests, no properties and no pins: nothing checks the candidate against an intent. */
+  /** No tests, no properties, no decisions and no pins: nothing checks the candidate against an intent. */
   function isUngated(spec: FunctionSpec): boolean {
-    return !spec.tests.trim() && !spec.properties.trim() && !(spec.pins && spec.pins.length > 0);
+    const eff = effectiveChecks(spec);
+    return !eff.tests.trim() && !eff.properties.trim() && !(spec.pins && spec.pins.length > 0);
   }
 
   /**
@@ -1994,9 +2081,11 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     }
     show();
 
-    // Spec check: the user's tests/properties must transpile. A failure is the spec's fault, not the candidate's.
-    const tests = deps.transpile(spec.tests);
-    const props = deps.transpile(spec.properties);
+    // Spec check: the user's tests/properties (with the decisions' generated ones) must transpile. A failure is the
+    // spec's fault, not the candidate's.
+    const eff = effectiveChecks(spec);
+    const tests = deps.transpile(eff.tests);
+    const props = deps.transpile(eff.properties);
     const bad = tests.error ? { gate: 'tests' as const, message: tests.error } : props.error ? { gate: 'properties' as const, message: props.error } : null;
     if (bad) {
       const at = GATE_ORDER.indexOf(bad.gate);
@@ -2043,6 +2132,8 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       ...(callArgs ? { callArgs } : {}),
       // Results the user pinned from earlier calls: unit tests the candidate must reproduce.
       ...(pinned && pinned.length > 0 ? { pinned } : {}),
+      // Checks a decision replaced on the domain the spec was silent on.
+      ...(eff.waived.length > 0 ? { waived: eff.waived } : {}),
     };
     const all = deps
       .execGates(input, deliver)
@@ -2387,6 +2478,13 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
           errorEntry('Error', `${ctx.fn} has no spec any more; call it again to grow it from the call`);
           return;
         }
+        // a re-grow for a decision that has since been removed (or replaced) is moot: never re-grow a live function
+        // for it, nor label a new grow with it
+        const decision = ctx.decision && decisionsOf(spec).some((d) => d.id === ctx.decision!.id) ? ctx.decision : undefined;
+        if (ctx.decision && !decision && rec && isLive(rec)) {
+          info(`${ctx.fn}: nothing to retry. The decision it was being written against is gone, and r${rec.artifact!.revision} passes the spec as it is.`, 'accent');
+          return;
+        }
         info(ctx.kind === 'grow-failed' ? `Retrying ${ctx.fn}…` : `Regenerating ${ctx.fn} with the error fed back…`, 'accent');
         const growReq: GrowRequest = { fn: ctx.fn, call: ctx.call, spec };
         if (spec.origin === 'call' && ctx.callArgTypes) growReq.callArgTypes = ctx.callArgTypes;
@@ -2397,8 +2495,11 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         if (ctx.fault) {
           growReq.runtimeFault = { call: ctx.call, errorName: ctx.fault.errorName, message: ctx.fault.message, previousBody: ctx.fault.previousBody };
         }
+        if (decision) growReq.decision = decision;
         const result = await grow(growReq, ctx.input, myEpoch);
-        if (result.kind === 'committed' && myEpoch === epoch) await runInput(ctx.input, myEpoch, result);
+        // a re-grow against a decision has no REPL input to re-run
+        if (result.kind === 'committed' && myEpoch === epoch && !ctx.decision && ctx.input !== '') await runInput(ctx.input, myEpoch, result);
+        if (result.kind === 'committed' && decision) info(`${ctx.fn} re-grown against your decision: saved as r${result.revision}`, 'accent');
       } catch (e) {
         if (!(e instanceof Aborted) && myEpoch === epoch) errorEntry('InternalError', errorText(e));
       } finally {
@@ -2734,8 +2835,10 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     const { spec } = rec;
     const artifact = rec.artifact!;
     const seed = gateSeed(rec.specHash, rec.testsHash);
-    const tests = deps.transpile(spec.tests);
-    const props = deps.transpile(spec.properties);
+    // mutants face the decisions too (and the same waivers)
+    const eff = effectiveChecks(spec);
+    const tests = deps.transpile(eff.tests);
+    const props = deps.transpile(eff.properties);
     if (tests.error) throw new Error(`the spec's tests do not load (${tests.error})`);
     if (props.error) throw new Error(`the spec's properties do not load (${props.error})`);
     const pinned = decodePins(spec, true);
@@ -2745,6 +2848,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       propertiesJs: props.js,
       seed,
       ...(pinned.length > 0 ? { pinned } : {}),
+      ...(eff.waived.length > 0 ? { waived: eff.waived } : {}),
     };
     const budgetMs = Math.min(spec.budgetMs, MUTANT_CALL_BUDGET_MS);
     // The unmutated function first, through exactly the runner the mutants get: if it already fails its own checks
@@ -2761,7 +2865,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       if (sig.aborted) throw new Aborted();
       const bad = all.find((g) => g.status === 'fail');
       if (bad) throw new Error(`the committed function does not pass its own checks now (${bad.headline ?? bad.summary})`);
-      baseline = evidenceOf(all);
+      baseline = evidenceOf(all, undefined, spec);
     }
     const max = DEFAULT_MAX_MUTANTS;
     // Same seed and max as runMutants below, so the same mutants: only to know the total for the progress line.
@@ -2835,14 +2939,141 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     await runMutationNow(fn);
   }
 
-  // ───────────────────────── suggested checks: re-certify ─────────────────────────
+  // ───────────────────────── re-check in place: suggested checks and decisions ─────────────────────────
+
+  type RecheckOutcome =
+    | { kind: 'recertified'; revision: number }
+    | { kind: 'failed'; body: string; gates: GateResult[] }
+    | { kind: 'applied' }
+    | { kind: 'infra' };
 
   /**
-   * Add a suggested property and re-check the COMMITTED artifact against the strengthened spec instead of letting the
-   * hash change make it stale: its stored body is recompiled and run through tests, properties (with the new one),
-   * pins and invariants with the new spec's seed. Pass → re-certified in place (hashes restamped, evidence
-   * recomputed, still live, no restart, no regeneration). Fail → the spec change is applied, the artifact is stale
-   * and the gate panel shows the re-check's verdict with its counterexample. Used for nothing else.
+   * Must run inside `exclusive`. Re-check the COMMITTED artifact of `fn` against `next` (a strengthened or changed
+   * spec) instead of letting the hash change make it stale: its stored body is recompiled and run through the
+   * effective tests, properties (with the decisions and their waivers), pins and invariants with the new spec's seed.
+   * Pass → re-certified in place (hashes restamped, evidence recomputed, still live, no regeneration). Fail → the spec
+   * change is applied, the artifact is stale, and the gate panel shows the re-check's verdict. Infra failure → nothing
+   * changes. No live artifact → the spec change is simply applied (applySpec revalidates an artifact whose hashes
+   * match the new text, which is how removing a decision brings a stale artifact back).
+   */
+  async function recheckAgainst(
+    fn: string,
+    next: FunctionSpec,
+    reason: string,
+    kind: 'spec-edit' | 'decision',
+    opts: {
+      decision?: Decision;
+      noArtifactTitle: string;
+      failedTitle: string;
+      loadError: (e: string) => string;
+      infraError: (e: string) => string;
+      /**
+       * Also re-check an artifact that is STALE only because the checks changed (its specHash still matches): after a
+       * decision re-certified it, a later decision that it failed (or the removal of one) leaves it stamped with hashes
+       * no spec text has any more, so applySpec's revalidation can never bring it back; the re-check can.
+       */
+      recheckStale?: boolean;
+    },
+  ): Promise<RecheckOutcome> {
+    const rec = headRev().program.functions[fn]!;
+    const { specHash, testsHash } = await hashesFor(next);
+    const recheckable = rec.artifact !== null && (isLive(rec) || (opts.recheckStale === true && rec.artifact.specHash === specHash));
+    if (!recheckable) {
+      await applySpec(next, { kind, title: opts.noArtifactTitle });
+      return { kind: 'applied' };
+    }
+    const artifact = rec.artifact!;
+    const wasLive = isLive(rec);
+    const compiled = await deps.compile(next, artifact.body);
+    const eff = effectiveChecks(next);
+    const tests = deps.transpile(eff.tests);
+    const props = deps.transpile(eff.properties);
+    const loadError = tests.error ?? props.error;
+    if (loadError) {
+      notice('error', opts.loadError(loadError));
+      return { kind: 'infra' };
+    }
+    let gates: GateResult[];
+    if (compiled.gate.status === 'fail' || compiled.js === null) {
+      gates = [compiled.gate, notReached('tests'), notReached('properties'), notReached('invariants')];
+    } else {
+      const pinned = decodePins(next);
+      const results = await deps
+        .execGates({
+          name: fn,
+          js: compiled.js,
+          testsJs: tests.js,
+          propertiesJs: props.js,
+          budgetMs: next.budgetMs,
+          seed: gateSeed(specHash, testsHash),
+          ...(pinned.length > 0 ? { pinned } : {}),
+          ...(eff.waived.length > 0 ? { waived: eff.waived } : {}),
+        })
+        .catch((e: unknown): GateResult[] => [
+          {
+            gate: 'tests',
+            status: 'fail',
+            ms: 0,
+            summary: 'gate runner error',
+            headline: `Rejected: gate runner error: ${errorText(e)}`,
+            diagnostics: [{ kind: 'test', name: '(gate runner)', message: errorText(e), error: errorText(e) }],
+          },
+        ]);
+      gates = [compiled.gate, ...GATE_ORDER.slice(1).map((g) => results.find((r) => r.gate === g) ?? notReached(g))];
+    }
+    const infra = gates.map(infraFailure).find((x) => x !== null);
+    if (infra) {
+      notice('error', opts.infraError(infra));
+      return { kind: 'infra' };
+    }
+    const failing = gates.find((g) => g.status === 'fail');
+    if (!failing) {
+      const revision = await recertify(fn, next, artifact, compiled, gates, reason, { specHash, testsHash, before: rec.testsHash }, kind === 'decision' ? 'decision' : 'recertify', wasLive);
+      return { kind: 'recertified', revision };
+    }
+    // The committed function fails the change: the spec change stands, the artifact is stale.
+    await applySpec(next, { kind, title: opts.failedTitle, quiet: true });
+    if (!wasLive) await runtime?.undefine(fn).catch(() => undefined);
+    if (state.value.mutation?.fn === fn) setMutation(null);
+    const accepted = artifact.candidates[artifact.candidates.length - 1];
+    const candidate: Candidate = {
+      id: id('c'),
+      attempt: 1,
+      body: artifact.body,
+      notes: '',
+      source: accepted?.source ?? 'replay',
+      generationMs: 0,
+      gates,
+      verdict: 'rejected',
+      rejectedBy: failing.gate,
+      ...(failing.headline ? { headline: failing.headline } : {}),
+    };
+    const recheckId = id('g');
+    viewChecks = { id: recheckId, tests: next.tests, properties: next.properties };
+    set({
+      generation: {
+        id: recheckId,
+        fn,
+        signature: declarationLine(next),
+        call: `${fn} (committed r${artifact.revision})`,
+        phase: 'failed',
+        attempt: 1,
+        maxAttempts: 1,
+        progress: [],
+        attempts: [{ attempt: 1, status: 'rejected', shown: artifact.body, gates, candidate }],
+        ungated: false,
+        mode: generator?.mode ?? state.value.mode,
+        kind: 'recheck',
+        recheck: { reason, ...(opts.decision ? { decision: { id: opts.decision.id, call: opts.decision.call } } : {}) },
+      },
+    });
+    log({ kind: 'gate', fn, summary: `re-check ${gateLogSummary(failing, dataInPlay(next))}`, detail: { gate: failing.gate, recheck: true } });
+    return { kind: 'failed', body: artifact.body, gates };
+  }
+
+  /**
+   * Add a suggested property and re-check the COMMITTED artifact against the strengthened spec (recheckAgainst).
+   * Pass → re-certified in place; fail → the artifact is stale and the gate panel shows the counterexample.
    */
   function addSuggestedProperty(fn: string, suggestionId: string): Promise<void> {
     return exclusive('add the check', async () => {
@@ -2861,99 +3092,20 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         const next = appendProperty(rec.spec, suggestion);
         if (next === rec.spec) return;
         const reason = addedCheckReason(suggestion.title);
-        if (!isLive(rec)) {
-          await applySpec(next, { kind: 'spec-edit', title: `${reason} (no committed function to re-check)` });
-          return;
-        }
-        const artifact = rec.artifact!;
-        const { specHash, testsHash } = await hashesFor(next);
-        const compiled = await deps.compile(next, artifact.body);
-        const tests = deps.transpile(next.tests);
-        const props = deps.transpile(next.properties);
-        const loadError = tests.error ?? props.error;
-        if (loadError) {
-          notice('error', `The suggested check does not load (${loadError}); nothing was added.`);
-          return;
-        }
-        let gates: GateResult[];
-        if (compiled.gate.status === 'fail' || compiled.js === null) {
-          gates = [compiled.gate, notReached('tests'), notReached('properties'), notReached('invariants')];
-        } else {
-          const pinned = decodePins(next);
-          const results = await deps
-            .execGates({
-              name: fn,
-              js: compiled.js,
-              testsJs: tests.js,
-              propertiesJs: props.js,
-              budgetMs: next.budgetMs,
-              seed: gateSeed(specHash, testsHash),
-              ...(pinned.length > 0 ? { pinned } : {}),
-            })
-            .catch((e: unknown): GateResult[] => [
-              {
-                gate: 'tests',
-                status: 'fail',
-                ms: 0,
-                summary: 'gate runner error',
-                headline: `Rejected: gate runner error: ${errorText(e)}`,
-                diagnostics: [{ kind: 'test', name: '(gate runner)', message: errorText(e), error: errorText(e) }],
-              },
-            ]);
-          gates = [compiled.gate, ...GATE_ORDER.slice(1).map((g) => results.find((r) => r.gate === g) ?? notReached(g))];
-        }
-        const infra = gates.map(infraFailure).find((x) => x !== null);
-        if (infra) {
-          notice('error', `Could not re-check ${fn} against the new check (${infra}); nothing was added.`);
-          return;
-        }
-        const failing = gates.find((g) => g.status === 'fail');
-        if (!failing) {
-          await recertify(fn, next, artifact, compiled, gates, reason, { specHash, testsHash, before: rec.testsHash });
-          return;
-        }
-        // The committed function fails the new check: the spec change stands, the artifact is stale.
-        await applySpec(next, { kind: 'spec-edit', title: `${reason}: the committed function fails it`, quiet: true });
-        if (state.value.mutation?.fn === fn) setMutation(null);
-        const accepted = artifact.candidates[artifact.candidates.length - 1];
-        const candidate: Candidate = {
-          id: id('c'),
-          attempt: 1,
-          body: artifact.body,
-          notes: '',
-          source: accepted?.source ?? 'replay',
-          generationMs: 0,
-          gates,
-          verdict: 'rejected',
-          rejectedBy: failing.gate,
-          ...(failing.headline ? { headline: failing.headline } : {}),
-        };
-        set({
-          generation: {
-            id: id('g'),
-            fn,
-            signature: declarationLine(next),
-            call: `${fn} (committed r${artifact.revision})`,
-            phase: 'failed',
-            attempt: 1,
-            maxAttempts: 1,
-            progress: [],
-            attempts: [{ attempt: 1, status: 'rejected', shown: artifact.body, gates, candidate }],
-            ungated: false,
-            mode: generator?.mode ?? state.value.mode,
-            kind: 'recheck',
-            recheck: { reason },
-          },
+        const r = await recheckAgainst(fn, next, reason, 'spec-edit', {
+          noArtifactTitle: `${reason} (no committed function to re-check)`,
+          failedTitle: `${reason}: the committed function fails it`,
+          loadError: (e) => `The suggested check does not load (${e}); nothing was added.`,
+          infraError: (e) => `Could not re-check ${fn} against the new check (${e}); nothing was added.`,
         });
-        info(RECHECK_FAILED_INFO, 'warn');
-        log({ kind: 'gate', fn, summary: `re-check ${gateLogSummary(failing, dataInPlay(next))}`, detail: { gate: failing.gate, recheck: true } });
+        if (r.kind === 'failed') info(RECHECK_FAILED_INFO, 'warn');
       } catch (e) {
         notice('error', `Adding the check failed: ${errorText(e)}`);
       }
     });
   }
 
-  /** Must run inside `exclusive`: the passing branch of addSuggestedProperty. */
+  /** Must run inside `exclusive`: the passing branch of recheckAgainst. Returns the new revision's id. */
   async function recertify(
     fn: string,
     next: FunctionSpec,
@@ -2962,7 +3114,9 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     gates: GateResult[],
     reason: string,
     h: { specHash: Hash; testsHash: Hash; before: Hash },
-  ): Promise<void> {
+    kind: 'recertify' | 'decision',
+    wasLive = true,
+  ): Promise<number> {
     // withSpec first (it recomputes the record's hashes), then the artifact restamped to those same hashes: live.
     const withRec = await withSpec(headRev().program, next);
     const env = await snapshotEnv();
@@ -2975,24 +3129,312 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       specHash: h.specHash,
       testsHash: h.testsHash,
       // the tests changed, so the old mutation report no longer describes them: the check re-runs after idle
-      evidence: evidenceOf(gates),
+      evidence: evidenceOf(gates, undefined, next),
       recertified: [...(artifact.recertified ?? []), { at: deps.now(), revision: revisionId, reason }],
     };
     const rev = newRevision(history, {
-      kind: 'recertify',
-      title: `${reason}: committed function re-certified`,
-      detail: `tests hash ${short(h.before)} → ${short(h.testsHash)} · the artifact committed at r${artifact.revision} passed the strengthened checks; no regeneration`,
+      kind,
+      title: kind === 'decision' ? `${reason} — re-certified (r${artifact.revision}'s artifact passes)` : `${reason}: committed function re-certified`,
+      detail: `tests hash ${short(h.before)} → ${short(h.testsHash)} · the artifact committed at r${artifact.revision} passed the ${kind === 'decision' ? 'changed' : 'strengthened'} checks; no regeneration`,
       fn,
       program: withArtifact(withRec, fn, restamped),
       env,
       at: deps.now(),
     });
     await commitRevision(rev);
-    // still live in the runtime: no restart; redefined only if the recompiled js differs
-    if (restamped.js !== artifact.js) await runtime?.define(fn, restamped.js, next.budgetMs);
-    info(`${fn}: ${reason}. The committed function passes it: re-certified at r${rev.id}, nothing regenerated.`, 'accent');
+    // still live in the runtime: no restart; redefined only if the recompiled js differs (a stale one is defined again)
+    if (!wasLive || restamped.js !== artifact.js) await runtime?.define(fn, restamped.js, next.budgetMs);
+    info(
+      kind === 'decision'
+        ? `${fn}: ${reason}. The committed function ${reason.startsWith('Removed decision') ? 'passes the spec without it' : 'already satisfies it'}: re-certified at r${rev.id}, nothing regenerated.`
+        : `${fn}: ${reason}. The committed function passes it: re-certified at r${rev.id}, nothing regenerated.`,
+      'accent',
+    );
     log({ kind: 'spec-edit', fn, summary: rev.title, detail: { revision: rev.id } });
     enqueueMutation(fn);
+    return rev.id;
+  }
+
+  // ───────────────────────── decisions: spec gaps the user rules on ─────────────────────────
+
+  /** The diagnostic a GapRef points at (persisted candidates, or the one the UI passed), or null. */
+  function diagnosticAt(ref: GapRef): Diagnostic | null {
+    if ('diagnostic' in ref) return ref.diagnostic ?? null;
+    const rev = history.find((r) => r.id === ref.revision);
+    const a = rev?.program.functions[ref.fn]?.artifact;
+    const c = a?.candidates[ref.candidate];
+    const g = c?.gates.find((x) => x.gate === ref.gate);
+    return g?.diagnostics[ref.index] ?? null;
+  }
+
+  /**
+   * Whether the check a GapRef's diagnostic came from still reads the same in the head spec. A rejection recorded
+   * before the user edited the tests/properties carries what the OLD check expected: deciding on it could add a
+   * ruling that "agrees" with a check that no longer exists in that form (waiving nothing, contradicting the new one).
+   * Stored refs compare the spec text the candidate was judged against; a diagnostic of the current grow or re-check
+   * compares the text that grow ran; any other diagnostic needs at least its check, by name, in the head spec.
+   */
+  function refStillCurrent(ref: GapRef, head: FunctionSpec, d: Diagnostic): boolean {
+    const same = (s: Pick<FunctionSpec, 'tests' | 'properties'>): boolean => s.tests === head.tests && s.properties === head.properties;
+    if (!('diagnostic' in ref)) {
+      const then = history.find((r) => r.id === ref.revision)?.program.functions[ref.fn]?.spec;
+      return !!then && same(then);
+    }
+    const g = state.value.generation;
+    if (g && viewChecks && viewChecks.id === g.id && g.fn === ref.fn && g.attempts.some((a) => a.gates.some((x) => x.diagnostics.includes(d)))) return same(viewChecks);
+    const names = testNamesOf(head);
+    return d.kind === 'test' ? names.tests.includes(d.name) : d.kind === 'property' ? names.properties.includes(d.name) : false;
+  }
+
+  function gapQuestion(ref: GapRef): GapQuestion | null {
+    try {
+      const rec = headRev()?.program.functions[ref.fn];
+      const d = diagnosticAt(ref);
+      if (!rec || !d || !refStillCurrent(ref, rec.spec, d)) return null;
+      return buildGapQuestion({ spec: rec.spec, diagnostic: d, ...(rec.artifact ? { returnType: rec.artifact.returnType } : {}) });
+    } catch {
+      return null;
+    }
+  }
+
+  /** At most one comma-free, statement-free expression (a top-level `,` or `;` is refused). */
+  function expressionProblem(expr: string): string | null {
+    let depth = 0;
+    let quote: string | null = null;
+    for (let i = 0; i < expr.length; i++) {
+      const c = expr[i]!;
+      if (quote) {
+        if (c === '\\') i++;
+        else if (c === quote) quote = null;
+        continue;
+      }
+      if (c === '"' || c === "'" || c === '`') quote = c;
+      else if (c === '(' || c === '[' || c === '{') depth++;
+      else if (c === ')' || c === ']' || c === '}') {
+        if (--depth < 0) return 'unbalanced brackets: type one expression';
+      } else if (depth === 0 && (c === ',' || c === ';')) return 'type one expression (no commas or semicolons at the top level)';
+    }
+    return null;
+  }
+
+  /** Evaluate `expr` as test code in the gate worker (same mask and shadows as the spec's tests). Never throws. */
+  async function previewExpectation(fn: string, expr: string): Promise<ExpectationPreview> {
+    try {
+      const text = expr.trim();
+      if (text === '') return { ok: false, error: 'Type an expression, e.g. NaN, -1 or "dont-stop".' };
+      const shape = expressionProblem(text);
+      if (shape) return { ok: false, error: shape };
+      // The expression sits exactly where the generated test puts it (decide/decisions.ts assertion(): inline, inside
+      // `eq(call, (EXPR));`), so what previews is what loads: e.g. a trailing `// comment` fails here, not at Decide.
+      const syntax = deps.transpile(`const __probe = (${text});`);
+      // the line number is of the wrapped probe, not of what the user typed (one line: "line 3" would be nonsense)
+      if (syntax.error) return { ok: false, error: `not an expression: ${text.includes('\n') ? syntax.error : syntax.error.replace(/^line \d+: /, '')}` };
+      const rec = headRev()?.program.functions[fn];
+      if (!rec) return { ok: false, error: `No function named ${fn}` };
+      const probe = deps.transpile(`test("probe", () => {\n  eq((${text}), { __undefinedProbe: true });\n});`);
+      if (probe.error) return { ok: false, error: `not an expression: ${probe.error}` };
+      const js = isLive(rec) ? rec.artifact!.js : `function ${fn}() { throw new Error(${JSON.stringify(`${fn} is not committed yet`)}); }`;
+      const results = await deps.execGates({ name: fn, js, testsJs: probe.js, propertiesJs: '', budgetMs: rec.spec.budgetMs, seed: 0, phases: ['tests'], probe: true });
+      const mentionsFn = new RegExp(`(^|[^\\w$.])${fn.replace(/\$/g, '\\$')}\\s*\\(`).test(text);
+      const inv = results.find((r) => r.gate === 'invariants' && r.status === 'fail');
+      if (inv) return { ok: false, error: `it is not allowed in test code: ${inv.headline ?? inv.summary}` };
+      const t = results.find((r) => r.gate === 'tests');
+      const d = t?.diagnostics[0];
+      if (!t || t.status !== 'fail' || !d || d.kind !== 'test') return { ok: true, shown: '{ __undefinedProbe: true }', mentionsFn };
+      if (t.note === 'spec error') return { ok: false, error: d.message };
+      if (d.actualValue === undefined) return { ok: false, error: `it threw ${d.error ?? d.message}` };
+      const outcome = lossy(d.actualValue) ? undefined : { returns: d.actualValue };
+      return { ok: true, shown: d.actual ?? '?', mentionsFn, ...(outcome ? { outcome } : {}) };
+    } catch (e) {
+      return { ok: false, error: errorText(e) };
+    }
+  }
+
+  /**
+   * Must run inside `exclusive`. Re-grow `fn` against its spec after a decision (or a removal) left it without a live
+   * artifact: a fresh budget, the decision's call as the probe, the RULING section when the old body failed it.
+   */
+  async function regrowAgainst(fn: string, decision: Decision | null, failed?: { body: string; gates: GateResult[] }): Promise<void> {
+    const spec = headRev().program.functions[fn]?.spec;
+    if (!spec) return;
+    const myEpoch = epoch;
+    busyStart();
+    try {
+      info(decision ? `Re-growing ${fn} against your decision…` : `Re-growing ${fn} against its checks…`, 'accent');
+      const marker = decision ? { id: decision.id, call: decision.call } : undefined;
+      const req: GrowRequest = { fn, call: decision ? `${decision.call} (your decision)` : `${fn} (re-check)`, spec };
+      if (decision) {
+        const callArgs = decodeCallArgs(decision.args);
+        if (callArgs) req.callArgs = callArgs;
+        req.decision = marker!;
+        if (failed) req.ruling = { body: failed.body, gates: failed.gates, decision };
+      }
+      const result = await grow(req, '', myEpoch);
+      if (result.kind === 'committed' && myEpoch === epoch) {
+        info(`${fn} re-grown${decision ? ' against your decision' : ''}: saved as r${result.revision}`, 'accent');
+      }
+    } catch (e) {
+      if (!(e instanceof Aborted) && myEpoch === epoch) errorEntry('InternalError', errorText(e));
+    } finally {
+      if (myEpoch === epoch) {
+        await refreshEnv();
+        busyEnd();
+      }
+    }
+  }
+
+  function decide(ref: GapRef, choice: DecideChoice, opts: DecideOptions = {}): Promise<void> {
+    return exclusive('decide', async () => {
+      try {
+        const rec = headRev().program.functions[ref.fn];
+        const d = diagnosticAt(ref);
+        if (!rec || !d) {
+          notice('error', `Nothing to decide: ${rec ? 'that check result is no longer stored' : `there is no function named ${ref.fn}`}.`);
+          return;
+        }
+        if (!refStillCurrent(ref, rec.spec, d)) {
+          notice('error', `Nothing was decided: the checks of ${ref.fn} changed since that rejection, so what it says your tests expect may no longer hold. Decide on a rejection from the current checks.`);
+          return;
+        }
+        const q = buildGapQuestion({ spec: rec.spec, diagnostic: d, ...(rec.artifact ? { returnType: rec.artifact.returnType } : {}) });
+        if (!q || (d.kind !== 'test' && d.kind !== 'property')) {
+          notice('error', 'This check result cannot be decided: it did not say the spec was silent on one exact call.');
+          return;
+        }
+        let ruling: RulingSpec;
+        if ('alternative' in choice) {
+          const alt = q.alternatives.find((a) => a.id === choice.alternative);
+          if (!alt) {
+            notice('error', `Unknown choice ${choice.alternative}.`);
+            return;
+          }
+          if (alt.disabled) {
+            notice('error', alt.disabled);
+            return;
+          }
+          ruling = alt.relational ? { kind: 'relational', args: alt.relational.args } : { kind: 'outcome', outcome: alt.outcome! };
+        } else if ('throws' in choice) {
+          ruling = { kind: 'outcome', outcome: { throws: true } };
+        } else {
+          const p = await previewExpectation(ref.fn, choice.expr);
+          if (!p.ok) {
+            notice('error', `Your expectation cannot be used: ${p.error}`);
+            return;
+          }
+          // a plain value that encodes cleanly is stored as a value (it can agree with the check, and replay);
+          // anything relational stays source
+          ruling = p.outcome && !p.mentionsFn ? { kind: 'outcome', outcome: p.outcome } : { kind: 'expr', expr: choice.expr.trim() };
+          // `median([])` as the expectation of median([]) accepts anything, yet would waive the check: refuse it
+          const squash = (s: string): string => s.replace(/\s+/g, '');
+          if (ruling.kind === 'expr' && squash(ruling.expr) === squash(callSource(ref.fn, q.args, ''))) {
+            notice('error', `Your expectation cannot be used: ${q.call} compared with itself accepts any answer.`);
+            return;
+          }
+        }
+        let rule = null;
+        if (opts.scope === 'rule') {
+          rule = ruleDomain(rec.spec, q.kind);
+          if (!rule) {
+            notice('error', `A rule needs a single number or bigint parameter and a negative, non-integer or non-finite input; decide this call only.`);
+            return;
+          }
+          if (ruling.kind === 'relational') {
+            notice('error', 'A rule takes a value or "throws"; decide this call only for a relational ruling.');
+            return;
+          }
+        }
+        const decision = buildDecision({
+          fn: ref.fn,
+          kind: q.kind,
+          args: q.args,
+          ruling,
+          answers: { check: q.check.name, checkKind: q.check.kind, silentOn: q.silentOn, gate: q.check.gate },
+          ...(d.expectedOutcome ? { expected: d.expectedOutcome } : {}),
+          rule,
+          decidedAt: deps.now(),
+          ...(opts.reason ? { reason: opts.reason } : {}),
+        });
+        // a waiver never reaches beyond what the check itself declared silent: never switch off a whole property
+        if (decision.waives && q.onlyAgreeing) {
+          notice('error', q.onlyAgreeing.replace(/`/g, ''));
+          return;
+        }
+        // one ruling per call of a check, whatever its scope: deciding again (call or rule) replaces the earlier one
+        const sameCall = new Set([decisionId(q.args, decision.answers, 'tests'), decisionId(q.args, decision.answers, 'properties')]);
+        const before = decisionsOf(rec.spec).filter((x) => x.id === decision.id || !sameCall.has(x.id));
+        const same = before.find((x) => x.id === decision.id);
+        if (same && before.length === decisionsOf(rec.spec).length && same.test === decision.test && same.waives === decision.waives && same.reason === decision.reason) {
+          notice('info', `Already decided: ${decisionSummary(decision)}.`);
+          return;
+        }
+        const next = specWithDecisions(rec.spec, upsertDecision(before, decision));
+        // Waivers match checks by name. A waived name shared by another check (a second test of that name, or a
+        // decision's own generated test) would switch that one off too, and a candidate could then pass while failing
+        // the ruling: refuse instead.
+        const eff = effectiveChecks(next);
+        const names = testNamesOf(eff);
+        const shared = eff.waived.find((w) => (w.kind === 'test' ? names.tests : names.properties).filter((n) => n === w.name).length > 1);
+        if (shared) {
+          notice('error', `Nothing was decided: more than one check is named "${shared.name}", and replacing one by name would switch off the others too. Rename one (Edit spec), then decide.`);
+          return;
+        }
+        const summary = decisionSummary(decision);
+        const reason = decidedReason(summary);
+        const r = await recheckAgainst(ref.fn, next, reason, 'decision', {
+          decision,
+          noArtifactTitle: `${reason} — no committed function to re-check`,
+          failedTitle: `${reason} — the committed function fails it; re-growing`,
+          loadError: (e) => `The generated test does not load (${e}); nothing was decided.`,
+          infraError: (e) => `Could not re-check ${ref.fn} against your decision (${e}); nothing was decided.`,
+          recheckStale: true,
+        });
+        // logged only once the decision stands (a load or infra failure decided nothing)
+        if (r.kind !== 'infra') log({ kind: 'spec-edit', fn: ref.fn, summary: dataInPlay(rec.spec) ? 'decided a spec gap' : clipText(reason, LOG_TEXT_MAX) });
+        if (r.kind === 'failed') {
+          info(`${ref.fn}: the committed function fails your decision (${summary}); re-growing it against the decision.`, 'warn');
+          await regrowAgainst(ref.fn, decision, { body: r.body, gates: r.gates });
+        } else if (r.kind === 'applied' && !isLive(headRev().program.functions[ref.fn]!)) {
+          await regrowAgainst(ref.fn, decision);
+        }
+      } catch (e) {
+        notice('error', `Deciding failed: ${errorText(e)}`);
+      }
+    });
+  }
+
+  function removeDecision(fn: string, decisionId: string): Promise<void> {
+    return exclusive('remove the decision', async () => {
+      try {
+        const rec = headRev().program.functions[fn];
+        const d = rec ? decisionsOf(rec.spec).find((x) => x.id === decisionId) : undefined;
+        if (!rec || !d) {
+          notice('error', `No decision ${decisionId} on ${fn}`);
+          return;
+        }
+        const next = specWithDecisions(rec.spec, decisionsOf(rec.spec).filter((x) => x.id !== decisionId));
+        const reason = removedDecisionReason(decisionSummary(d));
+        const r = await recheckAgainst(fn, next, reason, 'decision', {
+          noArtifactTitle: reason,
+          failedTitle: `${reason} — the committed function fails the checks without it; re-growing`,
+          loadError: (e) => `The checks do not load without that decision (${e}); nothing was removed.`,
+          infraError: (e) => `Could not re-check ${fn} without that decision (${e}); nothing was removed.`,
+          recheckStale: true,
+        });
+        if (r.kind === 'applied') {
+          const after = headRev().program.functions[fn]!;
+          info(
+            isLive(after)
+              ? `${fn}: ${reason}. The function certified for these checks (r${after.artifact!.revision}) is live again.`
+              : `${fn}: ${reason}. No committed function; the next call grows it.`,
+          );
+        } else if (r.kind === 'failed') {
+          info(`${fn}: without that decision the committed function fails a check it was excused from; re-growing it.`, 'warn');
+          await regrowAgainst(fn, null);
+        }
+      } catch (e) {
+        notice('error', `Removing the decision failed: ${errorText(e)}`);
+      }
+    });
   }
 
   // ───────────────────────── service ─────────────────────────
@@ -3230,7 +3672,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       const hashesOf = new Map<string, Recording['sessions'][number]>();
       for (const x of recording.sessions) if (x.spec && !hashesOf.has(x.fn)) hashesOf.set(x.fn, x);
       for (const spec of seed.specs) {
-        const names = testNamesOf(spec);
+        const names = testNamesOf(effectiveChecks(spec));
         const mine = base.functions[spec.name];
         const claimed = hashesOf.get(spec.name)!;
         const status =
@@ -3241,7 +3683,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       for (const session of recording.sessions) {
         if (functions.some((f) => f.name === session.fn)) continue;
         const mine = base.functions[session.fn];
-        const names = mine ? testNamesOf(mine.spec) : { tests: [], properties: [] };
+        const names = mine ? testNamesOf(effectiveChecks(mine.spec)) : { tests: [], properties: [] };
         functions.push({ name: session.fn, tests: names.tests.length, properties: names.properties.length, status: 'replay-only' });
       }
 
@@ -3500,6 +3942,10 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     removePin,
     runMutation: runMutationPublic,
     addSuggestedProperty,
+    gapQuestion,
+    decide,
+    removeDecision,
+    previewExpectation,
     previewRecording,
     loadRecording,
     dismissRecordingBanner,

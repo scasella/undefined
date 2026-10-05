@@ -32,6 +32,7 @@ import { encodeValue } from '../../shared/serialize';
 import { suggestProperties } from '../../suggest/suggest';
 import { appendProperty } from '../../suggest/apply';
 import { addedCheckReason } from '../../shared/evidence';
+import { DECIDE_SCENARIOS } from './decideFixtures';
 
 export const T0 = Date.UTC(2026, 9, 4, 9, 0, 0);
 const h = (seed: string): string => seed.repeat(64).slice(0, 64);
@@ -821,6 +822,8 @@ export const SCENARIOS: Record<string, () => EngineState> = {
   'committed-evidence': committedEvidenceState,
   suggestions: suggestionsState,
   'recheck-failed': recheckFailedState,
+  // the Decide flow (src/ui/dev/decideFixtures.ts)
+  ...DECIDE_SCENARIOS,
 
   cached: () => {
     const s = committedState();
@@ -1182,6 +1185,8 @@ export const SCENARIO_UI: Record<
     share?: boolean;
     sessionLog?: boolean;
     pending?: () => { input: { text?: string; url?: string; source: string }; preview: RecordingPreview };
+    /** Open the Decide block on this attempt's rejection, with a choice already made. */
+    decide?: { attempt: number; choice?: string; expr?: string; throws?: boolean; reason?: string };
   }
 > = {
   'data-drawer-open': { drawer: true },
@@ -1190,6 +1195,10 @@ export const SCENARIO_UI: Record<
   'load-recording': { pending: () => ({ input: { text: '{}', source: FIXTURE_PREVIEW.source }, preview: FIXTURE_PREVIEW }) },
   pinned: { tab: 'repo' },
   'committed-evidence': { tab: 'repo' },
+  'decide-median-recertified': { tab: 'repo' },
+  'decision-applied': { tab: 'repo' },
+  'decide-open': { decide: { attempt: 1, choice: 'tests', reason: 'NaN propagates through our averages' } },
+  'decide-custom': { decide: { attempt: 1, choice: 'custom', expr: '-1' } },
   'recheck-failed': {
     added: () => {
       const sug = sortedSuggestion();

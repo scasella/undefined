@@ -465,11 +465,14 @@ describe('executeGates — "the spec was silent" markers', () => {
     const plain = props(MEDIAN_EMPTY_THROWS, refProp(''))[1];
     expect(marked.headline).toBe('Rejected: median([]) threw Error: empty list, expected NaN');
     expect(marked.diagnostics[0]).toMatchObject({ kind: 'property', counterexample: '[[]]', silentOn: 'what the median of nothing is', reasonable: 'Throwing is defensible; so is NaN.' });
-    // Same seed, same run: everything but the two marker fields is identical to the unmarked property.
+    // Same seed, same run: everything but the marker fields and the Decide facts is identical to the unmarked property.
     const { ms: _a, ...m } = marked;
     const { ms: _b, ...p } = plain;
-    const { silentOn: _s, reasonable: _r, ...markedDiag } = m.diagnostics[0] as { silentOn?: string; reasonable?: string };
+    const { silentOn: _s, reasonable: _r, args, expectedOutcome, actualOutcome, ...markedDiag } = m.diagnostics[0] as Record<string, unknown>;
     expect({ ...m, diagnostics: [markedDiag] }).toEqual(p);
+    // the Decide facts: the exact call (encoded), what the reference wanted (NaN, encoded) and what the candidate did
+    expect({ args, expectedOutcome, actualOutcome }).toEqual({ args: [[]], expectedOutcome: { returns: { $t: 'number', v: 'NaN' } }, actualOutcome: { throws: true } });
+    expect(plain.diagnostics[0]).not.toHaveProperty('args');
   });
 
   it('does not mark a property failure when `when` is false at the counterexample (a real mistake keeps no excuse)', () => {

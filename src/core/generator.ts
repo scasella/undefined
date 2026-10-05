@@ -5,6 +5,7 @@
 import type {
   ColumnInfo,
   DatasetRef,
+  Decision,
   FunctionSpec,
   GenerateError,
   GenerateErrorCode,
@@ -22,6 +23,7 @@ import type {
   ServiceHealth,
   ServiceStatus,
 } from '../types';
+import { readDecisions } from './store';
 
 type FetchFn = typeof fetch;
 
@@ -384,9 +386,16 @@ export class ReplayGenerator implements Generator {
   readonly mode = 'replay' as const;
   private readonly sessions = new Map<string, { session: RecordedSession; recording: Recording }>();
 
-  /** Whether a recorded session exists for this function + spec text (the engine routes a grow by this). */
-  has(fn: string, specHash: string, testsHash: string): boolean {
-    return this.sessions.has(sessionKey(fn, specHash, testsHash));
+  /**
+   * Whether a recorded session exists for this function + spec text (the engine routes a grow by this). With
+   * `fallbackTestsHash` (implied decisions, see GenerateRequest) the session recorded before them counts too.
+   */
+  has(fn: string, specHash: string, testsHash: string, fallbackTestsHash?: string): boolean {
+    return this.lookup(fn, specHash, testsHash, fallbackTestsHash) !== undefined;
+  }
+
+  private lookup(fn: string, specHash: string, testsHash: string, fallbackTestsHash?: string): { session: RecordedSession; recording: Recording } | undefined {
+    return this.sessions.get(sessionKey(fn, specHash, testsHash)) ?? (fallbackTestsHash ? this.sessions.get(sessionKey(fn, specHash, fallbackTestsHash)) : undefined);
   }
   private readonly maxMs: number;
   private readonly sleep: Sleep;
@@ -409,7 +418,7 @@ export class ReplayGenerator implements Generator {
     signal?: AbortSignal,
   ): Promise<GenerateResult> {
     if (signal?.aborted) throw abortedFailure();
-    const found = this.sessions.get(sessionKey(req.fn, req.specHash, req.testsHash));
+    const found = this.lookup(req.fn, req.specHash, req.testsHash, req.fallbackTestsHash);
     if (!found) {
       throw new GenerationFailure({
         code: 'no_recording',
@@ -470,11 +479,22 @@ export class ReplayGenerator implements Generator {
  * fn+specHash+testsHash lookup as ReplayGenerator, first recording wins). The prompt the browser builds today can
  * differ from it (the prompt builder changed after the session was recorded), so "what the model saw" uses this.
  */
-export function recordedPrompt(recordings: readonly Recording[], req: Pick<GenerateRequest, 'fn' | 'specHash' | 'testsHash' | 'attempt'>): string | undefined {
-  for (const recording of recordings) {
-    for (const session of recording.sessions) {
-      if (session.fn === req.fn && session.specHash === req.specHash && session.testsHash === req.testsHash) {
-        return session.attempts[req.attempt]?.prompt;
+export function recordedPrompt(
+  recordings: readonly Recording[],
+  req: Pick<GenerateRequest, 'fn' | 'specHash' | 'testsHash' | 'attempt' | 'fallbackTestsHash'>,
+): string | undefined {
+  return findSession(recordings, req)?.session.attempts[req.attempt]?.prompt;
+}
+
+/** Same lookup as ReplayGenerator: exact key first (first recording wins), then the implied-decisions fallback. */
+function findSession(
+  recordings: readonly Recording[],
+  req: Pick<GenerateRequest, 'fn' | 'specHash' | 'testsHash' | 'fallbackTestsHash'>,
+): { session: RecordedSession; recording: Recording } | undefined {
+  for (const testsHash of req.fallbackTestsHash ? [req.testsHash, req.fallbackTestsHash] : [req.testsHash]) {
+    for (const recording of recordings) {
+      for (const session of recording.sessions) {
+        if (session.fn === req.fn && session.specHash === req.specHash && session.testsHash === testsHash) return { session, recording };
       }
     }
   }
@@ -494,26 +514,22 @@ export interface Provenance {
  */
 export function recordedAttempt(
   recordings: readonly Recording[],
-  req: Pick<GenerateRequest, 'fn' | 'specHash' | 'testsHash' | 'attempt'>,
+  req: Pick<GenerateRequest, 'fn' | 'specHash' | 'testsHash' | 'attempt' | 'fallbackTestsHash'>,
 ): { attempt: RecordedAttempt; provenance: Provenance; label: string } | undefined {
-  for (const recording of recordings) {
-    for (const session of recording.sessions) {
-      if (session.fn === req.fn && session.specHash === req.specHash && session.testsHash === req.testsHash) {
-        const attempt = session.attempts[req.attempt];
-        if (!attempt) return undefined;
-        return {
-          attempt,
-          label: session.label,
-          provenance: {
-            model: session.model ?? recording.model,
-            codexVersion: session.codexVersion ?? recording.codexVersion,
-            effort: session.effort ?? recording.effort,
-          },
-        };
-      }
-    }
-  }
-  return undefined;
+  const found = findSession(recordings, req);
+  if (!found) return undefined;
+  const { session, recording } = found;
+  const attempt = session.attempts[req.attempt];
+  if (!attempt) return undefined;
+  return {
+    attempt,
+    label: session.label,
+    provenance: {
+      model: session.model ?? recording.model,
+      codexVersion: session.codexVersion ?? recording.codexVersion,
+      effort: session.effort ?? recording.effort,
+    },
+  };
 }
 
 // ───────────────────────── recording validation / loading ─────────────────────────
@@ -572,7 +588,7 @@ function describe(v: unknown): string {
 function readRecording(raw: unknown): Recording {
   const o = obj(raw, '');
   if (o.format !== 'undefined-recording') fail('format', `must be "undefined-recording" (got ${describe(o.format)})`);
-  if (o.version !== 1 && o.version !== 2) fail('version', `must be 1 or 2 (got ${describe(o.version)})`);
+  if (o.version !== 1 && o.version !== 2 && o.version !== 3) fail('version', `must be 1, 2 or 3 (got ${describe(o.version)})`);
   const version = o.version;
   const recordedAt = str(o, 'recordedAt', '');
   if (Number.isNaN(Date.parse(recordedAt))) fail('recordedAt', `must be an ISO date (got ${describe(recordedAt)})`);
@@ -591,7 +607,7 @@ function readRecording(raw: unknown): Recording {
 
 const V2_FIELDS = ['spec', 'calls', 'datasets', 'datasetRefs', 'model', 'codexVersion', 'effort'] as const;
 
-function readSession(raw: unknown, path: string, version: 1 | 2): RecordedSession {
+function readSession(raw: unknown, path: string, version: 1 | 2 | 3): RecordedSession {
   const o = obj(raw, path);
   const p = `${path}.`;
   const attempts = arr(o, 'attempts', p).map((a, i) => readAttempt(a, `${path}.attempts[${i}]`));
@@ -615,7 +631,7 @@ function readSession(raw: unknown, path: string, version: 1 | 2): RecordedSessio
     if (v !== undefined) session[k] = v;
   }
   if (o.spec !== undefined) {
-    const spec = readSpec(o.spec, `${p}spec`);
+    const spec = readSpec(o.spec, `${p}spec`, version);
     if (spec.name !== fn) fail(`${p}spec.name`, `must equal the session's fn ${JSON.stringify(fn)} (got ${describe(spec.name)})`);
     session.spec = spec;
   }
@@ -687,8 +703,11 @@ function ident(o: Record<string, unknown>, key: string, path: string): string {
   return v;
 }
 
-/** A FunctionSpec, field by field (unknown extra fields are dropped; the optional ones are kept when valid). */
-function readSpec(raw: unknown, path: string): FunctionSpec {
+/**
+ * A FunctionSpec, field by field (unknown extra fields are dropped; the optional ones are kept when valid).
+ * `decisions` is a version 3 field: an older file that carries it is rejected, not silently stripped.
+ */
+function readSpec(raw: unknown, path: string, version: 1 | 2 | 3): FunctionSpec {
   const o = obj(raw, path);
   const p = `${path}.`;
   const params = arr(o, 'params', p).map((x, i) => {
@@ -714,6 +733,16 @@ function readSpec(raw: unknown, path: string): FunctionSpec {
   const typeDecls = optStr(o, 'typeDecls', p);
   if (typeDecls !== undefined) spec.typeDecls = typeDecls;
   if (o.pins !== undefined) spec.pins = arr(o, 'pins', p).map((x, i) => readPin(x, `${p}pins[${i}]`));
+  if (o.decisions !== undefined) {
+    if (version < 3) fail(`${p}decisions`, 'is a version 3 field: the recording must declare "version": 3');
+    let ds: Decision[];
+    try {
+      ds = readDecisions(o.decisions, `${p}decisions`);
+    } catch (e) {
+      throw new RecordingShapeError(errorText(e));
+    }
+    if (ds.length > 0) spec.decisions = ds;
+  }
   return spec;
 }
 
@@ -969,9 +998,11 @@ export class RecordingSink {
       return s;
     });
     const v2 = sessions.some((s) => V2_FIELDS.some((f) => s[f] !== undefined));
+    // a spec with decisions makes it version 3 (older builds reject it instead of dropping the decisions)
+    const v3 = sessions.some((s) => (s.spec?.decisions?.length ?? 0) > 0);
     return {
       format: 'undefined-recording',
-      version: v2 ? 2 : 1,
+      version: v3 ? 3 : v2 ? 2 : 1,
       id: meta.id,
       title: meta.title,
       recordedAt: this.now().toISOString(),

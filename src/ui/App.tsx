@@ -11,7 +11,7 @@ import { Repo } from './components/Repo';
 import { RetryStrip } from './components/RetryStrip';
 import { DropOverlay, ImportConfirm, LoadRecordingDialog, OtherTabBanner, RecordingBanner, RecordingConfirm, SessionLogDialog, ShareDialog } from './components/Share';
 import { Revisions } from './components/Revisions';
-import { focusFn, lowerTab } from './uiState';
+import { focusFn, lowerTab, runLiveOpen } from './uiState';
 
 /**
  * On a phone the panels are stacked, so the key moments (the draft arriving, the rejection card, the commit) would
@@ -89,7 +89,6 @@ function useShortcuts(): void {
 
 export function App({ engine, initError }: { engine: Engine; initError?: string | null }) {
   const state = engine.state.value;
-  const [runLive, setRunLive] = useState(false);
   const focusSpec = state.focusSpec;
   const handledNonce = useRef<number | null>(null);
   useFollowTheAction(state);
@@ -130,7 +129,7 @@ export function App({ engine, initError }: { engine: Engine; initError?: string 
     <>
       <div class="stage">
         <PanelBoundary name="Header">
-          <Header state={state} engine={engine} onRunLive={() => setRunLive(true)} />
+          <Header state={state} engine={engine} onRunLive={() => (runLiveOpen.value = true)} />
           <Argument />
           <div class="subhead">
             <Examples state={state} engine={engine} />
@@ -189,7 +188,7 @@ export function App({ engine, initError }: { engine: Engine; initError?: string 
           </div>
         </section>
       </main>
-      <RunLiveDialog state={state} engine={engine} open={runLive} onClose={() => setRunLive(false)} />
+      <RunLiveDialog state={state} engine={engine} open={runLiveOpen.value} onClose={() => (runLiveOpen.value = false)} />
       <PanelBoundary name="Data drawer">
         <DataDrawer state={state} engine={engine} />
       </PanelBoundary>

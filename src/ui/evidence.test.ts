@@ -28,6 +28,14 @@ describe('plain evidence line', () => {
     );
     for (const r of [report(), report({ skipped: 'time box reached after 6 of 12 mutants' })]) expect(plainMutation(r)).not.toMatch(JARGON);
   });
+  it('counts the decisions in the tests and rules they belong to (absent = unchanged)', () => {
+    const base = { compiled: true, unitTests: 5, pinnedTests: 0, properties: [{ name: 'a', runs: 100 }, { name: 'b', runs: 100 }], sampledCalls: 25 };
+    expect(plainEvidence({ ...base, decisions: 2 })).toMatch(/^Compiled\. 5 tests passed, including 2 decisions\. 2 rules held for 100 random inputs each\./);
+    expect(plainEvidence({ ...base, decisions: 1 })).toMatch(/5 tests passed, including 1 decision\./);
+    expect(plainEvidence({ ...base, unitTests: 1, decisions: 1 })).toMatch(/1 test passed, your decision\./);
+    expect(plainEvidence({ ...base, decisionProperties: 1 })).toMatch(/2 rules held for 100 random inputs each, including 1 decision\./);
+    expect(plainEvidence({ ...base, pinnedTests: 1, decisions: 1 })).toMatch(/5 tests and 1 pinned result passed, including 1 decision\./);
+  });
   it('progress only for the function it is about', () => {
     expect(plainMutationProgress({ fn: 'median', phase: 'running', done: 3, total: 12 }, 'median')).toBe('Trying your checks against broken copies… 3/12');
     expect(plainMutationProgress({ fn: 'median', phase: 'running', done: 3, total: 12 }, 'slugify')).toBeNull();

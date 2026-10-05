@@ -32,7 +32,7 @@ export function rollbackBrackets(rows: Pick<Revision, 'id' | 'restoredFrom'>[]):
   return { lanes: laneEnds.length, pieces };
 }
 
-const KIND_WORD: Partial<Record<Revision['kind'], string>> = { 'spec-edit': 'spec edit', recertify: 're-certified' };
+const KIND_WORD: Partial<Record<Revision['kind'], string>> = { 'spec-edit': 'spec edit', recertify: 're-certified', decision: 'your decision' };
 
 export function Revisions({ state, engine }: { state: EngineState; engine: Engine }) {
   const now = useNow(true, 30_000);

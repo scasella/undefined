@@ -10,6 +10,7 @@ import type {
   Artifact,
   Candidate,
   DatasetRef,
+  Decision,
   Diagnostic,
   Evidence,
   FunctionRecord,
@@ -17,6 +18,7 @@ import type {
   GateResult,
   Image,
   Json,
+  Outcome,
   Pin,
   Program,
   Revision,
@@ -380,8 +382,13 @@ export function clearAll(): Promise<void> {
 
 // ───────────────────────── image ─────────────────────────
 
+/**
+ * version 2 only when some revision holds decisions: an older build rejects it ("version must be 1") instead of
+ * silently dropping the decisions (its validator keeps known fields only) and showing stale artifacts as live.
+ */
 export function toImage(revisions: Revision[], head: number, datasets?: Record<string, Json>): Image {
-  const image: Image = { format: 'undefined-image', version: 1, exportedAt: new Date().toISOString(), head, revisions };
+  const version = imageHasDecisions(revisions) ? 2 : 1;
+  const image: Image = { format: 'undefined-image', version, exportedAt: new Date().toISOString(), head, revisions };
   if (datasets && Object.keys(datasets).length > 0) image.datasets = datasets;
   return image;
 }
@@ -467,7 +474,8 @@ function opt<T extends object>(base: T, extra: Obj): T {
 }
 
 const GATE_IDS = ['compile', 'tests', 'properties', 'invariants'] as const;
-const KINDS = ['init', 'commit', 'spec-edit', 'rollback', 'import', 'example', 'delete', 'recertify', 'pin', 'dataset'] as const;
+const KINDS = ['init', 'commit', 'spec-edit', 'rollback', 'import', 'example', 'delete', 'recertify', 'pin', 'dataset', 'decision'] as const;
+const GAP_KINDS = ['empty', 'non-finite', 'negative', 'non-integer', 'duplicates', 'non-ascii', 'symbols', 'other'] as const;
 
 function vSpec(v: unknown, path: string): FunctionSpec {
   const o = obj(v, path);
@@ -489,8 +497,96 @@ function vSpec(v: unknown, path: string): FunctionSpec {
       maxAttempts: int(o, 'maxAttempts', path, 1),
       origin: oneOf(o, 'origin', path, ['call', 'user', 'example'] as const),
     } as FunctionSpec,
-    { exampleId: optStr(o, 'exampleId', path), typeDecls: optStr(o, 'typeDecls', path), pins: o.pins === undefined ? undefined : vPins(o.pins, `${path}.pins`) },
+    {
+      exampleId: optStr(o, 'exampleId', path),
+      typeDecls: optStr(o, 'typeDecls', path),
+      pins: o.pins === undefined ? undefined : vPins(o.pins, `${path}.pins`),
+      // an empty list is normalised to absent: a spec without decisions hashes and serialises as before them
+      decisions: o.decisions === undefined ? undefined : nonEmpty(vDecisions(o.decisions, `${path}.decisions`)),
+    },
   );
+}
+
+function nonEmpty<T>(xs: T[]): T[] | undefined {
+  return xs.length > 0 ? xs : undefined;
+}
+
+function vOutcome(v: unknown, path: string): Outcome {
+  const o = obj(v, path);
+  if (o.throws !== undefined) {
+    if (o.throws !== true || Object.keys(o).length !== 1) bad(path, 'must be { throws: true } or { returns: <encoded value> }');
+    return { throws: true };
+  }
+  if (!('returns' in o) || Object.keys(o).length !== 1 || !isJson(o.returns)) bad(path, 'must be { throws: true } or { returns: <encoded value> }');
+  return { returns: structuredClone(o.returns) as Json };
+}
+
+function vDecisions(v: unknown, path: string): Decision[] {
+  if (!Array.isArray(v)) bad(path, 'must be an array');
+  const ids = new Set<string>();
+  return (v as unknown[]).map((raw, i) => {
+    const p = `${path}[${i}]`;
+    const o = obj(raw, p);
+    const id = str(o, 'id', p);
+    if (ids.has(id)) bad(`${p}.id`, `must be unique (${JSON.stringify(id)} appears twice)`);
+    ids.add(id);
+    const args = arr(o, 'args', p);
+    if (!isJson(args)) bad(`${p}.args`, 'must be JSON');
+    const r = obj(o.ruling, `${p}.ruling`);
+    const rk = oneOf(r, 'kind', `${p}.ruling`, ['outcome', 'expr'] as const);
+    const ruling: Decision['ruling'] =
+      rk === 'outcome'
+        ? { kind: 'outcome', outcome: vOutcome(r.outcome, `${p}.ruling.outcome`), label: str(r, 'label', `${p}.ruling`) }
+        : { kind: 'expr', expr: str(r, 'expr', `${p}.ruling`), label: str(r, 'label', `${p}.ruling`) };
+    const a = obj(o.answers, `${p}.answers`);
+    const answers = {
+      check: str(a, 'check', `${p}.answers`),
+      checkKind: oneOf(a, 'checkKind', `${p}.answers`, ['test', 'property'] as const),
+      silentOn: str(a, 'silentOn', `${p}.answers`),
+      gate: oneOf(a, 'gate', `${p}.answers`, ['tests', 'properties'] as const),
+    };
+    if (typeof o.waives !== 'boolean') bad(`${p}.waives`, 'must be a boolean');
+    const test = str(o, 'test', p);
+    if (test.trim() === '') bad(`${p}.test`, 'must not be empty');
+    let rule: Decision['rule'];
+    if (o.rule !== undefined) {
+      const ro = obj(o.rule, `${p}.rule`);
+      rule = { phrase: str(ro, 'phrase', `${p}.rule`), param: str(ro, 'param', `${p}.rule`) };
+    }
+    return opt(
+      {
+        id,
+        kind: oneOf(o, 'kind', p, GAP_KINDS),
+        call: str(o, 'call', p),
+        args: structuredClone(args) as Json[],
+        ruling,
+        placement: oneOf(o, 'placement', p, ['tests', 'properties'] as const),
+        answers,
+        waives: o.waives as boolean,
+        test,
+        decidedAt: num(o, 'decidedAt', p),
+      } as Decision,
+      { rule, reason: optStr(o, 'reason', p) },
+    );
+  });
+}
+
+/**
+ * Strict validation of a decisions list from an untrusted file (shared with the recording reader). Returns a
+ * sanitised copy, or throws an Error whose message is the path-qualified problem.
+ */
+export function readDecisions(v: unknown, path: string): Decision[] {
+  try {
+    return vDecisions(v, path);
+  } catch (e) {
+    if (e instanceof Invalid) throw new Error(e.message);
+    throw e;
+  }
+}
+
+/** Whether any revision holds a decision (or is one): such an image is written as version 2. */
+export function imageHasDecisions(revisions: readonly Revision[]): boolean {
+  return revisions.some((r) => r.kind === 'decision' || Object.values(r.program.functions).some((f) => (f.spec.decisions?.length ?? 0) > 0));
 }
 
 function vPins(v: unknown, path: string): Pin[] {
@@ -689,7 +785,8 @@ export function validateImage(raw: unknown): { ok: true; image: Image } | { ok: 
   try {
     const o = obj(raw, 'image');
     if (o.format !== 'undefined-image') bad('format', 'must be "undefined-image"');
-    if (o.version !== 1) bad('version', 'must be 1');
+    if (o.version !== 1 && o.version !== 2) bad('version', 'must be 1 or 2');
+    const version = o.version;
     const exportedAt = str(o, 'exportedAt', 'image');
     const head = int(o, 'head', 'image', 1);
     const list = arr(o, 'revisions', 'image');
@@ -704,7 +801,8 @@ export function validateImage(raw: unknown): { ok: true; image: Image } | { ok: 
       return rev;
     });
     if (!seen.has(head)) bad('head', `must be the id of a revision (got ${head})`);
-    const image: Image = { format: 'undefined-image', version: 1, exportedAt, head, revisions };
+    if (version === 1 && imageHasDecisions(revisions)) bad('version', 'must be 2: the image holds decisions (a version 2 field)');
+    const image: Image = { format: 'undefined-image', version, exportedAt, head, revisions };
     if (o.datasets !== undefined) {
       const ds = obj(o.datasets, 'datasets');
       image.datasets = {};

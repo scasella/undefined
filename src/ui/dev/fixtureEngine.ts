@@ -4,9 +4,14 @@
  * opening → generating → rejected by properties → second candidate → committed.
  */
 import { signal } from '@preact/signals';
-import type { AttemptView, DatasetRef, Engine, EngineState, FunctionSpec, GateResult, RestartId, SpecPatch } from '../../types';
+import type { AttemptView, DatasetRef, Diagnostic, Engine, EngineState, ExpectationPreview, FunctionSpec, GapRef, GateResult, RestartId, SpecPatch } from '../../types';
+import { gapQuestion as buildGapQuestion } from '../../decide/gaps';
+import { buildDecision, decisionsOf, decisionSummary, upsertDecision, type RulingSpec } from '../../decide/decisions';
+import { decidedReason, removedDecisionReason } from '../../shared/evidence';
+import { specWithDecisions } from '../../core/program';
+import { encodeValue } from '../../shared/serialize';
 import { buildData, datasetPreview, PINNED_INFO } from '../../core/engine';
-import { addedChecks, dataDrawerOpen, lowerTab, pendingRecording, sessionLogOpen, shareOpen } from '../uiState';
+import { addedChecks, dataDrawerOpen, decideOpen, decidePrefill, lowerTab, pendingRecording, selection, sessionLogOpen, shareOpen } from '../uiState';
 import { parseRecordingText } from '../../share/source';
 import { suggestProperties } from '../../suggest/suggest';
 import { appendProperty } from '../../suggest/apply';
@@ -54,6 +59,12 @@ export function createFixtureEngine(scenario: string): Engine {
   if (ui?.share) shareOpen.value = true;
   if (ui?.sessionLog) sessionLogOpen.value = true;
   if (ui?.pending) pendingRecording.value = ui.pending();
+  if (ui?.decide && state.value.generation) {
+    const { attempt, ...prefill } = ui.decide;
+    selection.value = { genId: state.value.generation.id, attempt };
+    decidePrefill.value = prefill;
+    decideOpen.value = `${state.value.generation.id}:${attempt}`;
+  }
   let logEntries = state.value.sessionLog?.count ?? 0;
 
   const update = (recipe: (s: EngineState) => void): void => {
@@ -148,8 +159,100 @@ export function createFixtureEngine(scenario: string): Engine {
     });
   }
 
+  /** The diagnostic a GapRef points at in the fixture state (the fixture keeps no history: the head artifact). */
+  const diagnosticAt = (ref: GapRef): Diagnostic | null => {
+    if ('diagnostic' in ref) return ref.diagnostic;
+    const a = state.value.program.functions[ref.fn]?.artifact;
+    return a?.candidates[ref.candidate]?.gates.find((g) => g.gate === ref.gate)?.diagnostics[ref.index] ?? null;
+  };
+  const questionOf = (ref: GapRef) => {
+    const rec = state.value.program.functions[ref.fn];
+    const d = diagnosticAt(ref);
+    return rec && d ? buildGapQuestion({ spec: rec.spec, diagnostic: d, ...(rec.artifact ? { returnType: rec.artifact.returnType } : {}) }) : null;
+  };
+  /** Literals only (no evaluation in the fixture): NaN, ±Infinity, -0, undefined, null, numbers, JSON. */
+  const fixtureLiteral = (expr: string): ExpectationPreview => {
+    const t = expr.trim();
+    const named: Record<string, unknown> = { NaN, Infinity, '-Infinity': -Infinity, '-0': -0, undefined, null: null, true: true, false: false };
+    let v: unknown;
+    if (t in named) v = named[t];
+    else {
+      try {
+        v = JSON.parse(t);
+      } catch {
+        return { ok: false, error: 'fixture engine: only literals are evaluated here (NaN, -1, "dont-stop", [1, 2])' };
+      }
+    }
+    return { ok: true, shown: t, outcome: { returns: encodeValue(v) }, mentionsFn: false };
+  };
+
   const engine: Engine = {
     state,
+    // fixture: the real question builder over the fixture state
+    gapQuestion: (ref) => questionOf(ref),
+    async previewExpectation(_fn, expr) {
+      return fixtureLiteral(expr);
+    },
+    // fixture: re-certifies when the ruling agrees with the tests; otherwise the artifact goes stale and the re-grow
+    // reports that it needs live mode (the replay rule), as the engine does in replay mode
+    async decide(ref, choice, opts = {}) {
+      const q = questionOf(ref);
+      const d = diagnosticAt(ref);
+      if (!q || !d || (d.kind !== 'test' && d.kind !== 'property')) return notice('error', 'This check result cannot be decided.');
+      let ruling: RulingSpec;
+      if ('alternative' in choice) {
+        const alt = q.alternatives.find((a) => a.id === choice.alternative);
+        if (!alt || alt.disabled) return notice('error', alt?.disabled ?? 'Unknown choice.');
+        ruling = alt.relational ? { kind: 'relational', args: alt.relational.args } : { kind: 'outcome', outcome: alt.outcome! };
+      } else if ('throws' in choice) {
+        ruling = { kind: 'outcome', outcome: { throws: true } };
+      } else {
+        const p = fixtureLiteral(choice.expr);
+        if (!p.ok) return notice('error', p.error);
+        ruling = { kind: 'outcome', outcome: p.outcome! };
+      }
+      const dec = buildDecision({
+        fn: ref.fn,
+        kind: q.kind,
+        args: q.args,
+        ruling,
+        answers: { check: q.check.name, checkKind: q.check.kind, silentOn: q.silentOn, gate: q.check.gate },
+        ...(d.expectedOutcome ? { expected: d.expectedOutcome } : {}),
+        decidedAt: Date.now(),
+        ...(opts.reason ? { reason: opts.reason } : {}),
+      });
+      const reason = decidedReason(decisionSummary(dec));
+      update((s) => {
+        const rec = s.program.functions[ref.fn]!;
+        rec.spec = specWithDecisions(rec.spec, upsertDecision(decisionsOf(rec.spec), dec));
+        rec.testsHash = bump(rec.testsHash);
+        if (rec.artifact && !dec.waives) {
+          pushRevision(s, 'decision', `${reason} — re-certified (r${rec.artifact.revision}'s artifact passes)`, { fn: ref.fn });
+          rec.artifact.testsHash = rec.testsHash;
+          rec.artifact.recertified = [...(rec.artifact.recertified ?? []), { at: Date.now(), revision: s.headRevision, reason }];
+          if (rec.artifact.evidence) rec.artifact.evidence = { ...rec.artifact.evidence, decisions: (rec.artifact.evidence.decisions ?? 0) + 1 };
+          s.repl.push({ kind: 'info', id: eid('if'), text: `${ref.fn}: ${reason}. The committed function already satisfies it: re-certified at r${s.headRevision}, nothing regenerated.`, tone: 'accent' });
+        } else {
+          pushRevision(s, 'decision', `${reason} — the committed function fails it; re-growing`, { fn: ref.fn });
+          const message = `Your decision (${decisionSummary(dec)}) differs from what the recorded session was checked against, so there is no recorded answer to replay. Run live to grow ${ref.fn} against it.`;
+          s.generation = s.generation
+            ? { ...s.generation, phase: 'failed', call: `${dec.call} (your decision)`, attempts: [], error: { code: 'no_recording', message }, decision: { id: dec.id, call: dec.call } }
+            : s.generation;
+          s.repl.push({ kind: 'error', id: eid('er'), name: 'GenerationFailed', message });
+        }
+      });
+    },
+    async removeDecision(fn, decisionId) {
+      update((s) => {
+        const rec = s.program.functions[fn];
+        const d = rec ? decisionsOf(rec.spec).find((x) => x.id === decisionId) : undefined;
+        if (!rec || !d) return;
+        rec.spec = specWithDecisions(rec.spec, decisionsOf(rec.spec).filter((x) => x.id !== decisionId));
+        rec.testsHash = bump(rec.testsHash);
+        if (rec.artifact) rec.artifact.testsHash = rec.testsHash;
+        pushRevision(s, 'decision', removedDecisionReason(decisionSummary(d)), { fn });
+      });
+    },
     async init() {},
     setInput(text) {
       update((s) => void (s.replInput = text));

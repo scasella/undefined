@@ -461,7 +461,7 @@ describe('validateRecording', () => {
 
   const cases: Array<[string, (r: Record<string, any>) => void, string]> = [
     ['format', (r) => (r.format = 'undefined-image'), 'format must be "undefined-recording"'],
-    ['version', (r) => (r.version = 3), 'version must be 1 or 2 (got number 3)'],
+    ['version', (r) => (r.version = 4), 'version must be 1, 2 or 3 (got number 4)'],
     ['v2 field in a v1 file', (r) => (r.sessions[0].calls = ['median([1])']), 'sessions[0].calls is a version 2 field'],
     ['model', (r) => delete r.model, 'model must be a string (got undefined)'],
     ['recordedAt', (r) => (r.recordedAt = 'yesterday'), 'recordedAt must be an ISO date'],
@@ -619,7 +619,7 @@ describe('loadBundledRecordings', () => {
     const f = jsonFetch({
       './recordings/index.json': () => json(['good.json', 'bad.json', 'missing.json', '../escape.json']),
       './recordings/good.json': () => json(recording()),
-      './recordings/bad.json': () => json({ ...recording(), version: 3 }),
+      './recordings/bad.json': () => json({ ...recording(), version: 4 }),
     });
     const recs = await loadBundledRecordings(f);
     expect(recs).toEqual([recording()]);

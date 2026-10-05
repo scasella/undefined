@@ -29,22 +29,36 @@ export function sentence(text: string): string {
   return /[.!?…]$/.test(s) ? s : `${s}.`;
 }
 
-/** "No unit tests." / "1 unit test." / "3 unit tests and 2 pinned." / "2 pinned tests and no unit tests." */
-export function describeTests(unit: number, pinned: number): string {
+/**
+ * "No unit tests." / "1 unit test." / "3 unit tests and 2 pinned." / "2 pinned tests and no unit tests.";
+ * with decisions (unit tests generated from the user's rulings, counted in `unit`): "6 unit tests, including 2
+ * decisions." / "1 unit test, your decision." / "6 unit tests (including 2 decisions) and 1 pinned."
+ */
+export function describeTests(unit: number, pinned: number, decisions = 0): string {
   if (unit === 0 && pinned === 0) return 'No unit tests.';
   if (unit === 0) return `${count(pinned, 'pinned test', 'pinned tests')} and no unit tests.`;
   const u = count(unit, 'unit test', 'unit tests');
-  return pinned === 0 ? `${u}.` : `${u} and ${pinned} pinned.`;
+  const d = Math.min(decisions, unit);
+  if (d === 0) return pinned === 0 ? `${u}.` : `${u} and ${pinned} pinned.`;
+  const incl = unit === 1 ? 'your decision' : d === unit ? 'all your decisions' : `including ${count(d, 'decision', 'decisions')}`;
+  return pinned === 0 ? `${u}, ${incl}.` : `${u} (${incl}) and ${pinned} pinned.`;
 }
 
-/** "No properties." / "1 property, 100 runs." / "2 properties, 200 runs each." / "3 properties (100, 50 and 300 runs)." */
-export function describeProperties(props: ReadonlyArray<{ name: string; runs: number }>): string {
-  if (props.length === 0) return 'No properties.';
-  if (props.length === 1) return `1 property, ${count(props[0]!.runs, 'run', 'runs')}.`;
-  const runs = props.map((p) => p.runs);
-  if (runs.every((r) => r === runs[0])) return `${props.length} properties, ${count(runs[0]!, 'run', 'runs')} each.`;
-  const list = `${runs.slice(0, -1).join(', ')} and ${runs[runs.length - 1]}`;
-  return `${props.length} properties (${list} runs).`;
+/**
+ * "No properties." / "1 property, 100 runs." / "2 properties, 200 runs each." / "3 properties (100, 50 and 300 runs).";
+ * with rule decisions (properties generated from the user's rulings): "… each, including 1 decision."
+ */
+export function describeProperties(props: ReadonlyArray<{ name: string; runs: number }>, decisions = 0): string {
+  const base = ((): string => {
+    if (props.length === 0) return 'No properties.';
+    if (props.length === 1) return `1 property, ${count(props[0]!.runs, 'run', 'runs')}.`;
+    const runs = props.map((p) => p.runs);
+    if (runs.every((r) => r === runs[0])) return `${props.length} properties, ${count(runs[0]!, 'run', 'runs')} each.`;
+    const list = `${runs.slice(0, -1).join(', ')} and ${runs[runs.length - 1]}`;
+    return `${props.length} properties (${list} runs).`;
+  })();
+  const d = Math.min(decisions, props.length);
+  return d === 0 ? base : `${base.slice(0, -1)}, including ${count(d, 'decision', 'decisions')}.`;
 }
 
 /** "No calls were replayed for purity." / "1 call replayed for purity." / "26 calls replayed for purity." */
@@ -62,8 +76,8 @@ export function describeMutation(r: MutationReport | undefined): string {
 export function describeEvidence(ev: Evidence): string {
   return [
     ev.compiled ? 'Compiled.' : 'Did not compile.',
-    describeTests(ev.unitTests, ev.pinnedTests),
-    describeProperties(ev.properties),
+    describeTests(ev.unitTests, ev.pinnedTests, ev.decisions ?? 0),
+    describeProperties(ev.properties, ev.decisionProperties ?? 0),
     describeSampledCalls(ev.sampledCalls),
     describeMutation(ev.mutation),
   ].join(' ');
@@ -84,6 +98,16 @@ export function mutationAdvice(r: MutationReport | undefined): string | null {
 /** `compiled line 3: < → <= (may be an equivalent mutant)`; the line is in the COMPILED JS body, not the TS. */
 export function survivorLine(s: MutantInfo): string {
   return `compiled line ${s.line}: ${s.original} → ${s.mutated} (may be an equivalent mutant)`;
+}
+
+/** The reason recorded when the user decides a gap (artifact.recertified[].reason, revision titles). */
+export function decidedReason(summary: string): string {
+  return `Decided: ${summary}`;
+}
+
+/** The reason recorded when a decision is removed. */
+export function removedDecisionReason(summary: string): string {
+  return `Removed decision: ${summary}`;
 }
 
 /** The reason recorded when a suggested check is added (artifact.recertified[].reason, GenerationView.recheck.reason). */

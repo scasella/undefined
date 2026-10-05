@@ -55,6 +55,20 @@ same result" and "The arguments are not modified" are listed as *already checked
 every candidate, so they are never offered. The shipped median, slugify and fibonacci specs already state everything
 the suggester knows, so they get no suggestions. That is expected.
 
+## Decisions in the evidence
+
+A ruling made with **Decide** ([FEATURES.md](FEATURES.md#decide-spec-gaps-become-questions)) is a generated unit test
+(or, for a rule, a property) in the spec. It is counted with the other tests, and the line says how many came from you:
+*Compiled. 5 tests passed, including 1 decision. 3 rules held for 100 random inputs each. …* (one test that is your
+decision reads *1 test passed, your decision.*; rule decisions are counted the same way after the rules). With no
+decisions the line is unchanged. A ruling that disagrees with the check it answers replaces that check where the spec
+was silent; the Tests or Properties gate notes *N checks replaced by your decision*, so the count never hides that a
+check was switched off there. Re-certification after a decision is logged like an added check (*re-certified at rN:
+Decided: median([]) → NaN*), and the broken-copy check re-runs against the new tests when idle. Eject carries the count
+into the README and lists every decision in `provenance.json`.
+How often a rejection is a spec gap and how often a ruling reaches a commit was measured live:
+see [DECIDE-MEASUREMENTS.md](DECIDE-MEASUREMENTS.md).
+
 ## Measured kill rates of the shipped checks
 
 The engine's own path, run on each known-good body in `src/examples`

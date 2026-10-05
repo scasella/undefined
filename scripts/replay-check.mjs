@@ -79,6 +79,39 @@ try {
   console.log(fallback === EXPECT.median.call ? 'PASS' : 'FAIL', 'opener=nope falls back to median', fallback === EXPECT.median.call ? '' : fallback);
   if (fallback !== EXPECT.median.call) failed++;
   console.log('timings (ms after Enter):', JSON.stringify(timings));
+
+  // Decide (docs/DECIDE-DESIGN.md §5.3) on median, after the opening commits: ruling NaN (what the recorded tests
+  // expect) re-certifies in replay mode; ruling "throws" needs live mode, says how to switch, and Remove recovers.
+  {
+    const p = b.page;
+    const check = (ok, label, extra = '') => {
+      console.log(ok ? 'PASS' : 'FAIL', label, ok ? '' : extra);
+      if (!ok) failed++;
+    };
+    const waitText = (re, timeout = 60000) => p.waitForFunction((src) => new RegExp(src).test(document.body.innerText), re.source, { timeout }).then(() => true, () => false);
+    await fresh(p, srv.url);
+    await p.locator('#repl-input').press('Enter');
+    await waitText(/Accepted · saved as r\d+/, 120000);
+    const pick = async (labelText) => {
+      if (!(await p.locator('details.decide[open]').count())) await p.locator('.silent-decide').click();
+      await p.waitForSelector('details.decide[open]', { timeout: 10000 });
+      await p.locator('details.decide label.decide-alt', { hasText: labelText }).first().click();
+      await p.locator('details.decide .decide-confirm').click();
+    };
+    try {
+      await pick('returns NaN');
+      const recert = await p.waitForSelector('details.decide[data-decide="recertified"]', { timeout: 60000 }).then(() => true, () => false);
+      check(recert && (await waitText(/re-certified at r\d+, nothing regenerated/, 5000)), 'decide median([]) → NaN re-certifies in replay mode', (await p.evaluate(() => document.body.innerText)).slice(0, 600));
+      await pick('throws an error');
+      const live = await p.waitForSelector('[data-decide="needs-live"]', { timeout: 60000 }).then(() => true, () => false);
+      const text = await p.evaluate(() => document.body.innerText);
+      check(live && /differs from what the recorded session was checked against/.test(text) && /How to run live/.test(text) && /npm run dev/.test(text), 'decide median([]) → throws says it needs live mode, with how to switch', text.slice(0, 600));
+      await p.locator('[data-decide="needs-live"] button', { hasText: 'Remove the decision' }).click();
+      check(await p.waitForSelector('[data-decide="removed"]', { timeout: 60000 }).then(() => true, () => false), 'removing the decision brings median back', '');
+    } catch (e) {
+      check(false, 'decide flow', e.message.split('\n')[0]);
+    }
+  }
 } finally {
   await b.close();
   srv.stop();

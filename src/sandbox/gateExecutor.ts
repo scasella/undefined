@@ -17,9 +17,10 @@
  * `1/2 properties failed (…)`. evidenceFrom() (gateRunner.ts) parses exactly these formats.
  */
 import * as fc from 'fast-check';
-import type { Diagnostic, GateId, GateResult } from '../types';
+import type { DecideFields, Diagnostic, GateId, GateResult, Json, Outcome as CallOutcome, WaivedCheck } from '../types';
 import { firstDifference, formatDifference } from '../shared/diff';
 import { callString, show } from '../shared/show';
+import { encodeReport } from '../shared/serialize';
 import { deepFreeze, evalMasked, InvariantViolation, takeViolations } from './mask';
 import {
   applyAttribution,
@@ -35,6 +36,7 @@ import {
   isAssertionFailure,
   registerCases,
   type Case,
+  type DeclaredAlternative,
   type PropertyCase,
   type TestCase,
 } from './testApi';
@@ -58,6 +60,14 @@ export interface ExecGateInput {
   pinned?: PinnedCase[];
   /** Phases to run (default all three). See the module comment for the returned shape. */
   phases?: ExecPhase[];
+  /**
+   * Checks replaced by the user's decisions (decide/decisions.ts effectiveChecks). A waived unit test is not run and
+   * not counted (the Tests gate's note says so); a waived property passes vacuously wherever its `when` holds, and is
+   * not run at all when it has no `when`. Summary formats are unchanged.
+   */
+  waived?: WaivedCheck[];
+  /** The "type your own" probe: every eq() failure also carries its raw values, encoded (actualValue/expectedValue). */
+  probe?: boolean;
 }
 
 export interface PinnedCase {
@@ -95,6 +105,8 @@ type Fn = (...args: unknown[]) => unknown;
 
 interface CallRecord {
   label: string;
+  /** Arguments cloned BEFORE the call (only while a "spec was silent" check runs: Decide needs the exact call). */
+  args?: unknown[];
   returned: boolean;
   result?: unknown;
   threw: boolean;
@@ -164,6 +176,8 @@ export function executeGates(input: ExecGateInput, hooks: ExecHooks): GateResult
   let violation: Violation | null = null;
   let last: CallRecord | null = null;
   let sampling = true;
+  /** True while a check with a silentOn marker runs: each call's arguments are cloned before the call (Decide). */
+  let capture = false;
   let calls = 0;
   const samples: unknown[][] = [];
   const sampleKeys = new Set<string>();
@@ -228,6 +242,13 @@ export function executeGates(input: ExecGateInput, hooks: ExecHooks): GateResult
       }
     }
     const rec: CallRecord = { label, returned: false, threw: false };
+    if (capture) {
+      try {
+        rec.args = realStructuredClone(args);
+      } catch {
+        /* uncloneable arguments: no Decide for this call */
+      }
+    }
     last = rec;
     const globalsBefore = ownNames(globalThis);
     hooks.enter(label);
@@ -303,6 +324,7 @@ export function executeGates(input: ExecGateInput, hooks: ExecHooks): GateResult
 
   const runTest = (c: TestCase): Failure | null => {
     last = null;
+    capture = c.silentOn !== undefined;
     try {
       const r = c.body();
       if (isThenable(r)) throw new Error('async tests are not supported; the test body must be synchronous');
@@ -310,7 +332,10 @@ export function executeGates(input: ExecGateInput, hooks: ExecHooks): GateResult
     } catch (e) {
       if (violation) return null;
       const { headline, fields } = describe(e, c.name, 'test');
-      return { headline, diag: { kind: 'test', name: c.name, ...fields, ...silence(c) } };
+      const decide = c.silentOn !== undefined ? decideFields(e, last as CallRecord | null, c) : {};
+      return { headline, diag: { kind: 'test', name: c.name, ...fields, ...silence(c), ...decide, ...probeFields(e) } };
+    } finally {
+      capture = false;
     }
   };
 
@@ -344,8 +369,21 @@ export function executeGates(input: ExecGateInput, hooks: ExecHooks): GateResult
   };
 
   const runProperty = (c: PropertyCase): { failure: Failure | null; runs: number } => {
+    // A property waived by a decision passes vacuously where its `when` holds (the domain the decision now rules).
+    // `when` is user code: it runs on fresh clones before the predicate, and a mask violation is never swallowed.
+    const waivedWhen = c.when !== undefined && isWaived('property', c.name) ? c.when : undefined;
     const pred = (...args: unknown[]): boolean => {
       if (violation) return true; // stop paying for shrinking once the run is already rejected
+      if (waivedWhen) {
+        let inDomain: boolean;
+        try {
+          inDomain = waivedWhen(...args.map(cloneOrSelf)) === true;
+        } catch {
+          inDomain = false;
+        }
+        collectViolations();
+        if (violation || inDomain) return true;
+      }
       const r = c.predicate(...args.map(cloneOrSelf));
       if (isThenable(r)) throw new Error('async predicates are not supported');
       return r !== false;
@@ -370,13 +408,17 @@ export function executeGates(input: ExecGateInput, hooks: ExecHooks): GateResult
     let returned: unknown;
     let thrown: unknown;
     let threw = false;
+    capture = c.silentOn !== undefined;
     try {
       returned = c.predicate(...cx.map(cloneOrSelf));
     } catch (e) {
       threw = true;
       thrown = e;
+    } finally {
+      capture = false;
     }
     if (violation) return { failure: null, runs: details.numRuns };
+    const lastCall = last as CallRecord | null;
     const rec = last as CallRecord | null;
     const at = rec?.label ?? `arguments ${counterexample}`;
     let failure: Failure;
@@ -404,7 +446,12 @@ export function executeGates(input: ExecGateInput, hooks: ExecHooks): GateResult
       collectViolations(); // a `when` that trips the mask is still a violation, never swallowed
       if (violation) return { failure: null, runs: details.numRuns };
     }
-    if (applies) failure.diag = { ...failure.diag, ...silence(c) } as Diagnostic;
+    if (applies) {
+      const decide = threw ? decideFields(thrown, lastCall, c) : {};
+      // a marker without `when` is silent on every input: say so, so no ruling on one call can waive all of it
+      if (decide.args && c.when === undefined) decide.everyInput = true;
+      failure.diag = { ...failure.diag, ...silence(c), ...decide } as Diagnostic;
+    }
     return { failure, runs: details.numRuns };
   };
 
@@ -527,14 +574,18 @@ export function executeGates(input: ExecGateInput, hooks: ExecHooks): GateResult
   ]);
 
   /** Runs a gate's cases (and, for tests, the pinned results after them). null = interrupted by an invariant violation. */
-  function runCases(gate: 'tests' | 'properties', cases: Case[], pins: PinnedCase[] = []): GateResult | null {
+  function runCases(gate: 'tests' | 'properties', all: Case[], pins: PinnedCase[] = []): GateResult | null {
+    // Checks replaced by a decision: a unit test is not run; a property without `when` is not run (see waived).
+    const cases = all.filter((c) => !(isWaived(c.kind, c.name) && (c.kind === 'test' || c.when === undefined)));
+    const replaced = all.length - cases.length;
+    const replacedNote = replaced > 0 ? `${replaced} ${replaced === 1 ? 'check' : 'checks'} replaced by your decision` : undefined;
     if (cases.length === 0 && pins.length === 0) {
       return {
         gate,
         status: 'skipped',
         ms: now() - phaseStart,
         summary: gate === 'tests' ? 'no tests yet' : 'no properties yet',
-        note: gate === 'tests' ? NO_TESTS_NOTE : NO_PROPERTIES_NOTE,
+        note: replacedNote ?? (gate === 'tests' ? NO_TESTS_NOTE : NO_PROPERTIES_NOTE),
         diagnostics: [],
       };
     }
@@ -565,7 +616,7 @@ export function executeGates(input: ExecGateInput, hooks: ExecHooks): GateResult
     const ms = now() - phaseStart;
     const ok = failures.length === 0;
     const summary = gate === 'tests' ? testsSummary(ok, passed, unit, pins.length) : propertiesSummary(ok, passed, failures.length, total, runs, perProperty);
-    if (ok) return { gate, status: 'pass', ms, summary, diagnostics: [], counts: { passed, total } };
+    if (ok) return { gate, status: 'pass', ms, summary, diagnostics: [], counts: { passed, total }, ...(replacedNote ? { note: replacedNote } : {}) };
     return {
       gate,
       status: 'fail',
@@ -574,9 +625,86 @@ export function executeGates(input: ExecGateInput, hooks: ExecHooks): GateResult
       headline: failures[0].headline,
       diagnostics: failures.map((f) => f.diag),
       counts: { passed, total },
+      ...(replacedNote ? { note: replacedNote } : {}),
     };
   }
+
+  function isWaived(kind: 'test' | 'property', caseName: string): boolean {
+    return (input.waived ?? []).some((w) => w.kind === kind && w.name === caseName);
+  }
+
+  /** Encoded raw values of an eq() failure, for the "type your own" probe only. */
+  function probeFields(e: unknown): DecideFields {
+    if (!input.probe || !isAssertionFailure(e) || !e.actualIsValue) return {};
+    return { actualValue: encodeCapped(e.actual) ?? { $t: 'unserializable', show: e.actualShown }, expectedValue: encodeCapped(e.expected) ?? null };
+  }
 }
+
+/** Encoded value, or undefined when it would be lossy or too large to keep on a stored diagnostic. */
+const DECIDE_MAX_CHARS = 4000;
+function encodeCapped(v: unknown): Json | undefined {
+  const r = encodeReport(v);
+  if (r.lossy) return undefined;
+  try {
+    return JSON.stringify(r.json).length <= DECIDE_MAX_CHARS ? r.json : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The Decide facts of a failing marked check (types.ts DecideFields), only when the failure is about ONE exact call:
+ * the assertion's actual IS what that call returned, or that call itself threw. Encoded and size-capped; anything
+ * that does not encode cleanly leaves the fields out (then the card shows the silence lines only, as before).
+ */
+function decideFields(e: unknown, rec: CallRecord | null, c: { alternatives?: DeclaredAlternative[] }): DecideFields {
+  if (!rec || !rec.args) return {};
+  let actualOutcome: CallOutcome | undefined;
+  let expectedOutcome: CallOutcome | undefined;
+  if (isAssertionFailure(e)) {
+    if (e.expectsThrow && rec.returned) {
+      if (e.actualIsValue && !deepEqual(e.actual, rec.result)) return {};
+      const r = encodeCapped(rec.result);
+      if (r === undefined) return {};
+      actualOutcome = { returns: r };
+      expectedOutcome = { throws: true };
+    } else if (e.actualIsValue && rec.returned && deepEqual(e.actual, rec.result)) {
+      const r = encodeCapped(rec.result);
+      const x = encodeCapped(e.expected);
+      if (r === undefined || x === undefined) return {};
+      actualOutcome = { returns: r };
+      expectedOutcome = { returns: x };
+    } else {
+      return {};
+    }
+  } else if (rec.threw && rec.thrown === e) {
+    const raw = typeof e === 'object' && e !== null && Object.prototype.hasOwnProperty.call(e, '__expectedRaw') ? (e as { __expectedRaw: unknown }).__expectedRaw : NO_RAW;
+    if (raw === NO_RAW) return {};
+    const x = encodeCapped(raw);
+    if (x === undefined) return {};
+    actualOutcome = { throws: true };
+    expectedOutcome = { returns: x };
+  } else {
+    return {};
+  }
+  const args = encodeCapped(rec.args);
+  if (args === undefined || !Array.isArray(args)) return {};
+  const out: DecideFields = { args, expectedOutcome, actualOutcome };
+  if (c.alternatives && c.alternatives.length > 0) {
+    const alts: NonNullable<DecideFields['alternatives']> = [];
+    for (const a of c.alternatives) {
+      if ('throws' in a) alts.push({ label: a.label, outcome: { throws: true } });
+      else {
+        const v = encodeCapped(a.value);
+        if (v !== undefined) alts.push({ label: a.label, outcome: { returns: v } });
+      }
+    }
+    if (alts.length > 0) out.alternatives = alts;
+  }
+  return out;
+}
+
+const NO_RAW = Symbol('no raw expected value');
 
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
 
@@ -603,7 +731,7 @@ export function propertiesSummary(
 }
 
 /** The check's "spec was silent" marker, as Diagnostic fields (absent keys when unset). */
-function silence(c: { silentOn?: string; reasonable?: string }): { silentOn?: string; reasonable?: string } {
+function silence(c: { silentOn?: string; reasonable?: string; alternatives?: unknown }): { silentOn?: string; reasonable?: string } {
   const out: { silentOn?: string; reasonable?: string } = {};
   if (c.silentOn !== undefined) out.silentOn = c.silentOn;
   if (c.reasonable !== undefined) out.reasonable = c.reasonable;

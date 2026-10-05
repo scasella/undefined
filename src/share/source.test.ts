@@ -72,8 +72,8 @@ describe('parseRecordingText', () => {
     if (!arr.ok) expect(arr.error).toMatch(/JSON array/);
     const num = parseRecordingText('42');
     if (!num.ok) expect(num.error).toMatch(/JSON number/);
-    const bad = parseRecordingText(JSON.stringify({ ...JSON.parse(MEDIAN), version: 3 }));
-    expect(bad).toEqual({ ok: false, error: 'This is not a valid recording: version must be 1 or 2 (got number 3).' });
+    const bad = parseRecordingText(JSON.stringify({ ...JSON.parse(MEDIAN), version: 4 }));
+    expect(bad).toEqual({ ok: false, error: 'This is not a valid recording: version must be 1, 2 or 3 (got number 4).' });
     const fmt = parseRecordingText('{"format":"something-else"}');
     if (!fmt.ok) expect(fmt.error).toMatch(/format must be "undefined-recording"/);
   });

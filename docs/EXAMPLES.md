@@ -42,8 +42,16 @@ Where the idealised story differs: the `median` rejection is the empty list (shr
 returning `1`, because this model gets the textbook cases right; and the fibonacci rejection is a slow-but-correct loop, not
 naive recursion, because the model never wrote the recursion.
 
+**Spec gap or candidate fault, and what a ruling does.** Of the first-candidate rejections measured live on 2026-10-04 and 05,
+`median` 7/7 and `slugify` 6/6 were spec gaps (the card says "the spec was silent"). `fibonacci` had 0 of 5, because
+its spec marks no gap. Taking a ruling through **Decide** reached a commit within the budget in 33 of 34 runs.
+Agreeing rulings re-certified in place; disagreeing ones (median `throws` or `0`, slugify's own answer) re-grew in one
+candidate. The one miss was an agreeing `slugify("Straße")` ruling, which could not settle the other three
+special-letter assertions. Protocol, tables and every session are in [DECIDE-MEASUREMENTS.md](DECIDE-MEASUREMENTS.md).
+
 ## Re-measuring
 
 `TUNE_N=8 TUNE_EX=median,slugify,fibonacci npx vitest run -c scripts/vitest.tune.config.ts` re-measures the rejection
 rates above against your own Codex login (results in `.tmp/tune-out.json`). `scripts/tune.tune.ts` samples the real model
-against the real gates.
+against the real gates. `node scripts/decide-sessions.mjs 8` re-measures the spec-gap split and the Decide flow
+(results in `.tmp/decide-sessions-out.json`; see [DECIDE-MEASUREMENTS.md](DECIDE-MEASUREMENTS.md)).

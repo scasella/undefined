@@ -5,6 +5,12 @@
 import { useState } from 'preact/hooks';
 import type { Engine, EngineState, Hash, Json } from '../../types';
 import { ejectBlocker, ejectZip } from '../../eject/eject';
+import { decisionsOf } from '../../decide/decisions';
+
+/** " (with 2 of your decisions)" when the spec holds decisions; empty otherwise. */
+function withDecisions(n: number): string {
+  return n === 0 ? '' : n === 1 ? ' (with your decision)' : ` (with ${n} of your decisions)`;
+}
 import { showNotice } from '../uiState';
 
 function downloadBytes(filename: string, bytes: Uint8Array, type: string): void {
@@ -33,7 +39,7 @@ export async function ejectFunction(engine: Engine, state: EngineState, fn: stri
     }
     const { filename, bytes } = ejectZip({ functions: [rec], datasets, datasetRefs: state.datasets, revisions: state.revisions, now: Date.now() });
     downloadBytes(filename, bytes, 'application/zip');
-    showNotice('info', `Downloaded ${filename}: ${fn}.ts, its tests for vitest + fast-check, provenance.json and a README.`);
+    showNotice('info', `Downloaded ${filename}: ${fn}.ts, its tests${withDecisions(decisionsOf(rec.spec).length)} for vitest + fast-check, provenance.json and a README.`);
   } catch (e) {
     showNotice('error', `Could not eject ${fn}: ${e instanceof Error ? e.message : String(e)}`);
   }
@@ -41,7 +47,9 @@ export async function ejectFunction(engine: Engine, state: EngineState, fn: stri
 
 export function EjectButton({ state, engine, fn }: { state: EngineState; engine: Engine; fn: string }) {
   const [busy, setBusy] = useState(false);
-  const blocker = ejectBlocker(state.program.functions[fn]);
+  const rec = state.program.functions[fn];
+  const blocker = ejectBlocker(rec);
+  const decided = rec ? decisionsOf(rec.spec).length : 0;
   return (
     <button
       type="button"
@@ -50,7 +58,7 @@ export function EjectButton({ state, engine, fn }: { state: EngineState; engine:
       title={
         blocker
           ? `Cannot eject: ${blocker}`
-          : `Download ${fn} as a zip: ${fn}.ts, ${fn}.test.ts (its tests, pins and properties for vitest + fast-check), provenance.json and a README`
+          : `Download ${fn} as a zip: ${fn}.ts, ${fn}.test.ts (its tests, pins and properties${decided ? `, and ${decided === 1 ? 'your decision' : `your ${decided} decisions`}` : ''} for vitest + fast-check), provenance.json${decided ? ' (which lists each decision)' : ''} and a README`
       }
       onClick={() => {
         setBusy(true);

@@ -1,7 +1,10 @@
 import { GATE_ORDER, type AttemptView, type Engine, type EngineState, type GateResult, type GenerationView } from '../../types';
 import { fmtMs, sentenceCase } from '../format';
 import { attribution, failingGate, gateAttempt, lastCallValue } from '../select';
-import { selection } from '../uiState';
+import { decideAnnouncement, decideOpen, selection } from '../uiState';
+import { useEffect } from 'preact/hooks';
+import { DecideBlock, RegrowNote } from './Decide';
+import { decidableAttempt, gapRefFor } from '../decide';
 import { CopyBlock, PanelHead, StatusIcon, statusWord } from './common';
 import { DiagnosticFacts, DiagnosticItem } from './Diagnostics';
 import { declineCopy, GATE_CAPTION, GATE_PLAIN, GATE_QUESTION, howFound, NOT_REACHED_TEXT, plainGateText, plainHeadline, rejectionClass, shortGateStatus, splitCall, whoDecided } from '../explain';
@@ -11,6 +14,8 @@ import { EjectButton } from './Eject';
 
 /** Under a re-check's headline: why a committed function is being rejected at all. */
 export const RECHECK_LINE = 'You added this check after the function was committed. The committed function fails it.';
+/** The same line when the re-check was of a decision the user made after the commit. */
+export const RECHECK_DECISION_LINE = 'You decided this after the function was committed. The committed function fails it.';
 
 const GATE_LABEL = { compile: 'Compile', tests: 'Tests', properties: 'Properties', invariants: 'Invariants' } as const;
 
@@ -84,9 +89,11 @@ function VerdictText({ text }: { text: string }) {
   );
 }
 
-function rowsFor(a: AttemptView | undefined): GateResult[] {
+function rowsFor(a: AttemptView | undefined, failed = false): GateResult[] {
   if (a && a.gates.length) return a.gates;
-  const aborted = a?.status === 'aborted';
+  // a grow that failed before any draft was asked for (replay with a decision no recording was checked against) has
+  // no attempt at all: nothing is waiting, nothing ran
+  const aborted = a?.status === 'aborted' || (!a && failed);
   return GATE_ORDER.map((gate) => ({
     gate,
     status: aborted ? ('skipped' as const) : ('pending' as const),
@@ -116,7 +123,50 @@ function DeclineCard({ a }: { a: AttemptView }) {
   );
 }
 
-function Headline({ gen, a, value }: { gen: GenerationView; a: AttemptView; value: string | null }) {
+/** The Decide block for a rejection whose check said the spec was silent: only once the grow (or re-check) is over. */
+function DecideFor({ gen, a, state, engine }: { gen: GenerationView; a: AttemptView; state?: EngineState; engine?: Engine }) {
+  if (!state || !engine || (gen.phase !== 'committed' && gen.phase !== 'failed') || gen.decision) return null;
+  const ref = gapRefFor(gen, a, state.program);
+  let q = ref ? engine.gapQuestion(ref) : null;
+  let used = ref;
+  // a stored candidate that no longer resolves (rolled back past it): the diagnostic itself still can
+  if (ref && !q && !('diagnostic' in ref)) {
+    const d = a.gates.find((g) => g.status === 'fail')?.diagnostics[0];
+    used = d ? { fn: gen.fn, diagnostic: d } : null;
+    q = used ? engine.gapQuestion(used) : null;
+  }
+  if (!used || !q) return null;
+  return <DecideBlock key={`${gen.id}:${a.attempt}`} engine={engine} state={state} gapRef={used} q={q} attempt={a.attempt} openKey={`${gen.id}:${a.attempt}`} inCard />;
+}
+
+/** Under an accepted verdict: the earlier rejection the spec was silent on, and a way to rule on it. */
+function SilentLine({ gen, state, engine }: { gen: GenerationView; state?: EngineState; engine?: Engine }) {
+  if (!state || !engine || gen.decision) return null;
+  const hit = decidableAttempt(gen, state.program, (r) => engine.gapQuestion(r));
+  if (!hit) return null;
+  const decided = !!hit.q.existing;
+  return (
+    <p class="silent-line">
+      <span>
+        {decided ? 'You decided what ' : 'The spec was silent on '}
+        <code>{hit.q.call}</code>
+        {decided ? ' should do.' : ` (draft #${hit.attempt.attempt}).`}
+      </span>
+      <button
+        type="button"
+        class="btn btn-ghost btn-xs silent-decide"
+        onClick={() => {
+          selection.value = { genId: gen.id, attempt: hit.attempt.attempt };
+          decideOpen.value = `${gen.id}:${hit.attempt.attempt}`;
+        }}
+      >
+        {decided ? 'Review the decision' : 'Decide'}
+      </button>
+    </p>
+  );
+}
+
+function Headline({ gen, a, value, state, engine }: { gen: GenerationView; a: AttemptView; value: string | null; state?: EngineState; engine?: Engine }) {
   if (a.candidate?.declined) return <DeclineCard a={a} />;
   const fail = failingGate(a.gates);
   if (fail) {
@@ -144,7 +194,7 @@ function Headline({ gen, a, value }: { gen: GenerationView; a: AttemptView; valu
         <p class="headline-text">
           <VerdictText text={headline} />
         </p>
-        {recheck && <p class="recheck-line">{RECHECK_LINE}</p>}
+        {recheck && <p class="recheck-line">{gen.recheck?.decision ? RECHECK_DECISION_LINE : RECHECK_LINE}</p>}
         <div class="who" aria-label="Who decided">
           {whoDecided(fail, a.attempt).map((line, i) => (
             <p key={i} class={i === 0 ? 'who-line' : 'who-line who-fair'}>
@@ -160,6 +210,7 @@ function Headline({ gen, a, value }: { gen: GenerationView; a: AttemptView; valu
             <p class="attribution">{attribution(first, fail.gate)}</p>
           </details>
         )}
+        <DecideFor gen={gen} a={a} state={state} engine={engine} />
       </article>
     );
   }
@@ -179,6 +230,7 @@ function Headline({ gen, a, value }: { gen: GenerationView; a: AttemptView; valu
             </span>
           )}
         </p>
+        {committed && <SilentLine gen={gen} state={state} engine={engine} />}
       </div>
     );
   }
@@ -192,6 +244,8 @@ function verdictAnnouncement(gen: GenerationView | null, a: AttemptView | undefi
   const fail = failingGate(a.gates);
   if (fail) {
     const h = fail.headline ?? a.candidate?.headline;
+    // a re-check judges the committed function (after a spec edit or a decision), not a new candidate
+    if (gen.kind === 'recheck') return `The committed ${gen.fn} failed ${GATE_LABEL[fail.gate]}${h ? `: ${plainHeadline(h)}` : '.'}`;
     return `Candidate ${a.attempt} rejected by ${GATE_LABEL[fail.gate]}${h ? `: ${plainHeadline(h)}` : '.'}`;
   }
   if (a.status === 'accepted' && gen.phase === 'committed' && gen.revision !== undefined) {
@@ -218,7 +272,7 @@ export function GatePanel({ gen, state, engine }: { gen: GenerationView | null; 
   // after a commit (never before): what ran against the committed function, and the checks that could still be added
   const committed = state && a?.status === 'accepted' ? committedArtifact(gen, state.program) : undefined;
   const checksFor = state && engine && gen && (committed || recheck) ? gen.fn : null;
-  const rows = rowsFor(a);
+  const rows = rowsFor(a, gen?.phase === 'failed');
   const failing = a ? failingGate(a.gates) : undefined;
   const diags = a ? a.gates.filter((g) => g.diagnostics.length > 0) : [];
   const declined = !!a?.candidate?.declined;
@@ -227,12 +281,18 @@ export function GatePanel({ gen, state, engine }: { gen: GenerationView | null; 
   const value = state && a?.status === 'accepted' && gen?.phase === 'committed' ? lastCallValue(state.repl) : null;
   const hs = headStatus(gen, a);
   const idle = !gen;
+  // the one announcer: a decision in progress speaks through it; moving to another generation clears that
+  const genId = gen?.id;
+  useEffect(() => {
+    decideAnnouncement.value = null;
+  }, [genId]);
+  const decisionGone = !!gen?.decision && !!state && !(state.program.functions[gen.fn]?.spec.decisions ?? []).some((d) => d.id === gen.decision!.id);
 
   return (
     <section class="panel panel-gates" aria-labelledby="h-checks" data-verdict={failing ? 'fail' : a?.status === 'accepted' ? 'pass' : 'none'}>
       <PanelHead title="Checks" id="h-checks" status={hs?.word} tone={hs?.tone} />
       <p class="sr-only" role="status">
-        {verdictAnnouncement(gen, a, value)}
+        {decideAnnouncement.value ?? verdictAnnouncement(gen, a, value)}
       </p>
       <div class="panel-body gates-body">
         {gen?.ungated && !gen.declined && (
@@ -249,8 +309,9 @@ export function GatePanel({ gen, state, engine }: { gen: GenerationView | null; 
           ))}
         </ol>
 
+        {gen?.decision && gen.phase !== 'failed' && state && engine && <RegrowNote gen={gen} state={state} engine={engine} />}
         <div class="verdict">
-          {gen?.error ? (
+          {gen?.error && decisionGone ? null : gen?.error ? (
             <div class="headline headline-error" role="alert">
               <p class="headline-gate">
                 <span aria-hidden="true">! </span>The model could not be asked · <span class="mono-inline">{gen.error.code}</span>
@@ -275,8 +336,9 @@ export function GatePanel({ gen, state, engine }: { gen: GenerationView | null; 
               </p>
             )
           )}
-          {gen && a && <Headline gen={gen} a={a} value={value} />}
+          {gen && a && <Headline gen={gen} a={a} value={value} state={state} engine={engine} />}
         </div>
+        {gen?.decision && gen.phase === 'failed' && state && engine && <RegrowNote gen={gen} state={state} engine={engine} />}
         {committed && gen && <Confidence a={committed} fn={gen.fn} mutation={state?.mutation} />}
         {committed && gen && state && engine && gen.phase === 'committed' && (
           <p class="eject-row">

@@ -1590,13 +1590,6 @@ code.tick {
   font-size: var(--t-code);
   color: var(--ink);
 }
-.fact-good code {
-  font-weight: 600;
-}
-.fact-bad code {
-  color: var(--red) !important;
-  font-weight: 500;
-}
 
 .how {
   margin-top: var(--s2);
@@ -3804,4 +3797,369 @@ html:has(dialog[open]) {
   margin: var(--s2) 0 0;
   display: flex;
   justify-content: flex-start;
+}
+
+/* ── Decide: a spec gap becomes a question (src/ui/components/Decide.tsx) ──
+   Collapsed at the foot of the rejection card so the verdict stays the hero; opens into a form with one primary
+   action. Ink and rules only: the red pen still means "rejected" and nothing else. */
+.decide {
+  margin-top: var(--s4);
+  border-top: 1px solid var(--rule-2);
+  padding-top: var(--s2);
+}
+.decide-summary {
+  cursor: pointer;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 6px;
+  padding: 6px 0;
+  font-size: var(--t-meta);
+  font-weight: 600;
+  color: var(--ink);
+  list-style: none;
+}
+.decide-summary::-webkit-details-marker {
+  display: none;
+}
+.decide-summary::before {
+  content: '▸';
+  color: var(--muted);
+  font-weight: 400;
+  width: 1em;
+}
+.decide[open] > .decide-summary::before {
+  content: '▾';
+}
+.decide-summary:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--edge);
+  text-underline-offset: 3px;
+}
+.decide-summary code,
+.decide code {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.decide-mark {
+  color: var(--ok);
+}
+.decide-body {
+  padding: var(--s1) 0 var(--s2) 1em;
+  max-width: 66ch;
+}
+.decide-q {
+  margin: var(--s1) 0 0;
+  font-size: var(--t-md);
+  color: var(--ink);
+}
+.decide-facts {
+  margin-top: var(--s2);
+}
+.decide-existing {
+  margin: var(--s2) 0 0;
+  font-size: var(--t-meta);
+  color: var(--ink-2);
+}
+.decide-choices {
+  margin: var(--s4) 0 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.decide-choices legend {
+  padding: 0;
+  margin-bottom: var(--s1);
+  font-size: var(--t-meta);
+  font-weight: 600;
+  color: var(--ink);
+}
+.decide-alt {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s2);
+  min-height: 36px;
+  padding: 6px var(--s2);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background-color var(--t-hover) ease-out;
+}
+.decide-alt:hover:not(.is-disabled) {
+  background: var(--sheet);
+}
+.decide-alt.is-checked {
+  background: var(--sheet);
+  box-shadow: inset 2px 0 0 var(--ink);
+}
+.decide-alt.is-disabled {
+  cursor: not-allowed;
+  color: var(--muted);
+}
+.decide-alt input[type='radio'] {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  accent-color: var(--ink);
+}
+.decide-alt input[type='radio']:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.alt-text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--s2);
+  min-width: 0;
+}
+.alt-ruling {
+  font-size: var(--t-md);
+}
+.alt-ruling code {
+  font-size: var(--t-code);
+}
+.alt-tag {
+  font-size: var(--t-sm);
+  color: var(--muted);
+}
+.alt-why {
+  flex-basis: 100%;
+  font-size: var(--t-sm);
+  color: var(--muted);
+}
+.decide-custom {
+  display: grid;
+  gap: 6px;
+  margin: 2px 0 var(--s1) calc(18px + var(--s2) + var(--s2));
+}
+.decide-label {
+  font-size: var(--t-sm);
+  font-weight: 500;
+  color: var(--ink-2);
+}
+.decide-custom input.mono,
+.decide-reason input {
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 10px;
+  background: var(--raised);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius);
+}
+.decide-custom input[aria-invalid='true'] {
+  border-color: var(--red);
+}
+.decide-throws {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  font-size: var(--t-sm);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.decide-eval {
+  margin: 0;
+  font-size: var(--t-sm);
+  color: var(--muted);
+}
+.decide-eval code {
+  color: var(--ink);
+}
+.decide-eval.form-error {
+  color: var(--ink);
+}
+.decide-preview {
+  margin: var(--s4) 0 0;
+  padding: var(--s2) 12px;
+  border-left: 2px solid var(--ink);
+  background: var(--sheet);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+.decide-adds {
+  margin: 0;
+  font-family: var(--font-code);
+  font-size: var(--t-sm);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.decide-then {
+  margin: 6px 0 0;
+  font-size: var(--t-meta);
+  color: var(--ink-2);
+}
+.decide-live {
+  margin: var(--s2) 0 0;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  background: var(--warn-wash);
+  font-size: var(--t-meta);
+  color: var(--ink);
+}
+.decide-source summary,
+.decision-source summary {
+  cursor: pointer;
+  padding: 6px 0 2px;
+  font-size: var(--t-sm);
+  font-weight: 500;
+  color: var(--muted);
+}
+.decide-source summary:hover,
+.decision-source summary:hover {
+  color: var(--ink);
+}
+.decide-source pre,
+.decision-source pre {
+  margin: 4px 0 0;
+  padding: var(--s2) 12px;
+  background: var(--inset);
+  border-radius: var(--radius);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.decide-reason {
+  display: grid;
+  gap: 4px;
+  margin-top: var(--s4);
+}
+.decide-actions {
+  margin-top: var(--s4);
+}
+.decide-outcome {
+  margin-top: var(--s4);
+  padding: var(--s2) 12px;
+  border-left: 3px solid var(--ok);
+  background: var(--ok-wash);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+.decide-outcome p {
+  margin: 2px 0;
+}
+.decide-outcome-head {
+  font-weight: 600;
+  color: var(--ok);
+}
+/* the line under an accepted verdict that leads back to a silent rejection */
+.silent-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 var(--s2);
+  margin: var(--s2) 0 0;
+  font-size: var(--t-meta);
+  color: var(--muted);
+}
+.silent-line code {
+  color: var(--ink-2);
+}
+.silent-decide {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  font-size: var(--t-meta);
+}
+/* re-growing against a decision, and the ways out when replay cannot */
+.decide-banner {
+  margin: var(--s4) 0 0;
+  padding: var(--s2) var(--s4);
+  border-left: 3px solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--sheet);
+  font-size: var(--t-md);
+}
+.decide-banner p {
+  margin: 0;
+}
+.decide-banner .form-actions {
+  margin-top: var(--s2);
+}
+.decide-banner .muted.small {
+  margin-top: var(--s2);
+}
+.decide-stuck {
+  border-left-color: var(--warn);
+  background: var(--warn-wash);
+}
+/* Repo: Decisions under the spec */
+.decisions {
+  margin-top: var(--s4);
+}
+.decisions h4 {
+  margin: 0 0 var(--s1);
+  font-size: var(--t-md);
+  font-weight: 600;
+  color: var(--ink);
+}
+.decisions > p {
+  margin: 0 0 var(--s2);
+}
+.decisions ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.decision {
+  padding: var(--s2) 0;
+}
+.decision + .decision {
+  border-top: 1px solid var(--rule);
+}
+.decision p {
+  margin: 0;
+}
+.decision-head code {
+  font-size: var(--t-sm);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.decision-note {
+  font-size: var(--t-meta);
+  color: var(--ink-2);
+}
+.decision-actions {
+  margin-top: 2px !important;
+}
+.decision-confirm {
+  margin-top: var(--s2);
+  padding: var(--s2) 12px;
+  border-radius: var(--radius);
+  background: var(--inset);
+}
+.decision-confirm code {
+  overflow-wrap: anywhere;
+}
+.hist .decide {
+  margin-top: var(--s2);
+}
+
+@media (max-width: 640px) {
+  .decide-summary {
+    min-height: 44px;
+    align-items: center;
+  }
+  .decide-body {
+    padding-left: 0;
+  }
+  .decide-alt {
+    min-height: 44px;
+    align-items: center;
+    padding: 8px var(--s2);
+  }
+  .decide-custom {
+    margin-left: 0;
+  }
+  .decide-custom input.mono,
+  .decide-reason input {
+    min-height: 44px;
+    font-size: 16px;
+  }
+  .decide-throws {
+    min-height: 44px;
+  }
+  .decide-confirm {
+    width: 100%;
+  }
+  .decide-source summary,
+  .decision-source summary {
+    padding: 12px 0;
+  }
 }

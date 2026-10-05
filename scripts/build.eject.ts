@@ -7,6 +7,10 @@
  *
  * The orders sessions have no checks at all, so each is also ejected once more with one pinned result (the
  * function's own output on the bundled rows, as "Pin as test" would record it) to exercise pins over a dataset.
+ *
+ * median is also ejected once more with a WAIVING decision (docs/DECIDE-DESIGN.md §6.4): the user ruled that
+ * median([]) throws, which replaces the reference property on the empty list, and the committed body is the example's
+ * throws-on-empty body. The ejected test file must apply the same waiver as the app (and pass).
  */
 import { describe, expect, it } from 'vitest';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -18,8 +22,10 @@ import { gateSeed, hashesFor } from '../src/shared/hash';
 import { decodeValue, encodeValue } from '../src/shared/serialize';
 import { listTestNames } from '../src/shared/specInfo';
 import { ejectFiles, ejectZip } from '../src/eject/eject';
+import { buildDecision, effectiveChecks } from '../src/decide/decisions';
+import { EXAMPLES } from '../src/examples';
 import { unzipStore } from '../src/eject/zip';
-import type { Artifact, Candidate, FunctionRecord, FunctionSpec, Pin, Recording, RecordedSession } from '../src/types';
+import type { Artifact, Candidate, Decision, FunctionRecord, FunctionSpec, Pin, Recording, RecordedSession } from '../src/types';
 
 const ROOT = join(import.meta.dirname, '..');
 const OUT = join(ROOT, '.tmp', 'eject-check', 'out');
@@ -37,6 +43,8 @@ interface ManifestRow {
   unitTests: number;
   pinned: number;
   properties: number;
+  /** Tests vitest reports as skipped (unit tests a decision replaced). */
+  skipped: number;
   gates: string;
 }
 const manifest: ManifestRow[] = [];
@@ -47,12 +55,21 @@ function userJs(src: string): string {
   return out.js;
 }
 
-async function build(label: string, rec: Recording, session: RecordedSession, withPin: boolean): Promise<void> {
-  const spec: FunctionSpec = { ...session.spec! };
+type Decided = { body: string; decision: (at: number) => Decision };
+
+async function build(label: string, rec: Recording, session: RecordedSession, withPin: boolean, decided?: Decided): Promise<void> {
+  let spec: FunctionSpec = { ...session.spec! };
+  const recorded = await hashesFor(spec);
+  expect(recorded, `${label}: the recording's hashes match its spec`).toEqual({ specHash: session.specHash, testsHash: session.testsHash });
+  if (decided) {
+    const d = decided.decision(Date.parse(rec.recordedAt));
+    expect(d.waives).toBe(true);
+    spec = { ...spec, decisions: [d] };
+  }
   const hashes = await hashesFor(spec);
-  expect(hashes, `${label}: the recording's hashes match its spec`).toEqual({ specHash: session.specHash, testsHash: session.testsHash });
   const last = session.attempts[session.attempts.length - 1]!;
-  const compiled = await compileCandidate(spec, last.body);
+  const body = decided ? decided.body : last.body;
+  const compiled = await compileCandidate(spec, body);
   expect(compiled.gate.status, `${label}: the committed body compiles`).toBe('pass');
 
   const datasets = session.datasets ?? {};
@@ -74,15 +91,17 @@ async function build(label: string, rec: Recording, session: RecordedSession, wi
     args: p.args.map((a) => (a.kind === 'dataset' ? decodeValue(datasets[a.hash]!) : decodeValue(a.encoded))),
     expected: decodeValue(p.expected),
   }));
+  const eff = effectiveChecks(spec);
   const gates = executeGates(
     {
       name: spec.name,
       js: compiled.js!,
-      testsJs: userJs(spec.tests),
-      propertiesJs: userJs(spec.properties),
+      testsJs: userJs(eff.tests),
+      propertiesJs: userJs(eff.properties),
       budgetMs: spec.budgetMs,
       seed: gateSeed(hashes.specHash, hashes.testsHash),
       pinned,
+      ...(eff.waived.length > 0 ? { waived: eff.waived } : {}),
     },
     { phase: () => {}, enter: () => {}, leave: () => {} },
   );
@@ -105,7 +124,7 @@ async function build(label: string, rec: Recording, session: RecordedSession, wi
     };
   });
   const artifact: Artifact = {
-    body: last.body,
+    body,
     source: compiled.source,
     js: compiled.js!,
     returnType: compiled.returnType,
@@ -116,7 +135,7 @@ async function build(label: string, rec: Recording, session: RecordedSession, wi
     committedAt: Date.parse(rec.recordedAt),
     candidates,
     revision: 2,
-    evidence: { compiled: true, ...evidenceFrom(gates) },
+    evidence: { compiled: true, ...evidenceFrom(gates), ...(spec.decisions ? { decisions: spec.decisions.length } : {}) },
   };
   const record: FunctionRecord = { spec, ...hashes, artifact };
   const input = { functions: [record], datasets, datasetRefs: session.datasetRefs, now: Date.parse(rec.recordedAt), versions };
@@ -130,15 +149,51 @@ async function build(label: string, rec: Recording, session: RecordedSession, wi
   mkdirSync(dir, { recursive: true });
   for (const f of files) writeFileSync(join(dir, f.path), f.text);
   writeFileSync(join(OUT, `${label}.zip`), zip.bytes);
+  // unit tests a decision replaced are skipped (not run); the waived property here has a `when`, so it still runs
+  const skipped = eff.waived.filter((w) => w.kind === 'test').length;
   manifest.push({
     label,
     fn: spec.name,
-    unitTests: listTestNames(spec.tests).length,
+    unitTests: listTestNames(eff.tests).length - skipped,
     pinned: spec.pins?.length ?? 0,
-    properties: listTestNames(spec.properties).length,
+    properties: listTestNames(eff.properties).length,
+    skipped,
     gates: gates.map((g) => `${g.gate}:${g.status}`).join(' '),
   });
 }
+
+/** One waiving decision per example that has a "spec was silent" gap, with the example's body that satisfies it. */
+const DECIDED: Record<string, Decided> = {
+  // the user ruled median([]) throws: the reference property is waived on the empty list (it has a `when`)
+  median: {
+    body: EXAMPLES.find((e) => e.id === 'median')!.badBodies.find((b) => b.silentOn)!.body,
+    decision: (at) =>
+      buildDecision({
+        fn: 'median',
+        kind: 'empty',
+        args: [[]],
+        ruling: { kind: 'outcome', outcome: { throws: true } },
+        answers: { check: 'agrees with a sort-based reference', checkKind: 'property', silentOn: 'what the median of nothing is', gate: 'properties' },
+        expected: { returns: encodeValue(NaN) },
+        decidedAt: at,
+        reason: 'an empty list is a caller bug here',
+      }),
+  },
+  // the user ruled an apostrophe splits a word: the unit test "apostrophes" is replaced (skipped in the eject)
+  slugify: {
+    body: EXAMPLES.find((e) => e.id === 'slugify')!.badBodies.find((b) => b.silentOn === 'whether an apostrophe splits a word')!.body,
+    decision: (at) =>
+      buildDecision({
+        fn: 'slugify',
+        kind: 'symbols',
+        args: ["Don't Stop"],
+        ruling: { kind: 'outcome', outcome: { returns: 'don-t-stop' } },
+        answers: { check: 'apostrophes', checkKind: 'test', silentOn: 'whether an apostrophe splits a word', gate: 'tests' },
+        expected: { returns: 'dont-stop' },
+        decidedAt: at,
+      }),
+  },
+};
 
 describe('eject the shipped recordings', () => {
   rmSync(OUT, { recursive: true, force: true });
@@ -149,6 +204,7 @@ describe('eject the shipped recordings', () => {
       const label = i === 0 ? id : `${id}-broken`;
       it(label, () => build(label, rec, session, false));
       if (id === 'orders') it(`${label}+pin`, () => build(`${label}+pin`, rec, session, true));
+      if (i === 0 && DECIDED[id]) it(`${label}+decided`, () => build(`${label}+decided`, rec, session, false, DECIDED[id]));
     });
   }
   it('writes the manifest', () => {

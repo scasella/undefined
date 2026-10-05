@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import type { AttemptStatus, EngineState } from '../../types';
-import { codeAttempt, compileMarks, latestCommitted, signatureOf } from '../select';
+import { codeAttempt, committedChip, compileMarks, latestCommitted, signatureOf } from '../select';
 import { selection } from '../uiState';
 import { CodeView } from './CodeView';
 import { PanelHead } from './common';
@@ -118,6 +118,7 @@ export function CodePane({ state }: { state: EngineState }) {
       </section>
     );
   }
+  const chip = committedChip(rec)!;
   return (
     <CodePanel
       genId={null}
@@ -125,8 +126,8 @@ export function CodePane({ state }: { state: EngineState }) {
       head={
         <>
           <code class="code-what">{rec.spec.name}</code>
-          <span class="chip st-accepted" title="Written by the model, accepted by the checks. Read-only.">
-            Certified r{rec.artifact.revision}
+          <span class={`chip ${chip.cls}`} title={chip.title}>
+            {chip.label}
           </span>
         </>
       }

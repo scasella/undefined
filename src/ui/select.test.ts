@@ -5,6 +5,7 @@ import {
   attribution,
   chipText,
   codeAttempt,
+  committedChip,
   compileMarks,
   draftOf,
   failingGate,
@@ -178,5 +179,18 @@ describe('lastCallValue and calledName', () => {
     expect(calledName('  top = topCustomersByRevenue(rows)')).toBe('topCustomersByRevenue');
     expect(calledName('1 + 2')).toBeNull();
     expect(calledName('')).toBeNull();
+  });
+});
+
+describe('committedChip', () => {
+  const rec = (testsHash: string) => ({ specHash: 's', testsHash, artifact: { specHash: 's', testsHash: 't', revision: 2 } }) as never;
+  it('says Certified only while the spec and tests are the ones it passed', () => {
+    expect(committedChip(rec('t'))).toMatchObject({ label: 'Certified r2', cls: 'st-accepted' });
+  });
+  it('says Out of date after a decision (or edit) changed the tests', () => {
+    expect(committedChip(rec('t2'))).toMatchObject({ label: 'Out of date (r2)', cls: 'fs-stale' });
+  });
+  it('has no chip without an artifact', () => {
+    expect(committedChip({ specHash: 's', testsHash: 't', artifact: null } as never)).toBeNull();
   });
 });

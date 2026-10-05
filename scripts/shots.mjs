@@ -60,6 +60,11 @@ const FIXTURES = {
   cached: { fixture: 'cached' },
   'recording-loaded': { fixture: 'recording-loaded' },
   'repo-stale': { fixture: 'repo-stale', element: '.lower', scrollTo: '.lower' },
+  // Decide: a spec gap becomes a question (src/ui/components/Decide.tsx)
+  'decide-open': { fixture: 'decide-open', element: '.headline-fail' },
+  'decide-custom': { fixture: 'decide-custom', element: '.headline-fail' },
+  'decide-needs-live': { fixture: 'decide-needs-live', element: '.panel-gates' },
+  'decision-applied': { fixture: 'decision-applied', element: '.decisions', scrollTo: '.decisions' },
   'image-menu': { fixture: 'committed', prep: async (page) => { await page.locator('.menu summary').click(); await page.waitForTimeout(300); } },
 };
 
@@ -91,8 +96,8 @@ async function measure(page, origin, label, extra = {}) {
         const r = el.getBoundingClientRect();
         if (r.width === 0 || r.height === 0) continue;
         if (el.closest('dialog:not([open])')) continue;
-        // a checkbox inside its <label> is hit through the label; text inputs and textareas are tall enough by content
-        if (el.matches('input[type=checkbox]') && el.closest('label')) continue;
+        // a checkbox or radio inside its <label> is hit through the label; text inputs and textareas are tall enough by content
+        if (el.matches('input[type=checkbox], input[type=radio]') && el.closest('label')) continue;
         if (r.height < 43.5) small.push(`${el.tagName.toLowerCase()}.${[...el.classList].join('.')} ${Math.round(r.width)}x${Math.round(r.height)}`);
       }
       out.smallTargets = [...new Set(small)].slice(0, 12);

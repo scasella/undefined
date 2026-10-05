@@ -1,5 +1,6 @@
-import type { Declined, Diagnostic, FunctionSpec, GateId, GateResult } from '../types';
+import type { Decision, Declined, Diagnostic, FunctionSpec, GateId, GateResult } from '../types';
 import { testNamesOf } from './specInfo';
+import { decisionPromptLine, effectiveChecks } from '../decide/decisions';
 
 /**
  * The prompt the model reads. The model is a Codex *agent*, so the hard rules (no commands, no files, no tools,
@@ -21,6 +22,11 @@ export interface PromptInput {
    * prompt any other way.
    */
   dataSamples?: Array<{ name: string; typeName: string; rowCount: number; sampleText?: string }>;
+  /**
+   * A re-grow after the user ruled on a spec gap and the previously accepted body failed the re-check: that body and
+   * what the re-check reported (shown in a RULING section; not a history entry, since it was not a model candidate).
+   */
+  ruling?: { body: string; gates: GateResult[]; decision: Decision };
 }
 
 export function declarationLine(spec: FunctionSpec, opts: { forceInferredReturn?: string } = {}): string {
@@ -80,6 +86,13 @@ export function buildPrompt(input: PromptInput): string {
   const doc = spec.doc.trim();
   sections.push(['CONTRACT (the doc; follow it exactly)', doc === '' ? '(no doc was written; infer intent from the name and types)' : doc].join('\n'));
 
+  const decisions = spec.decisions ?? [];
+  if (decisions.length > 0) {
+    sections.push(
+      ['DECISIONS (cases the doc did not cover; the user ruled on each; follow them exactly)', ...decisions.map((d) => decisionPromptLine(spec.name, d))].join('\n'),
+    );
+  }
+
   sections.push(checksSection(spec));
 
   const samplesShown = (input.dataSamples ?? []).some((d) => d.sampleText !== undefined);
@@ -100,6 +113,7 @@ export function buildPrompt(input: PromptInput): string {
   sections.push(honestySection(spec));
 
   if (input.runtimeFault) sections.push(runtimeFaultSection(input.runtimeFault));
+  if (input.ruling) sections.push(rulingSection(spec.name, input.ruling));
   if (input.history.length > 0) sections.push(historySection(input.history));
 
   sections.push(
@@ -176,7 +190,15 @@ export function dataSection(d: NonNullable<PromptInput['dataSamples']>[number]):
 }
 
 function checksSection(spec: FunctionSpec): string {
-  const { tests, properties } = testNamesOf(spec);
+  // the effective checks: the spec's own plus the decisions' generated ones; a check a decision replaced is marked
+  const eff = effectiveChecks(spec);
+  const { tests, properties } = testNamesOf(eff);
+  const replaced = (kind: 'test' | 'property', name: string): string =>
+    eff.waived.some((w) => w.kind === kind && w.name === name)
+      ? kind === 'test'
+        ? ' (replaced by a decision above)'
+        : ' (replaced by a decision above where the doc was silent)'
+      : '';
   if (tests.length === 0 && properties.length === 0) {
     return [
       'CHECKS',
@@ -186,13 +208,13 @@ function checksSection(spec: FunctionSpec): string {
   const lines = ['CHECKS', 'These checks will be run against your function (bodies are hidden):'];
   if (tests.length > 0) {
     lines.push('Unit tests:');
-    for (const t of tests) lines.push(`- ${quoteName(t)}`);
+    for (const t of tests) lines.push(`- ${quoteName(t)}${replaced('test', t)}`);
   } else {
     lines.push('Unit tests: none.');
   }
   if (properties.length > 0) {
     lines.push('Properties (fast-check generates many inputs, including edge cases):');
-    for (const p of properties) lines.push(`- ${quoteName(p)}`);
+    for (const p of properties) lines.push(`- ${quoteName(p)}${replaced('property', p)}`);
   } else {
     lines.push('Properties: none.');
   }
@@ -208,6 +230,18 @@ function runtimeFaultSection(f: NonNullable<PromptInput['runtimeFault']>): strin
     'The previous body:',
     fenced(f.previousBody),
     'It passed every check, so the checks do not cover this case. Write a corrected body that handles this call correctly per the contract (return the right value, or throw a meaningful Error only if the contract says the input is invalid), and keep the behaviour that already worked.',
+  ].join('\n');
+}
+
+function rulingSection(fn: string, r: NonNullable<PromptInput['ruling']>): string {
+  return [
+    'RULING',
+    `The user ruled on a case the doc did not cover: ${decisionPromptLine(fn, r.decision).replace(/^- /, '')}`,
+    'The previously accepted body:',
+    fenced(r.body),
+    'It fails that ruling. What the checks reported:',
+    formatDiagnosticsForModel(r.gates),
+    'Write a body that follows the ruling and keeps the behaviour that already passed.',
   ].join('\n');
 }
 

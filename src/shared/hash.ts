@@ -3,6 +3,8 @@
  * origin and exampleId are deliberately excluded, so editing them never makes an artifact stale.
  * `typeDecls` is part of the spec's meaning, but it is appended to the hashed array ONLY when non-empty, so every
  * spec without it hashes exactly as it did before the field existed. Pins are deliberately outside both hashes.
+ * `decisions` follow the same rule in testsHash: appended ONLY when non-empty, and only what changes a verdict is
+ * hashed (placement, the stored test source, the waiver), never the id, the date, the label or the reason.
  */
 import type { FunctionSpec, Hash } from '../types';
 
@@ -18,7 +20,11 @@ export function specHash(spec: FunctionSpec): Promise<Hash> {
 }
 
 export function testsHash(spec: FunctionSpec): Promise<Hash> {
-  return sha256Hex(JSON.stringify([spec.tests, spec.properties]));
+  const fields: unknown[] = [spec.tests, spec.properties];
+  if (spec.decisions && spec.decisions.length > 0) {
+    fields.push(spec.decisions.map((d) => [d.placement, d.test, d.waives ? [d.answers.checkKind, d.answers.check] : null]));
+  }
+  return sha256Hex(JSON.stringify(fields));
 }
 
 export async function hashesFor(spec: FunctionSpec): Promise<{ specHash: Hash; testsHash: Hash }> {

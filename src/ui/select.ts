@@ -122,6 +122,16 @@ export function functionStatus(rec: FunctionRecord): FunctionStatus {
   return { kind: 'certified', revision: a.revision };
 }
 
+/** The Draft pane's chip for the last committed function: never "Certified" once its spec or tests changed. */
+export function committedChip(rec: FunctionRecord): { label: string; cls: string; title: string } | null {
+  const s = functionStatus(rec);
+  if (s.kind === 'none') return null;
+  const rev = rec.artifact!.revision;
+  return s.kind === 'stale'
+    ? { label: `Out of date (r${rev})`, cls: 'fs-stale', title: `Accepted at r${rev}; its ${s.what} changed since, so it is written again on its next call.` }
+    : { label: `Certified r${rev}`, cls: 'st-accepted', title: 'Written by the model, accepted by the checks. Read-only.' };
+}
+
 export function functionStatusText(s: FunctionStatus): string {
   switch (s.kind) {
     case 'certified':
