@@ -3,7 +3,7 @@ import type { DatasetRef } from '@scasella/undefined-engine/types';
 import { buildDataset } from '../../data/dataset';
 import { suggestCalls } from '../../data/suggest';
 import type { DataRow } from './figures';
-import { DEFAULT_QUESTION_ID, questionFromWhat, suggestedQuestions } from './questions';
+import { customQuestion, customSpec, DEFAULT_QUESTION_ID, fnNameFor, questionFromWhat, suggestedQuestions } from './questions';
 import { sampleFile, sampleIdFor, type SampleId } from './samples';
 
 async function bound(id: SampleId): Promise<{ ref: DatasetRef; rows: DataRow[] }> {
@@ -64,5 +64,36 @@ describe('suggested questions', () => {
     expect(questionFromWhat('the five customer values with the highest amount')).toBe('What are the five customer values with the highest amount?');
     expect(questionFromWhat('the mean of amount')).toBe('What is the mean of amount?');
     expect(questionFromWhat('the earliest and latest orderDate')).toBe('What are the earliest and latest orderDate?');
+  });
+});
+
+describe('typed questions', () => {
+  it('names the function after the first words', () => {
+    expect(fnNameFor('How many orders were refunded?')).toBe('howManyOrdersWereRefunded');
+    expect(fnNameFor('  what is the 2nd biggest order, ever, by far?! ')).toBe('whatIsThe2ndBiggestOrder');
+    expect(fnNameFor('42 things')).toBe('question42Things');
+    expect(fnNameFor('¿Cuántos?')).toBe('cuantos');
+    expect(fnNameFor('???')).toBe('customQuestion');
+  });
+  it('builds a call on the bound table, avoiding names already taken', () => {
+    const q = customQuestion('How many orders were refunded?', { name: 'rows' }, (fn) => fn === 'howManyOrdersWereRefunded')!;
+    expect(q.fn).toBe('howManyOrdersWereRefunded2');
+    expect(q.call).toBe('howManyOrdersWereRefunded2(rows)');
+    expect(q.level).toBe('basic');
+    expect(q.doc).toBe('How many orders were refunded?');
+  });
+  it('refuses empty or tiny text and caps long text', () => {
+    expect(customQuestion('  ', { name: 'rows' })).toBeNull();
+    expect(customQuestion('hi', { name: 'rows' })).toBeNull();
+    expect(customQuestion('x'.repeat(1000), { name: 'rows' })!.text.length).toBe(300);
+  });
+  it('gives the model the words as the contract, with no checks of its own', () => {
+    const q = customQuestion('How many orders were refunded?', { name: 'rows' })!;
+    const spec = customSpec(q, { name: 'rows', typeName: 'Row', typeDecl: 'type Row = { a: number };' });
+    expect(spec.doc).toContain('How many orders were refunded?');
+    expect(spec.params).toEqual([{ name: 'rows', type: 'Row[]' }]);
+    expect(spec.tests).toBe('');
+    expect(spec.properties).toBe('');
+    expect(spec.typeDecls).toContain('type Row');
   });
 });

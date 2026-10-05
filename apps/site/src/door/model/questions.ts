@@ -6,7 +6,7 @@
  * the static default: the first-run session (start/session.ts) replaces it with what will really run (in the replay
  * demo the seed is only installed when a recording for it is bundled).
  */
-import type { DatasetRef } from '@scasella/undefined-engine/types';
+import type { DatasetRef, FunctionSpec } from '@scasella/undefined-engine/types';
 import { suggestCalls } from '../../data/suggest';
 import { seedAgreement } from './agreements';
 import type { DataRow } from './figures';
@@ -24,6 +24,8 @@ export interface SuggestedQuestion {
   call: string;
   fn: string;
   level: CheckLevel;
+  /** A question the viewer typed: the plain words the model is given as the function's contract. */
+  doc?: string;
 }
 
 interface Picked {
@@ -86,4 +88,42 @@ export function suggestedQuestions(dataset: DatasetRef, rows: readonly DataRow[]
     fn: s.fn,
     level: level(s.fn),
   }));
+}
+
+// ───────────── typed questions ─────────────
+
+export const CUSTOM_MAX = 300;
+
+/** `How many orders were refunded?` → `howManyOrdersWereRefunded` (≤ 6 words, ASCII letters and digits; else `customQuestion`). */
+export function fnNameFor(text: string): string {
+  const words = (text.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').match(/[A-Za-z0-9]+/g) ?? []).slice(0, 6);
+  const camel = words.map((w, i) => (i === 0 ? w.toLowerCase() : capitalize(w.toLowerCase()))).join('');
+  const name = /^[a-z]/.test(camel) ? camel : camel ? `question${capitalize(camel)}` : 'customQuestion';
+  return name.slice(0, 48);
+}
+
+/** The viewer's own question as a REPL call on the bound table. `taken(fn)` says a function of that name means another question. */
+export function customQuestion(text: string, dataset: Pick<DatasetRef, 'name'>, taken: (fn: string) => boolean = () => false): SuggestedQuestion | null {
+  const t = text.trim().replace(/\s+/g, ' ').slice(0, CUSTOM_MAX);
+  if (t.length < 3) return null;
+  const base = fnNameFor(t);
+  let fn = base;
+  for (let n = 2; taken(fn) && n < 50; n++) fn = `${base}${n}`;
+  return { id: `own:${fn}`, label: t, text: t, call: `${fn}(${dataset.name})`, fn, level: 'basic', doc: t };
+}
+
+/** The contract the model reads for a typed question: no checks of its own, so it is held to the basic ones. */
+export function customSpec(q: SuggestedQuestion, dataset: Pick<DatasetRef, 'name' | 'typeName' | 'typeDecl'>): FunctionSpec {
+  return {
+    name: q.fn,
+    params: [{ name: dataset.name, type: `${dataset.typeName}[]` }],
+    returns: null,
+    doc: `Answer this question about the table: ${q.doc ?? q.text}`,
+    tests: '',
+    properties: '',
+    budgetMs: 1000,
+    maxAttempts: 3,
+    origin: 'user',
+    ...(dataset.typeDecl.trim() !== '' ? { typeDecls: dataset.typeDecl } : {}),
+  };
 }

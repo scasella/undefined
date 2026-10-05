@@ -110,6 +110,12 @@ export function previewCellsFor(columns: readonly SampleColumn[], rows: readonly
   return rows.slice(0, n).map((r) => columns.map((c, i) => formatCell(r[c.name], money[i]!)));
 }
 
+/** Display cells for any row, formatted as previewCellsFor does (amount detection looks at every row, once). */
+export function cellFormatter(columns: readonly SampleColumn[], rows: readonly DataRow[]): (row: DataRow) => string[] {
+  const money = columns.map((c) => c.type === 'Number' && isMoneyLike(rows.map((r) => r[c.name])));
+  return (r) => columns.map((c, i) => formatCell(r[c.name], money[i]!));
+}
+
 /** A row the model is sent, one line: every value joined by ` · ` (amount columns with 2 decimals). */
 export function formatExampleRow(row: DataRow, columns: readonly SampleColumn[], rows: readonly DataRow[] = [row]): string {
   return columns.map((c) => formatCell(row[c.name], c.type === 'Number' && isMoneyLike(rows.map((r) => r[c.name])))).join(' · ');

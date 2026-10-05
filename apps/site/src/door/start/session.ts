@@ -78,7 +78,7 @@ import { seedAgreement, SEEDED_PIN_ID, type SeededAgreement } from '../model/agr
 import type { AgreementView } from '../model/agreement';
 import type { DataRow } from '../model/figures';
 import { lastSentPrompt, privacyView, type PrivacyView } from '../model/privacy';
-import { DEFAULT_QUESTION_ID, suggestedQuestions, type SuggestedQuestion } from '../model/questions';
+import { customQuestion, customSpec, DEFAULT_QUESTION_ID, suggestedQuestions, type SuggestedQuestion } from '../model/questions';
 import { sampleFile, sampleIdFor, type SampleId } from '../model/samples';
 import { recordChecks, session as telemetry, shellFileChip, shellRunning } from '../state';
 import {
@@ -166,6 +166,8 @@ export interface Session {
   intakeText(input: { text: string; filename?: string }): Promise<boolean>;
   intakeFile(file: File): Promise<boolean>;
   selectQuestion(id: string): Promise<boolean>;
+  /** Add a question the viewer typed (a function of the bound table, grown from their words) and select it. */
+  addQuestion(text: string): Promise<boolean>;
   ask(): Promise<boolean>;
   toggleLock(): Promise<boolean>;
   decide(choice: DecideChoice, opts?: DecideOptions): Promise<boolean>;
@@ -227,10 +229,12 @@ export function createSession(engine: Engine, config: Partial<SessionConfig> = {
   const program = computed(() => st.value.program);
   const mode = computed(() => st.value.mode);
   /** The questions as model/questions.ts suggests them (static level). */
+  /** Questions the viewer typed for the bound table (cleared when other data is bound). */
+  const typed = signal<SuggestedQuestion[]>([]);
   const baseQuestions = computed<SuggestedQuestion[]>(() => {
     const d = dataset.value;
     const r = rows.value;
-    return d && r ? suggestedQuestions(d, r, sampleId.value) : [];
+    return d && r ? [...suggestedQuestions(d, r, sampleId.value), ...typed.value.filter((q) => q.call.endsWith(`(${d.name})`))] : [];
   });
   /** The demo's agreement for (sample, question), whether or not it will be installed. */
   const rawSeedFor = (q: Pick<SuggestedQuestion, 'id'> | null, d: DatasetRef | null, sid: SampleId | null): SeededAgreement | null =>
@@ -479,6 +483,7 @@ export function createSession(engine: Engine, config: Partial<SessionConfig> = {
       bound.value = b;
       run.value = null;
       seedState.value = 'none';
+      typed.value = [];
       questionId.value = defaultQ;
       intake.value = { busy: false, problem: null, warnings: intake.peek().warnings };
     });
@@ -627,6 +632,26 @@ export function createSession(engine: Engine, config: Partial<SessionConfig> = {
     }
   }
 
+  async function addQuestion(text: string): Promise<boolean> {
+    const d = dataset.peek();
+    if (!idle() || !d) return false;
+    const have = questions.peek();
+    const same = have.find((q) => q.text.toLowerCase() === text.trim().replace(/\s+/g, ' ').toLowerCase());
+    if (same) return selectQuestion(same.id);
+    const q = customQuestion(text, d, (fn) => have.some((x) => x.fn === fn) || program.peek().functions[fn] !== undefined);
+    if (!q) return false;
+    typed.value = [...typed.peek(), q];
+    return selectQuestion(q.id);
+  }
+
+  /** A typed question's contract is installed before its first ask, so the model reads the words and not just a name. */
+  async function ensureTyped(q: SuggestedQuestion): Promise<void> {
+    const d = dataset.peek();
+    if (!q.doc || !d) return;
+    if (program.peek().functions[q.fn]) return;
+    await engine.upsertSpec(customSpec(q, d));
+  }
+
   /** setInput + submit for `q`, recorded as run `r` (pending until the engine resolves). */
   async function submitAs(r: RunRef): Promise<void> {
     run.value = r;
@@ -644,6 +669,8 @@ export function createSession(engine: Engine, config: Partial<SessionConfig> = {
     if (!q || !dataset.peek()) return false;
     working.value = true;
     try {
+      await ensureTyped(q);
+      if (disposed) return false;
       if (!(await ensureSeed())) return false;
       if (disposed || st.peek().busy) return false;
       const s = st.peek();
@@ -760,6 +787,7 @@ export function createSession(engine: Engine, config: Partial<SessionConfig> = {
     intakeText,
     intakeFile,
     selectQuestion,
+    addQuestion,
     ask,
     toggleLock,
     decide,
