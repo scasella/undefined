@@ -48,6 +48,9 @@ npm run dev          # http://localhost:5173 with the generation service running
 npm test && npm run typecheck && npm run build    # tests for every package, then the static site in apps/site/dist/
 ```
 
+In live mode a fresh browser opens on **Use your data**: drop or paste a CSV/JSON file and call a function on it that
+does not exist yet (**Start with examples** switches to the example-first opening and is remembered).
+
 **Replay mode (no Codex needed):** the static build in `apps/site/dist/` needs no backend and no environment variables
 (deployable to GitHub Pages). With no generation service reachable it replays recorded `gpt-6-luna` sessions; the
 header pill reads *"Replay · gates run live"*: the candidates are recorded, **every gate still executes live in your

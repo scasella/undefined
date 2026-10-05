@@ -168,10 +168,11 @@ function LiveGeneration({ gen }: { gen: GenerationView }) {
 }
 
 /** The first screen's one sentence, naming the function the console is about to call. */
-function Opener({ input }: { input: string }) {
+/** `quiet` on the data-first screen: the drop card above is the focal point, so the console's line steps back. */
+function Opener({ input, quiet = false }: { input: string; quiet?: boolean }) {
   const fn = calledName(input);
   return (
-    <p class="opener">
+    <p class={`opener${quiet ? ' opener-quiet' : ''}`}>
       {fn ? (
         <>
           <code class="opener-fn">{fn}</code> doesn't exist yet.
@@ -231,9 +232,13 @@ export function Repl({ state, engine }: { state: EngineState; engine: Engine }) 
   const gen = state.generation;
   const live = state.busy && gen && (gen.phase === 'generating' || gen.phase === 'gating');
 
-  useEffect(() => inputRef.current?.focus(), []);
+  // the console takes focus on the example-first screen; on the data-first one the drop card leads (no focus ring here)
+  const mounted = useRef(false);
   useEffect(() => {
-    if (!state.busy) inputRef.current?.focus({ preventScroll: true });
+    const first = !mounted.current;
+    mounted.current = true;
+    if (first && state.start === 'data') return;
+    if (!state.busy) inputRef.current?.focus({ preventScroll: !first });
   }, [state.busy]);
   // Stick to the newest entry. Anything that changes the transcript's height (new entries, the live
   // generation row growing or shrinking, the env bar appearing and squeezing the scroll box) re-pins it,
@@ -317,7 +322,7 @@ export function Repl({ state, engine }: { state: EngineState; engine: Engine }) 
     <section class="panel panel-repl" aria-labelledby="h-console">
       <PanelHead title="Console" id="h-console" />
       <div class="panel-body repl-scroll" ref={scrollRef}>
-        {state.hints.opener && <Opener input={state.replInput} />}
+        {state.hints.opener && <Opener input={state.replInput} quiet={state.start === 'data'} />}
         <ol class="transcript" ref={listRef} aria-live="polite" aria-relevant="additions">
           {/* while the trace row runs, the in-flight "Generating…" line would only repeat it */}
           {state.repl.map((e) =>
@@ -355,7 +360,7 @@ export function Repl({ state, engine }: { state: EngineState; engine: Engine }) 
         <Shortcuts />
         <button
           type="button"
-          class={`btn run-btn${state.hints.opener ? ' btn-primary' : ''}`}
+          class={`btn run-btn${state.hints.opener && !(state.start === 'data' && state.replInput.trim() === '') ? ' btn-primary' : ''}`}
           disabled={state.busy}
           aria-label="Run"
           onClick={() => {

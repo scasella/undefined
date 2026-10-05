@@ -2,12 +2,31 @@
 import { signal } from '@preact/signals';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { AttemptSelection } from './select';
-import type { ImagePreview, RecordingPreview } from '@scasella/undefined-engine/types';
+import type { DataSuggestion, ImagePreview, RecordingPreview } from '@scasella/undefined-engine/types';
 
 export const selection = signal<AttemptSelection | null>(null);
 export const lowerTab = signal<'revisions' | 'repo'>('revisions');
 /** The data drawer (paste/drop data, bind it to a REPL variable). */
 export const dataDrawerOpen = signal(false);
+/**
+ * The drawer's draft, lifted out of it so a file dropped anywhere on the page or picked from the first screen opens it
+ * pre-filled: the text, the file it came from, the variable name (editable; '' = the derived default) and why the last
+ * file could not be read. Nothing here is stored: data persists only when Load binds it.
+ */
+export const dataText = signal('');
+export const dataFilename = signal<string | undefined>(undefined);
+export const dataName = signal('');
+export const dataProblem = signal<string | null>(null);
+/** After a Load: the dataset just bound and the first calls suggested for it (src/data/suggest.ts). */
+export const dataSuggestions = signal<{ dataset: string; list: DataSuggestion[] } | null>(null);
+/** Forget the drawer's unloaded draft and the suggestions (Reset: a dropped-but-not-loaded file must not come back). */
+export function clearDataDraft(): void {
+  dataText.value = '';
+  dataFilename.value = undefined;
+  dataName.value = '';
+  dataProblem.value = null;
+  dataSuggestions.value = null;
+}
 /**
  * Function whose spec card should be expanded, scrolled into view and focused. Mirrors the engine's
  * state.focusSpec (set by the "Edit the spec" restart); cleared by whoever consumed it.

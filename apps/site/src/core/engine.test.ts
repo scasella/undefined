@@ -48,7 +48,7 @@ import { hashesFor } from '@scasella/undefined-engine/shared/hash';
 import { isLive, isStale } from '@scasella/undefined-engine/program';
 import { _useBackend, memoryBackend } from './store';
 import { sampleForModel } from '../data/sample';
-import { DEFAULT_DATASET_NAME, PINNED_INFO, parseDataText, pinLabel, typeNameFor } from './engine';
+import { DEFAULT_DATASET_NAME, firstScreen, PINNED_INFO, parseDataText, pinLabel, typeNameFor } from './engine';
 import { BUNDLED_ORDERS_CSV } from '../data/orders';
 
 // ───────────────────────── a median spec (inline; not the examples module) ─────────────────────────
@@ -244,6 +244,7 @@ describe('engine: the opening story', () => {
   it('grows median on an undefined call, the properties reject candidate 1, candidate 2 is committed as r2', async () => {
     const { engine, gen, s, run } = setup({ script: { median: [MEDIAN_BAD, MEDIAN_GOOD] } });
     await engine.init();
+    engine.setStart('examples'); // the example-first opening (live + fresh would lead with data)
 
     expect(s().ready).toBe(true);
     expect(s().mode).toBe('live');
@@ -595,6 +596,7 @@ describe('engine: specs, examples, history', () => {
       deps: { examples: [EXAMPLE, { ...EXAMPLE, id: 'median2', fn: 'median2', title: 'm2', call: 'median2([1, 2, 3])', spec: { ...MEDIAN_SPEC, name: 'median2' } }] },
     });
     await other.engine.init();
+    other.engine.setStart('examples'); // the example-first opening (live + fresh would lead with data)
     expect(other.s().replInput).toBe(EXAMPLE.call);
     const click = other.engine.loadExample('median2'); // not awaited: the user presses Enter immediately
     const enter = other.engine.submit();
@@ -668,6 +670,7 @@ describe('engine: images and persistence', () => {
   it('export → reset → import round-trips the image and the live functions', async () => {
     const { engine, gen, s, run } = setup({ script: { median: [MEDIAN_GOOD] } });
     await engine.init();
+    engine.setStart('examples'); // the example-first opening (live + fresh would lead with data)
     await run('xs = [9, 1, 5]');
     await run('median(xs)');
     const json = await engine.exportImage();
@@ -804,6 +807,7 @@ describe('engine: pacing and cancellation', () => {
       deps: { pacing: { typeCharMs: 1, gateDwellMs: 5, replayMaxMs: 0 }, sleep: (ms) => new Promise((r) => setTimeout(r, ms)) },
     });
     await engine.init();
+    engine.setStart('examples'); // the example-first opening (live + fresh would lead with data)
     const letter: Record<string, string> = { pending: '.', running: 'R', pass: 'P', fail: 'F', skipped: 's' };
     const seen: Array<{ attempt: number; status: string; shown: number; gates: string }> = [];
     const stop = engine.state.subscribe((st) => {
@@ -836,6 +840,7 @@ describe('engine: pacing and cancellation', () => {
     };
     const { engine, s } = setup({ deps: { createLiveGenerator: () => hanging } });
     await engine.init();
+    engine.setStart('examples'); // the example-first opening (live + fresh would lead with data)
     const pending = engine.submit();
     await new Promise((r) => setTimeout(r, 20));
     expect(s().busy).toBe(true);
@@ -958,6 +963,7 @@ describe('engine: operations are serialised', () => {
     };
     const { engine, s } = setup({ deps: { createLiveGenerator: () => slow } });
     await engine.init();
+    engine.setStart('examples'); // the example-first opening (live + fresh would lead with data)
     const pending = engine.submit();
     await tick();
     expect(s().busy).toBe(true);
@@ -1294,6 +1300,60 @@ describe('engine: the model declines instead of faking (A)', () => {
     expect(lastError(s()).name).toBe('Declined');
     expect(s().revisions).toHaveLength(1);
   }, 30_000);
+
+  it('replay mode, a call on your own data with no recording: says it needs live mode before any attempt, and suggests calls on the preview', async () => {
+    const { ReplayGenerator } = await import('./generator');
+    const { engine, s, run } = setup({
+      service: { state: 'down' },
+      deps: { loadRecordings: async () => [], createReplayGenerator: (recs) => new ReplayGenerator(recs, { maxMs: 0 }) },
+    });
+    await engine.init();
+    expect(s().mode).toBe('replay');
+    const text = 'customer,status,amount\nAda,paid,10\nGrace,refunded,22.5\nAda,paid,7\nLinus,pending,3\n';
+    const preview = await engine.previewDataset({ text, name: 'sales' });
+    expect(preview.ok && preview.suggestions?.map((x) => x.call)[0]).toBe('countByStatus(sales)');
+    await engine.loadDataset({ text, name: 'sales' });
+    await run('countByStatus(sales)');
+    const g = s().generation!;
+    expect(g.phase).toBe('failed');
+    expect(g.attempts).toEqual([]);
+    expect(g.needsLive).toEqual({ reason: 'data', datasets: ['sales'] });
+    expect(g.error).toMatchObject({
+      code: 'no_recording',
+      message: 'This page replays recorded drafts; none exists for countByStatus on your data. Writing it needs live mode.',
+    });
+    expect(lastError(s()).name).toBe('GenerationFailed');
+    expect(s().datasets.map((d) => d.name)).toEqual(['sales']);
+    expect(s().program.functions.countByStatus?.artifact ?? null).toBeNull();
+  }, 30_000);
+
+  it('replay mode, a call on your own data that WAS recorded (a loaded recording): replays and commits; the up-front check stays out of the way', async () => {
+    // record it live: the user's own dataset, not the bundled rows
+    const live = setup({ script: { totals: [TOTALS_GOOD] } });
+    await live.engine.init();
+    await live.engine.loadDataset({ text: ORDERS_CSV, name: 'sales' });
+    await live.run('totals(sales)');
+    expect(live.s().program.functions.totals).toBeDefined();
+    const recording = live.engine.exportRecording()!;
+    live.engine.dispose();
+
+    // a fresh browser in replay mode, with that recording available
+    _useBackend(memoryBackend());
+    const { ReplayGenerator } = await import('./generator');
+    const { engine, s, run } = setup({
+      service: { state: 'down' },
+      deps: { loadRecordings: async () => [recording], createReplayGenerator: (recs) => new ReplayGenerator(recs, { maxMs: 0 }) },
+    });
+    await engine.init();
+    expect(s().mode).toBe('replay');
+    await engine.loadDataset({ text: ORDERS_CSV, name: 'sales' });
+    await run('totals(sales)');
+    const g = s().generation!;
+    expect(g.needsLive).toBeUndefined();
+    expect(g.attempts.length).toBeGreaterThan(0);
+    expect(g.attempts[0]!.candidate?.source).toBe('replay');
+    expect(s().program.functions.totals).toBeDefined();
+  }, 60_000);
 
   it('a live decline is recorded, so it can be replayed', async () => {
     const { engine, run } = setup({ script: { uuid: [declineBody('CANNOT_BE_PURE', 'a fresh id needs randomness or a counter')] } });
@@ -1773,4 +1833,109 @@ return [...t].map(([customer, revenue]) => ({ customer, revenue })).sort((a, b) 
     expect(s().program.functions.topCustomersByRevenue!.spec.doc).toBe('Refunded orders do not count.');
     expect(isStale(s().program.functions.topCustomersByRevenue!)).toBe(true);
   }, 60_000);
+});
+
+
+describe('engine: what the first screen leads with (state.start)', () => {
+  it('firstScreen: live + untouched leads with data; replay, ?opener= and a returning browser keep examples; a choice wins', () => {
+    expect(firstScreen({ mode: 'live', untouched: true, opener: false })).toBe('data');
+    expect(firstScreen({ mode: 'replay', untouched: true, opener: false })).toBe('examples');
+    expect(firstScreen({ mode: 'live', untouched: false, opener: false })).toBe('examples');
+    expect(firstScreen({ mode: 'live', untouched: true, opener: true })).toBe('examples');
+    expect(firstScreen({ mode: 'live', untouched: true, opener: false, chosen: 'examples' })).toBe('examples');
+    expect(firstScreen({ mode: 'live', untouched: false, opener: false, chosen: 'data' })).toBe('data');
+    expect(firstScreen({ mode: 'replay', untouched: true, opener: false, chosen: 'data' })).toBe('examples');
+  });
+
+  it('live mode, fresh browser: data first, the console empty, the opener still shown', async () => {
+    const { engine, s } = setup();
+    await engine.init();
+    expect(s().mode).toBe('live');
+    expect(s().start).toBe('data');
+    expect(s().replInput).toBe('');
+    expect(s().hints.opener).toBe(true);
+  });
+
+  it('a degraded service counts as live (its problem stays on state.service for the card)', async () => {
+    const problem = { code: 'codex_missing' as const, message: 'Codex CLI was not found on PATH.', fix: ['codex login'] };
+    const { engine, s } = setup({ service: { state: 'degraded', problem } });
+    await engine.init();
+    expect(s().mode).toBe('live');
+    expect(s().start).toBe('data');
+    expect(s().service.problem).toEqual(problem);
+  });
+
+  it('replay mode keeps the example-first opening (median pre-typed)', async () => {
+    const { engine, s } = setup({ service: { state: 'down' } });
+    await engine.init();
+    expect(s().mode).toBe('replay');
+    expect(s().start).toBe('examples');
+    expect(s().replInput).toBe(EXAMPLE.call);
+  });
+
+  it('?opener= keeps the example-first opening', async () => {
+    const { engine, s } = setup({ deps: { location: () => ({ search: '?opener=median', hash: '' }) } });
+    await engine.init();
+    expect(s().start).toBe('examples');
+    expect(s().replInput).toBe(EXAMPLE.call);
+  });
+
+  it('a returning browser (something stored beyond the seed) sees the examples layout with its state', async () => {
+    const first = setup();
+    await first.engine.init();
+    await first.engine.loadDataset({ text: 'region,amount\nnorth,3\nsouth,4\n', name: 'sales' });
+    first.engine.dispose();
+    const again = setup();
+    await again.engine.init();
+    expect(again.s().datasets.map((d) => d.name)).toEqual(['sales']);
+    expect(again.s().start).toBe('examples');
+    expect(again.s().replInput).toBe(EXAMPLE.call);
+  });
+
+  it('a reload of an untouched browser is still a first visit', async () => {
+    const first = setup();
+    await first.engine.init();
+    first.engine.dispose();
+    const again = setup();
+    await again.engine.init();
+    expect(again.s().start).toBe('data');
+  });
+
+  it('"Start with examples" is remembered (flags.start), and so is switching back to data', async () => {
+    const first = setup();
+    await first.engine.init();
+    first.engine.setStart('examples');
+    expect(first.s().start).toBe('examples');
+    expect(first.s().replInput).toBe(EXAMPLE.call);
+    await tick();
+    first.engine.dispose();
+    const second = setup();
+    await second.engine.init();
+    expect(second.s().start).toBe('examples');
+    second.engine.setStart('data');
+    expect(second.s().replInput).toBe(''); // the untouched example call is cleared
+    await tick();
+    second.engine.dispose();
+    const third = setup();
+    await third.engine.init();
+    expect(third.s().start).toBe('data');
+  });
+
+  it('switching to data keeps what the user typed', async () => {
+    const { engine, s } = setup({ service: { state: 'up' } });
+    await engine.init();
+    engine.setStart('examples');
+    engine.setInput('1 + 1');
+    engine.setStart('data');
+    expect(s().replInput).toBe('1 + 1');
+  });
+
+  it('reset in data-first mode reseeds with the console empty', async () => {
+    const { engine, s } = setup();
+    await engine.init();
+    engine.setInput('1 + 1');
+    await engine.resetImage();
+    expect(s().start).toBe('data');
+    expect(s().replInput).toBe('');
+  });
 });

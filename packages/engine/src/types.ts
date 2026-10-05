@@ -758,6 +758,11 @@ export interface GenerationView {
   };
   /** Set on a grow started because the committed function failed a decision ("re-growing against your decision"). */
   decision?: { id: string; call: string };
+  /**
+   * Replay mode, a call on the user's own data with no recorded draft for it (error.code 'no_recording'): the gate
+   * panel says writing it needs live mode and offers the recorded orders example instead. No attempt was made.
+   */
+  needsLive?: { reason: 'data'; datasets: string[] };
 }
 
 // ───────────────────────── deciding a spec gap (UI-facing) ─────────────────────────
@@ -855,6 +860,12 @@ export interface EngineState {
   /** The REPL variables right now (shown values). */
   env: Record<string, string>;
   hints: { opener: boolean; takeaway: boolean };
+  /**
+   * What the first screen leads with. 'data' (live mode, a fresh or untouched browser, no `?opener=`, and the user has
+   * not chosen examples): the data drop card is primary, examples sit under it and the console starts empty.
+   * 'examples' otherwise (always in replay mode): the example-first opening with the median call pre-typed.
+   */
+  start: 'examples' | 'data';
   /** Datasets bound to REPL variables (data drawer). */
   datasets: DatasetRef[];
   /** What leaves the browser. `samples` = type + a few sample rows go to Codex (live mode only); false = type only. */
@@ -960,8 +971,18 @@ export type DatasetPreview =
       sendDescription: string;
       /** First rows rendered as a table. */
       table: TablePreview;
+      /** Up to three first calls to try on it, from its column types (apps/site/src/data/suggest.ts; no model asked). */
+      suggestions?: DataSuggestion[];
     }
   | { ok: false; error: string };
+
+/** A suggested first call on a loaded dataset, e.g. `countByStatus(sales)`: a function whose name says what it returns. */
+export interface DataSuggestion {
+  fn: string;
+  call: string;
+  /** What it returns, in words ("how many rows per status"). */
+  what: string;
+}
 
 export interface SpecPatch {
   params?: ParamSpec[];
@@ -1010,6 +1031,8 @@ export interface Engine {
   removeDataset(name: string): Promise<void>;
   /** Whether sample rows (not just the type) are sent to Codex in live mode. */
   setSendSamples(on: boolean): void;
+  /** Switch what the first screen leads with, and remember the choice (flags.start). */
+  setStart(start: 'examples' | 'data'): void;
   /** Turn the call and result of a REPL output entry into a pinned unit test on that function. */
   pinResult(entryId: string): Promise<void>;
   removePin(fn: string, pinId: string): Promise<void>;

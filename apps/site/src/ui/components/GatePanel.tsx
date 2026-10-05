@@ -1,7 +1,7 @@
 import { GATE_ORDER, type AttemptView, type Engine, type EngineState, type GateResult, type GenerationView } from '@scasella/undefined-engine/types';
 import { fmtMs, sentenceCase } from '../format';
 import { attribution, failingGate, gateAttempt, lastCallValue } from '../select';
-import { decideAnnouncement, decideOpen, selection } from '../uiState';
+import { decideAnnouncement, decideOpen, runLiveOpen, selection } from '../uiState';
 import { useEffect } from 'preact/hooks';
 import { DecideBlock, RegrowNote } from './Decide';
 import { decidableAttempt, gapRefFor } from '../decide';
@@ -278,6 +278,44 @@ function headStatus(gen: GenerationView | null, a: AttemptView | undefined): { w
   return null;
 }
 
+/**
+ * Replay mode, a call on the user's own data: nothing was recorded for it, so no model was asked and no attempt made.
+ * Says so, with the way to live mode and the recorded orders example (the same flow: a function grown from a call on data).
+ */
+function NeedsLiveData({ gen, state, engine }: { gen: GenerationView; state?: EngineState; engine?: Engine }) {
+  const hasOrders = !!state?.examples.some((e) => e.id === 'orders');
+  return (
+    <div class="headline headline-error headline-needs-live" role="alert" data-needs-live="data">
+      <p class="headline-gate">
+        <span aria-hidden="true">! </span>Needs live mode
+      </p>
+      <p class="headline-text">{gen.error?.message}</p>
+      <p class="muted small">
+        Your data stays bound.{hasOrders ? ' The orders example is the same flow (a function written from a call on data), recorded, so it runs here.' : ''}
+      </p>
+      <div class="form-actions">
+        <button type="button" class="btn btn-primary" onClick={() => (runLiveOpen.value = true)}>
+          How to run live
+        </button>
+        {hasOrders && engine && (
+          <button
+            type="button"
+            class="btn"
+            disabled={state?.busy}
+            title="Binds the bundled orders.csv to rows and types its call in; your own data keeps its name"
+            onClick={() => {
+              const focus = () => document.getElementById('repl-input')?.focus();
+              void engine.loadExample('orders').then(focus);
+            }}
+          >
+            Try the orders example
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function GatePanel({ gen, state, engine }: { gen: GenerationView | null; state?: EngineState; engine?: Engine }) {
   const a = gateAttempt(gen, selection.value);
   const recheck = gen?.kind === 'recheck';
@@ -307,7 +345,7 @@ export function GatePanel({ gen, state, engine }: { gen: GenerationView | null; 
         {decideAnnouncement.value ?? verdictAnnouncement(gen, a, value)}
       </p>
       <div class="panel-body gates-body">
-        {gen?.ungated && !gen.declined && (
+        {gen?.ungated && !gen.declined && !gen.needsLive && (
           <p class="ungated" role="note">
             <span class="ungated-mark" aria-hidden="true">!</span>
             <span>
@@ -323,7 +361,9 @@ export function GatePanel({ gen, state, engine }: { gen: GenerationView | null; 
 
         {gen?.decision && gen.phase !== 'failed' && state && engine && <RegrowNote gen={gen} state={state} engine={engine} />}
         <div class="verdict">
-          {gen?.error && decisionGone ? null : gen?.error ? (
+          {gen?.error && gen.needsLive?.reason === 'data' ? (
+            <NeedsLiveData gen={gen} state={state} engine={engine} />
+          ) : gen?.error && decisionGone ? null : gen?.error ? (
             <div class="headline headline-error" role="alert">
               <p class="headline-gate">
                 <span aria-hidden="true">! </span>The model could not be asked · <span class="mono-inline">{gen.error.code}</span>

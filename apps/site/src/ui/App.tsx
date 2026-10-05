@@ -4,6 +4,7 @@ import { Argument } from './components/Argument';
 import { CodePane } from './components/CodePane';
 import { Examples, Header, RunLiveDialog, Toast } from './components/Chrome';
 import { DataDrawer } from './components/DataDrawer';
+import { DataFirst, DataStart, DataSuggestions } from './components/DataStart';
 import { PanelBoundary } from './components/common';
 import { GatePanel } from './components/GatePanel';
 import { Repl } from './components/Repl';
@@ -130,10 +131,22 @@ export function App({ engine, initError }: { engine: Engine; initError?: string 
       <div class="stage">
         <PanelBoundary name="Header">
           <Header state={state} engine={engine} onRunLive={() => (runLiveOpen.value = true)} />
-          <Argument />
-          <div class="subhead">
-            <Examples state={state} engine={engine} />
-          </div>
+          <Argument start={state.start} />
+          {state.start === 'data' ? (
+            <>
+              <DataFirst state={state} engine={engine} />
+              <div class="subhead subhead-or">
+                <span class="or-label">or try an example</span>
+                <Examples state={state} engine={engine} />
+              </div>
+            </>
+          ) : (
+            <div class="subhead">
+              <Examples state={state} engine={engine} />
+              <DataStart state={state} />
+            </div>
+          )}
+          <DataSuggestions state={state} engine={engine} />
           <OtherTabBanner state={state} engine={engine} />
           <RecordingBanner state={state} engine={engine} />
         </PanelBoundary>
