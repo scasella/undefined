@@ -1,0 +1,320 @@
+{
+  "format": "undefined-certify",
+  "version": 1,
+  "tool": {
+    "name": "@scasella/undefined",
+    "version": "<version>",
+    "node": "<node>",
+    "v8": "<v8>",
+    "icu": "<icu>",
+    "typescript": "<typescript>",
+    "fastCheck": "<fastCheck>",
+    "host": "node worker_thread + node:vm realm with a watchdog (not a secure sandbox)"
+  },
+  "exitCode": 0,
+  "file": "src/clamp.ts",
+  "specFile": "src/clamp.test.ts",
+  "specSource": "vitest",
+  "functions": {
+    "clamp": {
+      "verdict": "accepted",
+      "source": {
+        "file": "src/clamp.ts",
+        "line": 5,
+        "bodyLine": 6
+      },
+      "specHash": "b0e1bc8f2532ddf21e61a00a7efc64d823725e1fe22e8a0770212f415d65d44a",
+      "testsHash": "9f793d97f05861712b572e9196ad51547c523f5a418754111712e53720a67943",
+      "seed": 798523672,
+      "unchecked": false,
+      "calls": [],
+      "gates": [
+        {
+          "gate": "compile",
+          "status": "pass",
+          "summary": "0 errors",
+          "counts": {
+            "passed": 1,
+            "total": 1
+          },
+          "ms": "<ms>"
+        },
+        {
+          "gate": "tests",
+          "status": "pass",
+          "summary": "4/4 tests passed",
+          "counts": {
+            "passed": 4,
+            "total": 4
+          },
+          "ms": "<ms>"
+        },
+        {
+          "gate": "properties",
+          "status": "pass",
+          "summary": "2/2 properties held (200 runs: \"clamp > always lands inside the range\" 100, \"clamp > leaves values already in range unchanged\" 100)",
+          "counts": {
+            "passed": 2,
+            "total": 2
+          },
+          "ms": "<ms>"
+        },
+        {
+          "gate": "invariants",
+          "status": "pass",
+          "summary": "pure ✓ bounded ✓ (25 sampled calls replayed on frozen arguments)",
+          "ms": "<ms>"
+        }
+      ],
+      "diagnostics": [],
+      "gaps": [],
+      "evidenceLine": "Compiled. 4 unit tests. 2 properties, 100 runs each. 25 calls replayed for purity. Tests killed 5 of 7 mutants (2 survived, which may be equivalent).",
+      "evidence": {
+        "compiled": true,
+        "unitTests": 4,
+        "pinnedTests": 0,
+        "properties": [
+          {
+            "name": "clamp > always lands inside the range",
+            "runs": 100
+          },
+          {
+            "name": "clamp > leaves values already in range unchanged",
+            "runs": 100
+          }
+        ],
+        "sampledCalls": 25,
+        "mutation": {
+          "total": 7,
+          "killed": 5,
+          "killedByBound": 0,
+          "survived": 2,
+          "stillborn": 0,
+          "survivors": [
+            {
+              "id": "comparison@1:15",
+              "kind": "comparison",
+              "line": 1,
+              "original": "<",
+              "mutated": "<="
+            },
+            {
+              "id": "comparison@3:15",
+              "kind": "comparison",
+              "line": 3,
+              "original": ">",
+              "mutated": ">="
+            }
+          ],
+          "ms": "<ms>",
+          "at": "<at>"
+        }
+      },
+      "mutation": {
+        "total": 7,
+        "killed": 5,
+        "killedByBound": 0,
+        "survived": 2,
+        "stillborn": 0,
+        "survivors": [
+          {
+            "id": "comparison@1:15",
+            "kind": "comparison",
+            "line": 1,
+            "original": "<",
+            "mutated": "<="
+          },
+          {
+            "id": "comparison@3:15",
+            "kind": "comparison",
+            "line": 3,
+            "original": ">",
+            "mutated": ">="
+          }
+        ],
+        "ms": "<ms>",
+        "at": "<at>"
+      },
+      "mutantLines": [
+        {
+          "id": "comparison@1:15",
+          "compiledLine": 1,
+          "bodyLine": 1,
+          "fileLine": 6,
+          "original": "<",
+          "mutated": "<="
+        },
+        {
+          "id": "comparison@3:15",
+          "compiledLine": 3,
+          "bodyLine": 2,
+          "fileLine": 7,
+          "original": ">",
+          "mutated": ">="
+        }
+      ],
+      "generatedTests": {
+        "tests": "// expect() for tests read from a vitest file (Undefined vitest shim v1; a subset of vitest's matchers)\nconst expect = (() => {\n  let AssertionFailure;\n  try { eq(0, 1); } catch (e) { AssertionFailure = e.constructor; }\n  const shown = (v) => new AssertionFailure(v, v).actualShown;\n  const isViolation = (e) => typeof e === 'object' && e !== null && e.isInvariantViolation === true;\n  const same = (a, b) => { try { eq(a, b); return true; } catch (e) { if (e instanceof AssertionFailure) return false; throw e; } };\n  // an equality failure: the actual is a value under test (headline \"returned X, expected Y\"; decidable)\n  const unequal = (actual, expected, message, expectedText) =>\n    new AssertionFailure(actual, expected, message, expectedText === undefined ? undefined : { expected: expectedText });\n  // any other failure: described, never claimed to be a returned value\n  const failed = (actual, message, expectedText) => new AssertionFailure(actual, undefined, message, { actual: shown(actual), expected: expectedText });\n  const thrownBy = (fn) => {\n    if (typeof fn !== 'function') throw new TypeError('expect(...).toThrow() needs a function: expect(() => f(x)).toThrow()');\n    try { fn(); } catch (e) { if (isViolation(e)) throw e; return { threw: true, error: e }; }\n    return { threw: false };\n  };\n  const messageOf = (e) => (typeof e === 'object' && e !== null && 'message' in e ? String(e.message) : String(e));\n  const matches = (e, m) => {\n    if (m === undefined) return true;\n    if (typeof m === 'string') return messageOf(e).includes(m);\n    if (m instanceof RegExp) return m.test(messageOf(e));\n    if (typeof m === 'function') return e instanceof m;\n    if (typeof m === 'object' && m !== null) return messageOf(e) === messageOf(m);\n    return false;\n  };\n  const describeMatch = (m) => (m === undefined ? 'an error' : typeof m === 'function' ? 'an error of type ' + (m.name || 'that class') : 'an error matching ' + (typeof m === 'string' ? JSON.stringify(m) : m instanceof RegExp ? String(m) : JSON.stringify(messageOf(m))));\n  const matchers = (actual, not) => {\n    const check = (ok, fail) => { if (ok === not) throw fail(); };\n    const neg = not ? 'not ' : '';\n    return {\n      toBe: (expected) => check(Object.is(actual, expected), () => (not ? failed(actual, 'expected ' + shown(actual) + ' not to be ' + shown(expected), 'not ' + shown(expected)) : unequal(actual, expected))),\n      toEqual: (expected) => check(same(actual, expected), () => (not ? failed(actual, 'expected ' + shown(actual) + ' not to equal ' + shown(expected), 'not ' + shown(expected)) : unequal(actual, expected))),\n      toStrictEqual: (expected) => check(same(actual, expected), () => (not ? failed(actual, 'expected ' + shown(actual) + ' not to equal ' + shown(expected), 'not ' + shown(expected)) : unequal(actual, expected))),\n      toBeNaN: () => check(Number.isNaN(actual), () => (not ? failed(actual, 'expected a value other than NaN', 'not NaN') : unequal(actual, NaN))),\n      toBeNull: () => check(actual === null, () => (not ? failed(actual, 'expected a value other than null', 'not null') : unequal(actual, null))),\n      toBeUndefined: () => check(actual === undefined, () => (not ? failed(actual, 'expected a value other than undefined', 'not undefined') : unequal(actual, undefined))),\n      toBeDefined: () => check(actual !== undefined, () => (not ? unequal(actual, undefined) : failed(actual, 'expected a defined value', 'a defined value'))),\n      toBeTruthy: () => check(!!actual, () => failed(actual, 'expected ' + shown(actual) + ' to be ' + neg + 'truthy', neg + 'truthy')),\n      toBeFalsy: () => check(!actual, () => failed(actual, 'expected ' + shown(actual) + ' to be ' + neg + 'falsy', neg + 'falsy')),\n      toBeCloseTo: (n, digits = 2) => check(Math.abs(actual - n) < Math.pow(10, -digits) / 2, () => (not ? failed(actual, 'expected ' + shown(actual) + ' not to be close to ' + shown(n), 'not close to ' + shown(n)) : unequal(actual, n, 'expected ' + shown(actual) + ' to be close to ' + shown(n) + ' (' + digits + ' digits)', shown(n) + ' (to ' + digits + ' digits)'))),\n      toBeGreaterThan: (n) => check(actual > n, () => failed(actual, 'expected ' + shown(actual) + ' to be ' + neg + 'greater than ' + shown(n), neg + '> ' + shown(n))),\n      toBeGreaterThanOrEqual: (n) => check(actual >= n, () => failed(actual, 'expected ' + shown(actual) + ' to be ' + neg + 'greater than or equal to ' + shown(n), neg + '>= ' + shown(n))),\n      toBeLessThan: (n) => check(actual < n, () => failed(actual, 'expected ' + shown(actual) + ' to be ' + neg + 'less than ' + shown(n), neg + '< ' + shown(n))),\n      toBeLessThanOrEqual: (n) => check(actual <= n, () => failed(actual, 'expected ' + shown(actual) + ' to be ' + neg + 'less than or equal to ' + shown(n), neg + '<= ' + shown(n))),\n      toHaveLength: (n) => check(actual != null && actual.length === n, () => failed(actual, 'expected ' + shown(actual) + ' ' + (not ? 'not ' : '') + 'to have length ' + n, (not ? 'not ' : '') + 'length ' + n)),\n      toContain: (x) => check(actual != null && typeof actual.includes === 'function' && actual.includes(x), () => failed(actual, 'expected ' + shown(actual) + ' ' + (not ? 'not ' : '') + 'to contain ' + shown(x), (not ? 'not ' : '') + 'containing ' + shown(x))),\n      toContainEqual: (x) => check(Array.isArray(actual) && actual.some((y) => same(y, x)), () => failed(actual, 'expected ' + shown(actual) + ' ' + (not ? 'not ' : '') + 'to contain an element equal to ' + shown(x), (not ? 'not ' : '') + 'an element equal to ' + shown(x))),\n      toMatch: (m) => check(typeof actual === 'string' && (typeof m === 'string' ? actual.includes(m) : m.test(actual)), () => failed(actual, 'expected ' + shown(actual) + ' ' + (not ? 'not ' : '') + 'to match ' + (typeof m === 'string' ? JSON.stringify(m) : String(m)), (not ? 'not ' : '') + 'matching ' + (typeof m === 'string' ? JSON.stringify(m) : String(m)))),\n      toThrow: (m) => {\n        if (!not) {\n          if (m === undefined || typeof m === 'string' || m instanceof RegExp) return throws(actual, m);\n          const r = thrownBy(actual);\n          if (!r.threw) { const f = failed(undefined, 'expected ' + describeMatch(m) + ', but nothing was thrown', describeMatch(m)); f.expectsThrow = true; throw f; }\n          if (!matches(r.error, m)) throw failed(r.error, 'expected ' + describeMatch(m) + ', got ' + shown(r.error), describeMatch(m));\n          return;\n        }\n        const r = thrownBy(actual);\n        if (r.threw && matches(r.error, m)) throw failed(r.error, 'expected no ' + (m === undefined ? 'error' : describeMatch(m)) + ', got ' + shown(r.error), 'no ' + (m === undefined ? 'error' : describeMatch(m)));\n      },\n    };\n  };\n  const unsupported = (name) => {\n    const e = new Error('expect(...).' + name + ' is not supported by the Undefined vitest shim');\n    e.name = 'UnsupportedMatcher';\n    return e;\n  };\n  const guard = (m) => new Proxy(m, { get: (t, k) => { if (typeof k === 'string' && !(k in t)) throw unsupported(k); return t[k]; } });\n  return (actual) => {\n    const m = matchers(actual, false);\n    m.toThrowError = m.toThrow;\n    const n = matchers(actual, true);\n    n.toThrowError = n.toThrow;\n    m.not = guard(n);\n    return guard(m);\n  };\n})();\n\n\ntest(\"clamp > keeps a value inside the range\", () => {\n    expect(clamp(5, 0, 10)).toBe(5);\n  });\n\ntest(\"clamp > raises a value below the range to min\", () => {\n    expect(clamp(-3, 0, 10)).toBe(0);\n  });\n\ntest(\"clamp > lowers a value above the range to max\", () => {\n    expect(clamp(42, 0, 10)).toBe(10);\n  });\n\ntest(\"clamp > keeps the bounds themselves\", () => {\n    expect(clamp(0, 0, 10)).toBe(0);\n    expect(clamp(10, 0, 10)).toBe(10);\n  });\n",
+        "properties": "// expect() for tests read from a vitest file (Undefined vitest shim v1; a subset of vitest's matchers)\nconst expect = (() => {\n  let AssertionFailure;\n  try { eq(0, 1); } catch (e) { AssertionFailure = e.constructor; }\n  const shown = (v) => new AssertionFailure(v, v).actualShown;\n  const isViolation = (e) => typeof e === 'object' && e !== null && e.isInvariantViolation === true;\n  const same = (a, b) => { try { eq(a, b); return true; } catch (e) { if (e instanceof AssertionFailure) return false; throw e; } };\n  // an equality failure: the actual is a value under test (headline \"returned X, expected Y\"; decidable)\n  const unequal = (actual, expected, message, expectedText) =>\n    new AssertionFailure(actual, expected, message, expectedText === undefined ? undefined : { expected: expectedText });\n  // any other failure: described, never claimed to be a returned value\n  const failed = (actual, message, expectedText) => new AssertionFailure(actual, undefined, message, { actual: shown(actual), expected: expectedText });\n  const thrownBy = (fn) => {\n    if (typeof fn !== 'function') throw new TypeError('expect(...).toThrow() needs a function: expect(() => f(x)).toThrow()');\n    try { fn(); } catch (e) { if (isViolation(e)) throw e; return { threw: true, error: e }; }\n    return { threw: false };\n  };\n  const messageOf = (e) => (typeof e === 'object' && e !== null && 'message' in e ? String(e.message) : String(e));\n  const matches = (e, m) => {\n    if (m === undefined) return true;\n    if (typeof m === 'string') return messageOf(e).includes(m);\n    if (m instanceof RegExp) return m.test(messageOf(e));\n    if (typeof m === 'function') return e instanceof m;\n    if (typeof m === 'object' && m !== null) return messageOf(e) === messageOf(m);\n    return false;\n  };\n  const describeMatch = (m) => (m === undefined ? 'an error' : typeof m === 'function' ? 'an error of type ' + (m.name || 'that class') : 'an error matching ' + (typeof m === 'string' ? JSON.stringify(m) : m instanceof RegExp ? String(m) : JSON.stringify(messageOf(m))));\n  const matchers = (actual, not) => {\n    const check = (ok, fail) => { if (ok === not) throw fail(); };\n    const neg = not ? 'not ' : '';\n    return {\n      toBe: (expected) => check(Object.is(actual, expected), () => (not ? failed(actual, 'expected ' + shown(actual) + ' not to be ' + shown(expected), 'not ' + shown(expected)) : unequal(actual, expected))),\n      toEqual: (expected) => check(same(actual, expected), () => (not ? failed(actual, 'expected ' + shown(actual) + ' not to equal ' + shown(expected), 'not ' + shown(expected)) : unequal(actual, expected))),\n      toStrictEqual: (expected) => check(same(actual, expected), () => (not ? failed(actual, 'expected ' + shown(actual) + ' not to equal ' + shown(expected), 'not ' + shown(expected)) : unequal(actual, expected))),\n      toBeNaN: () => check(Number.isNaN(actual), () => (not ? failed(actual, 'expected a value other than NaN', 'not NaN') : unequal(actual, NaN))),\n      toBeNull: () => check(actual === null, () => (not ? failed(actual, 'expected a value other than null', 'not null') : unequal(actual, null))),\n      toBeUndefined: () => check(actual === undefined, () => (not ? failed(actual, 'expected a value other than undefined', 'not undefined') : unequal(actual, undefined))),\n      toBeDefined: () => check(actual !== undefined, () => (not ? unequal(actual, undefined) : failed(actual, 'expected a defined value', 'a defined value'))),\n      toBeTruthy: () => check(!!actual, () => failed(actual, 'expected ' + shown(actual) + ' to be ' + neg + 'truthy', neg + 'truthy')),\n      toBeFalsy: () => check(!actual, () => failed(actual, 'expected ' + shown(actual) + ' to be ' + neg + 'falsy', neg + 'falsy')),\n      toBeCloseTo: (n, digits = 2) => check(Math.abs(actual - n) < Math.pow(10, -digits) / 2, () => (not ? failed(actual, 'expected ' + shown(actual) + ' not to be close to ' + shown(n), 'not close to ' + shown(n)) : unequal(actual, n, 'expected ' + shown(actual) + ' to be close to ' + shown(n) + ' (' + digits + ' digits)', shown(n) + ' (to ' + digits + ' digits)'))),\n      toBeGreaterThan: (n) => check(actual > n, () => failed(actual, 'expected ' + shown(actual) + ' to be ' + neg + 'greater than ' + shown(n), neg + '> ' + shown(n))),\n      toBeGreaterThanOrEqual: (n) => check(actual >= n, () => failed(actual, 'expected ' + shown(actual) + ' to be ' + neg + 'greater than or equal to ' + shown(n), neg + '>= ' + shown(n))),\n      toBeLessThan: (n) => check(actual < n, () => failed(actual, 'expected ' + shown(actual) + ' to be ' + neg + 'less than ' + shown(n), neg + '< ' + shown(n))),\n      toBeLessThanOrEqual: (n) => check(actual <= n, () => failed(actual, 'expected ' + shown(actual) + ' to be ' + neg + 'less than or equal to ' + shown(n), neg + '<= ' + shown(n))),\n      toHaveLength: (n) => check(actual != null && actual.length === n, () => failed(actual, 'expected ' + shown(actual) + ' ' + (not ? 'not ' : '') + 'to have length ' + n, (not ? 'not ' : '') + 'length ' + n)),\n      toContain: (x) => check(actual != null && typeof actual.includes === 'function' && actual.includes(x), () => failed(actual, 'expected ' + shown(actual) + ' ' + (not ? 'not ' : '') + 'to contain ' + shown(x), (not ? 'not ' : '') + 'containing ' + shown(x))),\n      toContainEqual: (x) => check(Array.isArray(actual) && actual.some((y) => same(y, x)), () => failed(actual, 'expected ' + shown(actual) + ' ' + (not ? 'not ' : '') + 'to contain an element equal to ' + shown(x), (not ? 'not ' : '') + 'an element equal to ' + shown(x))),\n      toMatch: (m) => check(typeof actual === 'string' && (typeof m === 'string' ? actual.includes(m) : m.test(actual)), () => failed(actual, 'expected ' + shown(actual) + ' ' + (not ? 'not ' : '') + 'to match ' + (typeof m === 'string' ? JSON.stringify(m) : String(m)), (not ? 'not ' : '') + 'matching ' + (typeof m === 'string' ? JSON.stringify(m) : String(m)))),\n      toThrow: (m) => {\n        if (!not) {\n          if (m === undefined || typeof m === 'string' || m instanceof RegExp) return throws(actual, m);\n          const r = thrownBy(actual);\n          if (!r.threw) { const f = failed(undefined, 'expected ' + describeMatch(m) + ', but nothing was thrown', describeMatch(m)); f.expectsThrow = true; throw f; }\n          if (!matches(r.error, m)) throw failed(r.error, 'expected ' + describeMatch(m) + ', got ' + shown(r.error), describeMatch(m));\n          return;\n        }\n        const r = thrownBy(actual);\n        if (r.threw && matches(r.error, m)) throw failed(r.error, 'expected no ' + (m === undefined ? 'error' : describeMatch(m)) + ', got ' + shown(r.error), 'no ' + (m === undefined ? 'error' : describeMatch(m)));\n      },\n    };\n  };\n  const unsupported = (name) => {\n    const e = new Error('expect(...).' + name + ' is not supported by the Undefined vitest shim');\n    e.name = 'UnsupportedMatcher';\n    return e;\n  };\n  const guard = (m) => new Proxy(m, { get: (t, k) => { if (typeof k === 'string' && !(k in t)) throw unsupported(k); return t[k]; } });\n  return (actual) => {\n    const m = matchers(actual, false);\n    m.toThrowError = m.toThrow;\n    const n = matchers(actual, true);\n    n.toThrowError = n.toThrow;\n    m.not = guard(n);\n    return guard(m);\n  };\n})();\n\n\nproperty(\"clamp > always lands inside the range\", [fc.integer(), fc.integer(), fc.integer()], (v, a, b) => {\n        const [lo, hi] = a <= b ? [a, b] : [b, a];\n        const r = clamp(v, lo, hi);\n        return r >= lo && r <= hi;\n      });\n\nproperty(\"clamp > leaves values already in range unchanged\", [fc.integer({ min: -100, max: 100 })], (v) => clamp(v, -100, 100) === v);\n"
+      },
+      "skippedByTestFile": [],
+      "provenance": {
+        "format": "undefined-eject",
+        "version": 1,
+        "function": "clamp",
+        "ejectedAt": "<ejectedAt>",
+        "note": "Provenance, not reproducibility: the same prompt may produce a different body next time.",
+        "specHash": "b0e1bc8f2532ddf21e61a00a7efc64d823725e1fe22e8a0770212f415d65d44a",
+        "testsHash": "9f793d97f05861712b572e9196ad51547c523f5a418754111712e53720a67943",
+        "gateSeed": 798523672,
+        "model": null,
+        "codexVersion": null,
+        "committedAt": "<committedAt>",
+        "revision": {
+          "id": 1
+        },
+        "returnType": "number",
+        "spec": {
+          "params": [
+            {
+              "name": "value",
+              "type": "number"
+            },
+            {
+              "name": "min",
+              "type": "number"
+            },
+            {
+              "name": "max",
+              "type": "number"
+            }
+          ],
+          "returns": "number",
+          "doc": "Limits a number to the range [min, max].\nAssumes min <= max.",
+          "budgetMs": 1000,
+          "maxAttempts": 1,
+          "origin": "user"
+        },
+        "evidenceLine": "Compiled. 4 unit tests. 2 properties, 100 runs each. 25 calls replayed for purity. Tests killed 5 of 7 mutants (2 survived, which may be equivalent).",
+        "evidence": {
+          "compiled": true,
+          "unitTests": 4,
+          "pinnedTests": 0,
+          "properties": [
+            {
+              "name": "clamp > always lands inside the range",
+              "runs": 100
+            },
+            {
+              "name": "clamp > leaves values already in range unchanged",
+              "runs": 100
+            }
+          ],
+          "sampledCalls": 25,
+          "mutation": {
+            "total": 7,
+            "killed": 5,
+            "killedByBound": 0,
+            "survived": 2,
+            "stillborn": 0,
+            "survivors": [
+              {
+                "id": "comparison@1:15",
+                "kind": "comparison",
+                "line": 1,
+                "original": "<",
+                "mutated": "<="
+              },
+              {
+                "id": "comparison@3:15",
+                "kind": "comparison",
+                "line": 3,
+                "original": ">",
+                "mutated": ">="
+              }
+            ],
+            "ms": "<ms>",
+            "at": "<at>"
+          }
+        },
+        "mutation": {
+          "total": 7,
+          "killed": 5,
+          "killedByBound": 0,
+          "survived": 2,
+          "stillborn": 0,
+          "survivors": [
+            {
+              "id": "comparison@1:15",
+              "kind": "comparison",
+              "line": 1,
+              "original": "<",
+              "mutated": "<="
+            },
+            {
+              "id": "comparison@3:15",
+              "kind": "comparison",
+              "line": 3,
+              "original": ">",
+              "mutated": ">="
+            }
+          ],
+          "ms": "<ms>",
+          "at": "<at>"
+        },
+        "recertified": [],
+        "pins": [],
+        "decisions": [],
+        "datasets": [],
+        "candidates": [
+          {
+            "attempt": 1,
+            "verdict": "accepted",
+            "source": "external",
+            "generationMs": null,
+            "notes": "",
+            "gates": [
+              {
+                "gate": "compile",
+                "status": "pass",
+                "summary": "0 errors"
+              },
+              {
+                "gate": "tests",
+                "status": "pass",
+                "summary": "4/4 tests passed"
+              },
+              {
+                "gate": "properties",
+                "status": "pass",
+                "summary": "2/2 properties held (200 runs: \"clamp > always lands inside the range\" 100, \"clamp > leaves values already in range unchanged\" 100)"
+              },
+              {
+                "gate": "invariants",
+                "status": "pass",
+                "summary": "pure ✓ bounded ✓ (25 sampled calls replayed on frozen arguments)"
+              }
+            ],
+            "body": "  if (value < min) return min;\n  if (value > max) return max;\n  return value;"
+          }
+        ],
+        "certifiedBy": {
+          "name": "@scasella/undefined",
+          "version": "<version>",
+          "node": "<node>",
+          "v8": "<v8>",
+          "icu": "<icu>",
+          "typescript": "<typescript>",
+          "fastCheck": "<fastCheck>",
+          "host": "node worker_thread + node:vm realm with a watchdog (not a secure sandbox)"
+        }
+      }
+    }
+  },
+  "order": [
+    "clamp"
+  ],
+  "issues": [],
+  "notes": [],
+  "unattributed": []
+}

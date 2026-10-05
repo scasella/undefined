@@ -1,0 +1,10 @@
+{
+  "format": "undefined-spec",
+  "version": 1,
+  "functions": {
+    "isLeapYear": {
+      "tests": "test('ordinary leap years', () => {\n  eq(isLeapYear(2024), true);\n  eq(isLeapYear(1996), true);\n});\n\ntest('ordinary common years', () => {\n  eq(isLeapYear(2023), false);\n  eq(isLeapYear(2019), false);\n});\n\ntest('centuries are not leap years', () => {\n  eq(isLeapYear(1900), false);\n  eq(isLeapYear(2100), false);\n});\n\ntest('every 400th year is', () => {\n  eq(isLeapYear(2000), true);\n  eq(isLeapYear(1600), true);\n});",
+      "properties": "property('a year after a leap year is not one', [fc.integer({ min: 1, max: 9999 })], (y: number) => !(isLeapYear(y) && isLeapYear(y + 1)));"
+    }
+  }
+}

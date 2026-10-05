@@ -1,0 +1,216 @@
+{
+  "format": "undefined-certify",
+  "version": 1,
+  "tool": {
+    "name": "@scasella/undefined",
+    "version": "<version>",
+    "node": "<node>",
+    "v8": "<v8>",
+    "icu": "<icu>",
+    "typescript": "<typescript>",
+    "fastCheck": "<fastCheck>",
+    "host": "node worker_thread + node:vm realm with a watchdog (not a secure sandbox)"
+  },
+  "exitCode": 2,
+  "file": "src/stats.ts",
+  "specFile": "src/stats.test.ts",
+  "specSource": "vitest",
+  "functions": {
+    "median": {
+      "verdict": "gaps",
+      "source": {
+        "file": "src/stats.ts",
+        "line": 2,
+        "bodyLine": 3
+      },
+      "specHash": "24d258e7c9eb294d6b1caf3c872e45b8f731252dd0316866469886d323bf6136",
+      "testsHash": "1ac762daf8ffbcd734399bb3249b43036093debef577ea337317a58cd19d3bef",
+      "seed": 1041578557,
+      "rejectedBy": "tests",
+      "headline": "Rejected: median([]) returned NaN, expected 0",
+      "unchecked": false,
+      "calls": [],
+      "gates": [
+        {
+          "gate": "compile",
+          "status": "pass",
+          "summary": "0 errors",
+          "counts": {
+            "passed": 1,
+            "total": 1
+          },
+          "ms": "<ms>"
+        },
+        {
+          "gate": "tests",
+          "status": "fail",
+          "summary": "2/3 tests passed",
+          "headline": "Rejected: median([]) returned NaN, expected 0",
+          "counts": {
+            "passed": 2,
+            "total": 3
+          },
+          "ms": "<ms>"
+        },
+        {
+          "gate": "properties",
+          "status": "skipped",
+          "summary": "not reached",
+          "note": "not reached",
+          "ms": "<ms>"
+        },
+        {
+          "gate": "invariants",
+          "status": "skipped",
+          "summary": "not reached",
+          "note": "not reached",
+          "ms": "<ms>"
+        }
+      ],
+      "diagnostics": [
+        {
+          "kind": "test",
+          "name": "empty list",
+          "call": "median([])",
+          "expected": "0",
+          "actual": "NaN",
+          "message": "expected 0, got NaN",
+          "silentOn": "what the median of nothing is",
+          "reasonable": "NaN (nothing to take the middle of) and throwing are also defensible.",
+          "args": [
+            []
+          ],
+          "expectedOutcome": {
+            "returns": 0
+          },
+          "actualOutcome": {
+            "returns": {
+              "$t": "number",
+              "v": "NaN"
+            }
+          }
+        }
+      ],
+      "gaps": [
+        {
+          "question": {
+            "fn": "median",
+            "kind": "empty",
+            "call": "median([])",
+            "args": [
+              []
+            ],
+            "silentOn": "what the median of nothing is",
+            "check": {
+              "name": "empty list",
+              "kind": "test",
+              "gate": "tests"
+            },
+            "expectedShown": "0",
+            "actualShown": "NaN",
+            "alternatives": [
+              {
+                "id": "tests",
+                "label": "0",
+                "source": "tests",
+                "outcome": {
+                  "returns": 0
+                },
+                "agrees": true
+              },
+              {
+                "id": "candidate",
+                "label": "NaN",
+                "source": "candidate",
+                "outcome": {
+                  "returns": {
+                    "$t": "number",
+                    "v": "NaN"
+                  }
+                },
+                "agrees": false
+              },
+              {
+                "id": "throws",
+                "label": "throws",
+                "source": "common",
+                "outcome": {
+                  "throws": true
+                },
+                "agrees": false
+              },
+              {
+                "id": "undefined",
+                "label": "undefined",
+                "source": "common",
+                "outcome": {
+                  "returns": {
+                    "$t": "undefined"
+                  }
+                },
+                "disabled": "Your signature says `number`; returning undefined needs the return type changed (Edit spec).",
+                "agrees": false
+              }
+            ],
+            "reasonable": "NaN (nothing to take the middle of) and throwing are also defensible."
+          },
+          "decision": {
+            "fn": "median",
+            "call": "median([])",
+            "silentOn": "what the median of nothing is",
+            "reasonable": "NaN (nothing to take the middle of) and throwing are also defensible.",
+            "check": {
+              "name": "empty list",
+              "kind": "test",
+              "gate": "tests"
+            },
+            "expected": "0",
+            "actual": "NaN",
+            "choices": [
+              {
+                "id": "tests",
+                "label": "0",
+                "from": "tests",
+                "agrees": true,
+                "testApi": "test(\"decided: median([]) returns 0\", () => {\n  eq(median([]), 0);\n});",
+                "vitest": "it(\"decided: median([]) returns 0\", () => {\n  expect(median([])).toBe(0);\n});"
+              },
+              {
+                "id": "candidate",
+                "label": "NaN",
+                "from": "candidate",
+                "agrees": false,
+                "testApi": "test(\"decided: median([]) returns NaN\", () => {\n  eq(median([]), NaN);\n});",
+                "vitest": "it(\"decided: median([]) returns NaN\", () => {\n  expect(median([])).toBeNaN();\n});"
+              },
+              {
+                "id": "throws",
+                "label": "throws",
+                "from": "common",
+                "agrees": false,
+                "testApi": "test(\"decided: median([]) throws\", () => {\n  throws(() => median([]));\n});",
+                "vitest": "it(\"decided: median([]) throws\", () => {\n  expect(() => median([])).toThrow();\n});"
+              }
+            ]
+          }
+        }
+      ],
+      "evidenceLine": null,
+      "evidence": null,
+      "mutation": null,
+      "mutantLines": [],
+      "generatedTests": {
+        "tests": "// expect() for tests read from a vitest file (Undefined vitest shim v1; a subset of vitest's matchers)\nconst expect = (() => {\n  let AssertionFailure;\n  try { eq(0, 1); } catch (e) { AssertionFailure = e.constructor; }\n  const shown = (v) => new AssertionFailure(v, v).actualShown;\n  const isViolation = (e) => typeof e === 'object' && e !== null && e.isInvariantViolation === true;\n  const same = (a, b) => { try { eq(a, b); return true; } catch (e) { if (e instanceof AssertionFailure) return false; throw e; } };\n  // an equality failure: the actual is a value under test (headline \"returned X, expected Y\"; decidable)\n  const unequal = (actual, expected, message, expectedText) =>\n    new AssertionFailure(actual, expected, message, expectedText === undefined ? undefined : { expected: expectedText });\n  // any other failure: described, never claimed to be a returned value\n  const failed = (actual, message, expectedText) => new AssertionFailure(actual, undefined, message, { actual: shown(actual), expected: expectedText });\n  const thrownBy = (fn) => {\n    if (typeof fn !== 'function') throw new TypeError('expect(...).toThrow() needs a function: expect(() => f(x)).toThrow()');\n    try { fn(); } catch (e) { if (isViolation(e)) throw e; return { threw: true, error: e }; }\n    return { threw: false };\n  };\n  const messageOf = (e) => (typeof e === 'object' && e !== null && 'message' in e ? String(e.message) : String(e));\n  const matches = (e, m) => {\n    if (m === undefined) return true;\n    if (typeof m === 'string') return messageOf(e).includes(m);\n    if (m instanceof RegExp) return m.test(messageOf(e));\n    if (typeof m === 'function') return e instanceof m;\n    if (typeof m === 'object' && m !== null) return messageOf(e) === messageOf(m);\n    return false;\n  };\n  const describeMatch = (m) => (m === undefined ? 'an error' : typeof m === 'function' ? 'an error of type ' + (m.name || 'that class') : 'an error matching ' + (typeof m === 'string' ? JSON.stringify(m) : m instanceof RegExp ? String(m) : JSON.stringify(messageOf(m))));\n  const matchers = (actual, not) => {\n    const check = (ok, fail) => { if (ok === not) throw fail(); };\n    const neg = not ? 'not ' : '';\n    return {\n      toBe: (expected) => check(Object.is(actual, expected), () => (not ? failed(actual, 'expected ' + shown(actual) + ' not to be ' + shown(expected), 'not ' + shown(expected)) : unequal(actual, expected))),\n      toEqual: (expected) => check(same(actual, expected), () => (not ? failed(actual, 'expected ' + shown(actual) + ' not to equal ' + shown(expected), 'not ' + shown(expected)) : unequal(actual, expected))),\n      toStrictEqual: (expected) => check(same(actual, expected), () => (not ? failed(actual, 'expected ' + shown(actual) + ' not to equal ' + shown(expected), 'not ' + shown(expected)) : unequal(actual, expected))),\n      toBeNaN: () => check(Number.isNaN(actual), () => (not ? failed(actual, 'expected a value other than NaN', 'not NaN') : unequal(actual, NaN))),\n      toBeNull: () => check(actual === null, () => (not ? failed(actual, 'expected a value other than null', 'not null') : unequal(actual, null))),\n      toBeUndefined: () => check(actual === undefined, () => (not ? failed(actual, 'expected a value other than undefined', 'not undefined') : unequal(actual, undefined))),\n      toBeDefined: () => check(actual !== undefined, () => (not ? unequal(actual, undefined) : failed(actual, 'expected a defined value', 'a defined value'))),\n      toBeTruthy: () => check(!!actual, () => failed(actual, 'expected ' + shown(actual) + ' to be ' + neg + 'truthy', neg + 'truthy')),\n      toBeFalsy: () => check(!actual, () => failed(actual, 'expected ' + shown(actual) + ' to be ' + neg + 'falsy', neg + 'falsy')),\n      toBeCloseTo: (n, digits = 2) => check(Math.abs(actual - n) < Math.pow(10, -digits) / 2, () => (not ? failed(actual, 'expected ' + shown(actual) + ' not to be close to ' + shown(n), 'not close to ' + shown(n)) : unequal(actual, n, 'expected ' + shown(actual) + ' to be close to ' + shown(n) + ' (' + digits + ' digits)', shown(n) + ' (to ' + digits + ' digits)'))),\n      toBeGreaterThan: (n) => check(actual > n, () => failed(actual, 'expected ' + shown(actual) + ' to be ' + neg + 'greater than ' + shown(n), neg + '> ' + shown(n))),\n      toBeGreaterThanOrEqual: (n) => check(actual >= n, () => failed(actual, 'expected ' + shown(actual) + ' to be ' + neg + 'greater than or equal to ' + shown(n), neg + '>= ' + shown(n))),\n      toBeLessThan: (n) => check(actual < n, () => failed(actual, 'expected ' + shown(actual) + ' to be ' + neg + 'less than ' + shown(n), neg + '< ' + shown(n))),\n      toBeLessThanOrEqual: (n) => check(actual <= n, () => failed(actual, 'expected ' + shown(actual) + ' to be ' + neg + 'less than or equal to ' + shown(n), neg + '<= ' + shown(n))),\n      toHaveLength: (n) => check(actual != null && actual.length === n, () => failed(actual, 'expected ' + shown(actual) + ' ' + (not ? 'not ' : '') + 'to have length ' + n, (not ? 'not ' : '') + 'length ' + n)),\n      toContain: (x) => check(actual != null && typeof actual.includes === 'function' && actual.includes(x), () => failed(actual, 'expected ' + shown(actual) + ' ' + (not ? 'not ' : '') + 'to contain ' + shown(x), (not ? 'not ' : '') + 'containing ' + shown(x))),\n      toContainEqual: (x) => check(Array.isArray(actual) && actual.some((y) => same(y, x)), () => failed(actual, 'expected ' + shown(actual) + ' ' + (not ? 'not ' : '') + 'to contain an element equal to ' + shown(x), (not ? 'not ' : '') + 'an element equal to ' + shown(x))),\n      toMatch: (m) => check(typeof actual === 'string' && (typeof m === 'string' ? actual.includes(m) : m.test(actual)), () => failed(actual, 'expected ' + shown(actual) + ' ' + (not ? 'not ' : '') + 'to match ' + (typeof m === 'string' ? JSON.stringify(m) : String(m)), (not ? 'not ' : '') + 'matching ' + (typeof m === 'string' ? JSON.stringify(m) : String(m)))),\n      toThrow: (m) => {\n        if (!not) {\n          if (m === undefined || typeof m === 'string' || m instanceof RegExp) return throws(actual, m);\n          const r = thrownBy(actual);\n          if (!r.threw) { const f = failed(undefined, 'expected ' + describeMatch(m) + ', but nothing was thrown', describeMatch(m)); f.expectsThrow = true; throw f; }\n          if (!matches(r.error, m)) throw failed(r.error, 'expected ' + describeMatch(m) + ', got ' + shown(r.error), describeMatch(m));\n          return;\n        }\n        const r = thrownBy(actual);\n        if (r.threw && matches(r.error, m)) throw failed(r.error, 'expected no ' + (m === undefined ? 'error' : describeMatch(m)) + ', got ' + shown(r.error), 'no ' + (m === undefined ? 'error' : describeMatch(m)));\n      },\n    };\n  };\n  const unsupported = (name) => {\n    const e = new Error('expect(...).' + name + ' is not supported by the Undefined vitest shim');\n    e.name = 'UnsupportedMatcher';\n    return e;\n  };\n  const guard = (m) => new Proxy(m, { get: (t, k) => { if (typeof k === 'string' && !(k in t)) throw unsupported(k); return t[k]; } });\n  return (actual) => {\n    const m = matchers(actual, false);\n    m.toThrowError = m.toThrow;\n    const n = matchers(actual, true);\n    n.toThrowError = n.toThrow;\n    m.not = guard(n);\n    return guard(m);\n  };\n})();\n\n\ntest(\"odd length\", () => {\n  expect(median([3, 1, 2])).toBe(2);\n});\n\ntest(\"even length\", () => {\n  expect(median([4, 1, 3, 2])).toBe(2.5);\n});\n\ntest(\"empty list\", () => {\n  expect(median([])).toBe(0);\n}, { silentOn: \"what the median of nothing is\", reasonable: \"NaN (nothing to take the middle of) and throwing are also defensible.\" });\n",
+        "properties": "// expect() for tests read from a vitest file (Undefined vitest shim v1; a subset of vitest's matchers)\nconst expect = (() => {\n  let AssertionFailure;\n  try { eq(0, 1); } catch (e) { AssertionFailure = e.constructor; }\n  const shown = (v) => new AssertionFailure(v, v).actualShown;\n  const isViolation = (e) => typeof e === 'object' && e !== null && e.isInvariantViolation === true;\n  const same = (a, b) => { try { eq(a, b); return true; } catch (e) { if (e instanceof AssertionFailure) return false; throw e; } };\n  // an equality failure: the actual is a value under test (headline \"returned X, expected Y\"; decidable)\n  const unequal = (actual, expected, message, expectedText) =>\n    new AssertionFailure(actual, expected, message, expectedText === undefined ? undefined : { expected: expectedText });\n  // any other failure: described, never claimed to be a returned value\n  const failed = (actual, message, expectedText) => new AssertionFailure(actual, undefined, message, { actual: shown(actual), expected: expectedText });\n  const thrownBy = (fn) => {\n    if (typeof fn !== 'function') throw new TypeError('expect(...).toThrow() needs a function: expect(() => f(x)).toThrow()');\n    try { fn(); } catch (e) { if (isViolation(e)) throw e; return { threw: true, error: e }; }\n    return { threw: false };\n  };\n  const messageOf = (e) => (typeof e === 'object' && e !== null && 'message' in e ? String(e.message) : String(e));\n  const matches = (e, m) => {\n    if (m === undefined) return true;\n    if (typeof m === 'string') return messageOf(e).includes(m);\n    if (m instanceof RegExp) return m.test(messageOf(e));\n    if (typeof m === 'function') return e instanceof m;\n    if (typeof m === 'object' && m !== null) return messageOf(e) === messageOf(m);\n    return false;\n  };\n  const describeMatch = (m) => (m === undefined ? 'an error' : typeof m === 'function' ? 'an error of type ' + (m.name || 'that class') : 'an error matching ' + (typeof m === 'string' ? JSON.stringify(m) : m instanceof RegExp ? String(m) : JSON.stringify(messageOf(m))));\n  const matchers = (actual, not) => {\n    const check = (ok, fail) => { if (ok === not) throw fail(); };\n    const neg = not ? 'not ' : '';\n    return {\n      toBe: (expected) => check(Object.is(actual, expected), () => (not ? failed(actual, 'expected ' + shown(actual) + ' not to be ' + shown(expected), 'not ' + shown(expected)) : unequal(actual, expected))),\n      toEqual: (expected) => check(same(actual, expected), () => (not ? failed(actual, 'expected ' + shown(actual) + ' not to equal ' + shown(expected), 'not ' + shown(expected)) : unequal(actual, expected))),\n      toStrictEqual: (expected) => check(same(actual, expected), () => (not ? failed(actual, 'expected ' + shown(actual) + ' not to equal ' + shown(expected), 'not ' + shown(expected)) : unequal(actual, expected))),\n      toBeNaN: () => check(Number.isNaN(actual), () => (not ? failed(actual, 'expected a value other than NaN', 'not NaN') : unequal(actual, NaN))),\n      toBeNull: () => check(actual === null, () => (not ? failed(actual, 'expected a value other than null', 'not null') : unequal(actual, null))),\n      toBeUndefined: () => check(actual === undefined, () => (not ? failed(actual, 'expected a value other than undefined', 'not undefined') : unequal(actual, undefined))),\n      toBeDefined: () => check(actual !== undefined, () => (not ? unequal(actual, undefined) : failed(actual, 'expected a defined value', 'a defined value'))),\n      toBeTruthy: () => check(!!actual, () => failed(actual, 'expected ' + shown(actual) + ' to be ' + neg + 'truthy', neg + 'truthy')),\n      toBeFalsy: () => check(!actual, () => failed(actual, 'expected ' + shown(actual) + ' to be ' + neg + 'falsy', neg + 'falsy')),\n      toBeCloseTo: (n, digits = 2) => check(Math.abs(actual - n) < Math.pow(10, -digits) / 2, () => (not ? failed(actual, 'expected ' + shown(actual) + ' not to be close to ' + shown(n), 'not close to ' + shown(n)) : unequal(actual, n, 'expected ' + shown(actual) + ' to be close to ' + shown(n) + ' (' + digits + ' digits)', shown(n) + ' (to ' + digits + ' digits)'))),\n      toBeGreaterThan: (n) => check(actual > n, () => failed(actual, 'expected ' + shown(actual) + ' to be ' + neg + 'greater than ' + shown(n), neg + '> ' + shown(n))),\n      toBeGreaterThanOrEqual: (n) => check(actual >= n, () => failed(actual, 'expected ' + shown(actual) + ' to be ' + neg + 'greater than or equal to ' + shown(n), neg + '>= ' + shown(n))),\n      toBeLessThan: (n) => check(actual < n, () => failed(actual, 'expected ' + shown(actual) + ' to be ' + neg + 'less than ' + shown(n), neg + '< ' + shown(n))),\n      toBeLessThanOrEqual: (n) => check(actual <= n, () => failed(actual, 'expected ' + shown(actual) + ' to be ' + neg + 'less than or equal to ' + shown(n), neg + '<= ' + shown(n))),\n      toHaveLength: (n) => check(actual != null && actual.length === n, () => failed(actual, 'expected ' + shown(actual) + ' ' + (not ? 'not ' : '') + 'to have length ' + n, (not ? 'not ' : '') + 'length ' + n)),\n      toContain: (x) => check(actual != null && typeof actual.includes === 'function' && actual.includes(x), () => failed(actual, 'expected ' + shown(actual) + ' ' + (not ? 'not ' : '') + 'to contain ' + shown(x), (not ? 'not ' : '') + 'containing ' + shown(x))),\n      toContainEqual: (x) => check(Array.isArray(actual) && actual.some((y) => same(y, x)), () => failed(actual, 'expected ' + shown(actual) + ' ' + (not ? 'not ' : '') + 'to contain an element equal to ' + shown(x), (not ? 'not ' : '') + 'an element equal to ' + shown(x))),\n      toMatch: (m) => check(typeof actual === 'string' && (typeof m === 'string' ? actual.includes(m) : m.test(actual)), () => failed(actual, 'expected ' + shown(actual) + ' ' + (not ? 'not ' : '') + 'to match ' + (typeof m === 'string' ? JSON.stringify(m) : String(m)), (not ? 'not ' : '') + 'matching ' + (typeof m === 'string' ? JSON.stringify(m) : String(m)))),\n      toThrow: (m) => {\n        if (!not) {\n          if (m === undefined || typeof m === 'string' || m instanceof RegExp) return throws(actual, m);\n          const r = thrownBy(actual);\n          if (!r.threw) { const f = failed(undefined, 'expected ' + describeMatch(m) + ', but nothing was thrown', describeMatch(m)); f.expectsThrow = true; throw f; }\n          if (!matches(r.error, m)) throw failed(r.error, 'expected ' + describeMatch(m) + ', got ' + shown(r.error), describeMatch(m));\n          return;\n        }\n        const r = thrownBy(actual);\n        if (r.threw && matches(r.error, m)) throw failed(r.error, 'expected no ' + (m === undefined ? 'error' : describeMatch(m)) + ', got ' + shown(r.error), 'no ' + (m === undefined ? 'error' : describeMatch(m)));\n      },\n    };\n  };\n  const unsupported = (name) => {\n    const e = new Error('expect(...).' + name + ' is not supported by the Undefined vitest shim');\n    e.name = 'UnsupportedMatcher';\n    return e;\n  };\n  const guard = (m) => new Proxy(m, { get: (t, k) => { if (typeof k === 'string' && !(k in t)) throw unsupported(k); return t[k]; } });\n  return (actual) => {\n    const m = matchers(actual, false);\n    m.toThrowError = m.toThrow;\n    const n = matchers(actual, true);\n    n.toThrowError = n.toThrow;\n    m.not = guard(n);\n    return guard(m);\n  };\n})();\n\n\nproperty(\"order does not matter\", [fc.array(fc.integer(), { minLength: 1 })], (xs) => median(xs) === median([...xs].reverse()));\n"
+      },
+      "skippedByTestFile": [],
+      "provenance": null
+    }
+  },
+  "order": [
+    "median"
+  ],
+  "issues": [],
+  "notes": [],
+  "unattributed": []
+}

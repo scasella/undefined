@@ -24,9 +24,13 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+        env:
+          # Optional one-click share server (docs/SHARE-DEPLOY.md). Empty unless the repository variable is set.
+          VITE_SHARE_ENDPOINT: ${{ vars.VITE_SHARE_ENDPOINT }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          # npm workspaces: the root `npm run build` builds apps/site, whose output stays next to it
+          path: apps/site/dist
       - id: deployment
         uses: actions/deploy-pages@v4

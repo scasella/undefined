@@ -12,7 +12,7 @@ Chrome 154 headless via playwright-core, measured 2026-10-04. One model, one day
 ### 1a. Whole sessions through the real app (the number to quote)
 
 8 fresh sessions per example, each the example's pre-typed call, real Web Worker gates and watchdog, the real budget of
-3 candidates. `node scripts/sessions.mjs 8`.
+3 candidates. `node apps/site/scripts/sessions.mjs 8`.
 
 | example | sessions | first candidate rejected (by) | first candidate accepted | committed within 3 candidates | mean session time |
 |---|---|---|---|---|---|
@@ -33,7 +33,7 @@ Chrome 154 headless via playwright-core, measured 2026-10-04. One model, one day
 
 ### 1b. Earlier, narrower sampling (kept for the record)
 
-`scripts/tune.tune.ts`, 8 samples per example, one candidate and **one** retry with the diagnostic: median 8/8 rejected →
+`apps/site/scripts/tune.tune.ts`, 8 samples per example, one candidate and **one** retry with the diagnostic: median 8/8 rejected →
 8/8 passed; slugify 8/8 → 7/8; fibonacci 8/8 → 8/8. The session-level numbers above are lower because a session can
 have a different first candidate each time and has to recover within the real budget. Before any tuning, **18 of 18**
 first attempts at tightly specified versions of these examples passed every gate: the model does not need help from the
@@ -41,7 +41,7 @@ toolchain on a well-specified function, and the examples are built around specs 
 
 ### 1c. The decline rule (stubs versus honesty)
 
-`scripts/calibrate.tune.ts`: ~47 spec-less calls, 3 samples each, written vs. declined.
+`apps/site/scripts/calibrate.tune.ts`: ~47 spec-less calls, 3 samples each, written vs. declined.
 
 | group | expected | result |
 |---|---|---|
@@ -61,13 +61,13 @@ merged: killed, stopped by the time limit, survived (may be equivalent), did not
 
 | function (body) | where measured | result |
 |---|---|---|
-| `median` (shipped good body 1) | Node, real gates (`src/core/engine.evidence.test.ts`) | 11 of 12 killed; the survivor is `0 → -1` on the empty-list guard, which changes nothing observable (an equivalent mutant: the empty list still yields NaN) |
+| `median` (shipped good body 1) | Node, real gates (`apps/site/src/core/engine.evidence.test.ts`) | 11 of 12 killed; the survivor is `0 → -1` on the empty-list guard, which changes nothing observable (an equivalent mutant: the empty list still yields NaN) |
 | `median` (good body 2) | same | 11 of 12 killed, same survivor |
-| `median` (the body in the shipped recording) | browser, production build in replay mode, real watchdog, measured 2026-10-04 after the final re-record (`node scripts/mutation-check.mjs`) | 12 of 12 killed |
+| `median` (the body in the shipped recording) | browser, production build in replay mode, real watchdog, measured 2026-10-04 after the final re-record (`node apps/site/scripts/mutation-check.mjs`) | 12 of 12 killed |
 | `slugify` (regex chain; also the shipped recording's body) | Node and browser | 1 of 1 (the body has a single mutation site) |
 | `slugify` (loop version) | Node | 12 of 12 killed |
 | `fibonacci` (fast doubling) | Node | 12 of 12 killed |
-| `fibonacci` (the body in the shipped recording) | same | 11 of 12 caught: 9 by a test or rule, 2 more by the time limit; 1 survived (it may behave exactly like the original) |
+| `fibonacci` (the body in the shipped recording) | browser, as for the `median` recording | 11 of 12 caught: 9 by a test or rule, 2 more by the time limit; 1 survived (it may behave exactly like the original) |
 | `topCustomersByRevenue` | n/a | skipped: no tests, nothing could kill a mutant |
 | any function with no tests at all | all five bodies tested | 0 killed (and the app says so) |
 
@@ -79,7 +79,7 @@ number: it separates a test suite that checks something from one that merely exi
 
 ## 3. Real session transcripts (verbatim, with the diagnostics the model received)
 
-Generated from the shipped recordings by `node scripts/transcripts.mjs`: every prompt exactly as sent, every body exactly
+Generated from the shipped recordings by `node apps/site/scripts/transcripts.mjs`: every prompt exactly as sent, every body exactly
 as returned. The second prompt of each ends with the toolchain's diagnostics for the rejected candidate.
 
 - `docs/transcripts/median.md`, `docs/transcripts/slugify.md`, `docs/transcripts/fibonacci.md`
@@ -149,40 +149,52 @@ Fix exactly what the diagnostics show. Keep what worked. Do not repeat an approa
   tests notice changes, not that the spec is right.
 - **Replay is a recording, not a run.** The static site replays recorded candidates; only the gates run live in the visitor's
   browser. It is labelled as such on screen.
-- **Not tested:** Safari/Firefox (Chrome only); Node versions other than 20.20, 22.23, 25.8 and 26.8; any model other than
+- **Not tested:** Safari/Firefox (Chrome only); Node versions other than 20.20, 22.23, 25.8 and 26.8 for the site (the
+  engine's Node host, CLI and Action only on 25.8.1; Node 20 and 22 first in CI); any model other than
   `gpt-6-luna`; concurrent users (it is a local single-user tool).
 - **Data privacy:** in live mode a dataset's inferred type and up to 3 sample rows go to Codex (the user can turn the sample
   rows off and send the type only); nothing else about the data does, and in replay mode nothing leaves the browser.
 
-## 5. Suggested outline for the essay (an outline, not the essay)
+### 4a. The engine as a product: what may and may not be said
 
-1. **The inversion, in ten seconds.** The opening sequence: a call to a function that doesn't exist, a rejection card, a
-   retry, a commit. State the claim: the model is upstream, the toolchain is downstream and decides.
-2. **Who holds the contract?** The pivot of the piece. Median-of-nothing and the apostrophe are not model mistakes; the
-   spec was silent and the tests chose. Contrast with the fibonacci rejection, where everything was stated and the model
-   did not time its own loop. Use the 18/18 first-try pass rate to show a strong model needs no help on a well-specified
-   function: the toolchain's value is concentrated where specs are incomplete.
-3. **Making the verdict legible.** The rejection card: the headline, the "who decided" line, the fairness line. Why every
-   decision names its gate and its evidence.
-4. **What the toolchain can and cannot see.** The hostile-calls section: the faked stubs (20 → 2), the decline protocol,
-   then the residual: run-to-run variance and overfit-to-the-example that no gate catches without a test.
-5. **Tests that accrete from use.** Pin result as test; the data scratchpad; why a pin is outside the hash and what re-certify does.
-6. **How much to trust a committed function.** The confidence line without a score; mutation kill rates as a way to ask
-   "did the gate check anything?" (the weak-spec 8-of-12 versus the shipped 12-of-12).
-7. **Honest limits and what was measured.** One model, one day; built rejections; the sandbox; the numbers in section 1.
-8. **Where it goes.** A program that is a log of accepted changes: revisions, rollback including live state, hot reload,
-   share a session as a file that replays with live gates.
+The gates also ship without the site: `packages/engine`, the CLI (`npx @scasella/undefined certify <file>`, not
+published yet; [PACKAGES.md](PACKAGES.md)) and a GitHub Action that comments on PRs ([ENGINE.md](ENGINE.md)). They
+certify code from any source (Claude Code, Codex, Cursor, a human) and contain no generation path. The claim that ties
+them to the site is the **parity table** in [EVIDENCE.md](EVIDENCE.md#node-and-cli-parity): all 11 recorded candidates
+get the same verdict, gate statuses, evidence line and mutation buckets from the built CLI in Node as from the site in
+Chrome (`npm run check:parity`, in CI), with exactly two stated differences (the killed / stopped-by-time-limit split
+may differ; the site's "rejected, spec was silent" is the engine's `gaps`, exit 2).
+
+**Never claim:**
+
+- **that it is a sandbox.** The Node runner executes untrusted code in a `worker_thread` with a watchdog inside a
+  `node:vm` realm; that catches accidents, not escapes ([SECURITY.md](SECURITY.md#the-node-host-packagesengine-used-by-the-cli-and-the-action)).
+  In the Action the isolation boundary is the runner VM, and an escape would see the job's token.
+- **that certification is proof.** "Accepted" means the function passed the checks it came with: evidence, not a
+  proof of correctness. A spec that asserts nothing certifies anything.
+- **that a mutation kill rate grades the code.** It measures the tests: how many deliberate changes they notice.
+  Survivors may be equivalent mutants.
+- that parity holds beyond the shipped recordings, on other machines' timing, or on Node 20/22 before CI has run it
+  there (measured on one Mac, Chrome and Node 25.8.1, 2026-10-05).
+- download counts, users or a published package: nothing is published.
+
+## 5. Suggested outline for the essay
+
+Moved to [ESSAY-OUTLINE.md](ESSAY-OUTLINE.md): the section structure, the evidence each section should cite (with the
+numbers above), and what each section must not claim.
 
 ## 6. Assets and how to regenerate everything here
 
 | asset | command |
 |---|---|
-| session rates (1a) | `node scripts/sessions.mjs 8` |
-| single-retry sampling (1b) | `TUNE_N=8 TUNE_EX=median,slugify,fibonacci npx vitest run -c scripts/vitest.tune.config.ts scripts/tune.tune.ts` |
-| decline calibration (1c) | `CAL_N=3 npx vitest run -c scripts/vitest.tune.config.ts scripts/calibrate.tune.ts` |
-| hostile calls | `node scripts/hostile.mjs` |
+| session rates (1a) | `node apps/site/scripts/sessions.mjs 8` |
+| single-retry sampling (1b) | `TUNE_N=8 TUNE_EX=median,slugify,fibonacci npx vitest run -c apps/site/scripts/vitest.tune.config.ts apps/site/scripts/tune.tune.ts` |
+| decline calibration (1c) | `CAL_N=3 npx vitest run -c apps/site/scripts/vitest.tune.config.ts apps/site/scripts/calibrate.tune.ts` |
+| hostile calls | `node apps/site/scripts/hostile.mjs` |
 | recordings | `npm run record` |
-| transcripts | `node scripts/transcripts.mjs` |
+| transcripts | `node apps/site/scripts/transcripts.mjs` |
 | replay check on the production build | `npm run build && npm run check:replay` |
-| screenshots in both schemes and sizes | `node scripts/shots.mjs` |
-| `docs/opening.gif`, `docs/demo.mp4` | `node scripts/capture.mjs` |
+| screenshots in both schemes and sizes | `node apps/site/scripts/shots.mjs` |
+| `docs/opening.gif`, `docs/demo.mp4` | `node apps/site/scripts/capture.mjs` |
+| `docs/opening-<id>.gif` (the opening for `?opener=<id>`) | `node apps/site/scripts/capture.mjs --opener=<id>` |
+| `docs/social.png` and `apps/site/public/social.png` (link preview, 1200x630, from the real rejection card) | `node apps/site/scripts/social.mjs` |

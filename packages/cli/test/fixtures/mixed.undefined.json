@@ -1,0 +1,18 @@
+{
+  "format": "undefined-spec",
+  "version": 1,
+  "functions": {
+    "abs": {
+      "tests": "test('negative', () => { eq(abs(-3), 3); });\ntest('positive', () => { eq(abs(4), 4); });",
+      "properties": "property('never negative', [fc.integer()], (n: number) => abs(n) >= 0);"
+    },
+    "sign": {
+      "tests": "test('positive', () => { eq(sign(5), 1); });\ntest('negative', () => { eq(sign(-5), -1); });\ntest('zero', () => { eq(sign(0), 0); }, { silentOn: 'the sign of zero', reasonable: 'Treating zero as positive is a common convention.' });",
+      "properties": ""
+    },
+    "max2": {
+      "tests": "test('first', () => { eq(max2(3, 1), 3); });\ntest('second', () => { eq(max2(1, 3), 3); });",
+      "properties": "property('is one of them', [fc.integer(), fc.integer()], (a: number, b: number) => { const m = max2(a, b); return m === a || m === b; });"
+    }
+  }
+}

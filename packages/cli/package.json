@@ -1,0 +1,53 @@
+{
+  "name": "@scasella/undefined",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Certify TypeScript functions from any source with the Undefined gates (compile, tests, properties, invariants) and a mutation check. Never generates code.",
+  "bin": {
+    "undefined-certify": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "node scripts/check-built.mjs",
+    "typecheck": "tsc -p .",
+    "prepublishOnly": "npm run build && npm run check"
+  },
+  "dependencies": {
+    "typescript": "5.9.3"
+  },
+  "devDependencies": {
+    "@scasella/undefined-engine": "0.1.0",
+    "@types/node": "^26.6.4",
+    "fast-check": "^4.10.2",
+    "vite": "^8.3.2",
+    "vitest": "^4.1.11"
+  },
+  "keywords": [
+    "typescript",
+    "certify",
+    "property-based-testing",
+    "fast-check",
+    "mutation-testing",
+    "cli"
+  ],
+  "license": "MIT",
+  "author": "Stephen Casella",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/scasella/undefined.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/scasella/undefined/tree/main/packages/cli#readme",
+  "bugs": {
+    "url": "https://github.com/scasella/undefined/issues"
+  }
+}

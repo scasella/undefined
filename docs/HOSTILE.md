@@ -3,7 +3,7 @@
 Typed with no spec, live, into a fresh image each time, the way strangers will: ambiguous names, state and randomness,
 async-looking names, nested objects, functions that tempt an in-place mutation, Unicode, numbers near overflow, I/O names,
 odd arguments, typos, reserved names. Measured 2026-10-04 with `gpt-6-luna`, effort `low`, Codex CLI 0.159.2,
-through the real app in headless Chrome (`node scripts/hostile.mjs`; the 54 calls are in `scripts/hostile-calls.json`; raw
+through the real app in headless Chrome (`node apps/site/scripts/hostile.mjs`; the 54 calls are in `apps/site/scripts/hostile-calls.json`; raw
 results are not committed, the script reproduces them). The full list ran **three times**: before the fixes, after the first
 version of the decline rule, and with the final prompt. The table is the final run; the notes use all three where they
 disagree, because the disagreement is itself a finding.
@@ -24,7 +24,7 @@ spec (see the README).
    and what to do. Now 2 of those 20 are still committed (`clean(x)`, which filters nulls sensibly, and `getCookie`).
 2. **The first version of that rule over-declined** (found by trying the data scratchpad's own headline call,
    `topCustomersByRevenue(rows)`, which it refused with "which discount rules count?"). The rule was re-calibrated against
-   ~47 spec-less calls, three samples each (`scripts/calibrate.tune.ts`): names that *describe the result* are written, with
+   ~47 spec-less calls, three samples each (`apps/site/scripts/calibrate.tune.ts`): names that *describe the result* are written, with
    the assumptions stated in the note (**78 of 78** written); meaningless names are declined (**21 of 21**); impure names are
    declined (**41 of 45**, the four exceptions being `getCookie`/`printReport` read as pure parsing/formatting).
 3. **`[1, 2, 3].map(double)` returned `[0, 2, 6]`:** the function was grown from `map`'s three callback arguments (value,
