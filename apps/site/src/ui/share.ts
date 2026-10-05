@@ -9,7 +9,7 @@ export const SHARE_FILENAME = 'undefined-session.json';
 export const SESSION_LOG_FILENAME = 'undefined-session-log.json';
 
 export const SHARE_INCLUDES =
-  'The recording includes your spec and test code and any dataset rows used in the session, with what the model was asked and what it wrote (prompts and candidates) and the calls you typed; nothing else.';
+  'The recording includes your spec and test code and any dataset rows used in the session, with what the model was asked and what it wrote (prompts and candidates), the calls you typed, and the Codex progress log of each attempt (status lines, short reasoning excerpts and any warnings Codex printed, which can name local file paths); nothing else.';
 export const SHARE_HOST_TEXT =
   "Host it anywhere that serves the raw file with CORS (a GitHub gist's Raw URL or raw.githubusercontent.com both work).";
 export const SESSION_LOG_SENTENCE =

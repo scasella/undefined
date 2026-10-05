@@ -245,3 +245,13 @@ describe('source maps', () => {
     expect(decodeMappings(';AAAA,SAAS;IACP;AACF')).toEqual([[], [0, 0], [1], [2]]);
   });
 });
+
+describe('logLine (PR text in the job log cannot become a workflow command)', () => {
+  it('escapes newlines and other control characters and breaks a leading ::', async () => {
+    const { logLine } = await import('./commands');
+    expect(logLine('  f src/a.ts:1: rejected: threw Error: x\n::add-mask::y\r\u001b[2K')).toBe('  f src/a.ts:1: rejected: threw Error: x\\u000a::add-mask::y\\u000d\\u001b[2K');
+    expect(logLine('::error::pwn.ts: certifying f')).toBe('\\u003a:error::pwn.ts: certifying f');
+    expect(logLine('  ::warning::x')).toBe('  \\u003a:warning::x');
+    expect(logLine('undefined-certify: 2 changed file(s)')).toBe('undefined-certify: 2 changed file(s)');
+  });
+});

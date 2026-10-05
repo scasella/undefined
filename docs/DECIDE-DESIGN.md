@@ -6,7 +6,8 @@ ruling is warned about before Confirm and then runs (the engine's needs-live pat
 the ways out. The live measurement (§7) was run as `apps/site/scripts/decide-sessions.mjs`; results are in DECIDE-MEASUREMENTS.md. §10 lists where the code differs from this text and the
 two flaws found while building it (fixed in the code and here). Internal: fold into DESIGN.md / FEATURES.md once
 built, then delete.
-Every claim about current behaviour cites the code it was read from.
+Every claim about current behaviour cites the code it was read from. Paths are as they were before the Phase 4
+workspace move: `src/…` is now `apps/site/src/…` or `packages/engine/src/…` ([ARCHITECTURE.md](ARCHITECTURE.md#layout)).
 
 ## 0. The flow in one paragraph
 

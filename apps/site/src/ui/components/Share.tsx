@@ -167,7 +167,8 @@ function OneClickShare({ endpoint, rec }: { endpoint: string; rec: NonNullable<R
       <h3 id="share-oneclick-title">One-click link</h3>
       <p class="small">
         <strong>What leaves your browser:</strong> pressing Create link uploads this recording (your specs and tests,
-        the prompts and the model's candidates, the calls you typed and any dataset rows in the session) to{' '}
+        the prompts and the model's candidates, the calls you typed, any dataset rows in the session and Codex's progress
+        log, which can name local file paths) to{' '}
         <span class="mono">{host}</span>, where anyone with the link can read it. It is stored under its content hash,
         with nothing about who uploaded it. Nothing is uploaded until you press the button.
       </p>

@@ -4,7 +4,8 @@ Status: §A (composition core), §B (REPL) and the UI of §D step 3 are implemen
 §F and §G; the live measurements of §C were taken on 2026-10-05 (new harness `apps/site/scripts/compose-sessions.mjs`
 instead of a `--precommit` flag) and are in [COMPOSE-MEASUREMENTS.md](COMPOSE-MEASUREMENTS.md); they changed the
 guard wording of §A6. Written against HEAD `4efd1ff`. Every claim about current behaviour
-cites the file and function it comes from.
+cites the file and function it comes from. Paths predate the Phase 4 workspace move: `src/…` is now `apps/site/src/…`
+or `packages/engine/src/…` ([ARCHITECTURE.md](ARCHITECTURE.md#layout)).
 
 Brief (product owner): generated functions can call other generated functions; the compile gate sees the signatures
 of all certified functions; the Invariants gate replays through them; ejecting a function ejects its closure; a

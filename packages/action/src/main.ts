@@ -17,7 +17,7 @@ import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import type { GateHost, Json } from '@scasella/undefined-engine';
-import { annotation, appendSummary, bool, input, setOutput, type Env } from './commands';
+import { annotation, appendSummary, bool, input, logLine, setOutput, type Env } from './commands';
 import { renderComment } from './comment';
 import { certifyTouched, type CertifyTouchedResult } from './certifyTouched';
 import { changedFiles, gitIn } from './diff';
@@ -114,7 +114,9 @@ async function certifyMode(env: Env, deps: Deps, gh: GitHub, event: PullRequestE
     },
   });
   const n = [...touched.values()].reduce((a, m) => a + m.size, 0);
-  deps.log(`undefined-certify: ${files.length} changed file(s) since ${mergeBase.slice(0, 7)}; ${n} exported function(s) touched under ${include.patterns.join(', ')}`);
+  // progress lines carry PR-controlled text (file names, thrown messages): escaped so they cannot become workflow commands
+  const log = (line: string): void => deps.log(logLine(line));
+  log(`undefined-certify: ${files.length} changed file(s) since ${mergeBase.slice(0, 7)}; ${n} exported function(s) touched under ${include.patterns.join(', ')}`);
 
   let certified: CertifyTouchedResult = { functions: [], notes: [], raw: [] };
   if (n > 0) {
@@ -130,7 +132,7 @@ async function certifyMode(env: Env, deps: Deps, gh: GitHub, event: PullRequestE
       certifiedBy: await deps.certifiedBy(),
       decidedAt,
       exists,
-      log: deps.log,
+      log,
     });
   }
   const report: Report = {
@@ -173,7 +175,7 @@ async function certifyMode(env: Env, deps: Deps, gh: GitHub, event: PullRequestE
     else if (f.verdict === 'could-not-run') emit(annotation(report.failOn.includes('could-not-run') ? 'error' : 'warning', `could not run: ${f.reason ?? f.headline ?? ''}`, at));
     for (const s of f.survivors) emit(annotation('notice', `mutant survived (may be equivalent): ${s.original} → ${s.mutated}`, { file: f.file, line: s.line ?? f.line, title: `undefined-certify: ${f.name}` }));
   }
-  for (const f of report.functions) deps.log(`  ${f.name} ${f.file}:${f.line}: ${f.verdict}${f.evidenceLine ? `: ${f.evidenceLine}` : f.headline ? `: ${f.headline}` : f.reason ? `: ${f.reason}` : ''}`);
+  for (const f of report.functions) log(`  ${f.name} ${f.file}:${f.line}: ${f.verdict}${f.evidenceLine ? `: ${f.evidenceLine}` : f.headline ? `: ${f.headline}` : f.reason ? `: ${f.reason}` : ''}`);
 
   const body = renderComment(report);
   appendSummary(env, body);
@@ -181,7 +183,7 @@ async function certifyMode(env: Env, deps: Deps, gh: GitHub, event: PullRequestE
   else if (mode === 'certify-and-comment') await postComment(deps, gh, report, body, emit);
 
   const fails = failing(report);
-  if (fails.length > 0) deps.log(`undefined-certify: failing the check: ${fails.map((f) => `${f.name} (${f.verdict})`).join(', ')}`);
+  if (fails.length > 0) log(`undefined-certify: failing the check: ${fails.map((f) => `${f.name} (${f.verdict})`).join(', ')}`);
   return fails.length > 0 ? 1 : 0;
 }
 

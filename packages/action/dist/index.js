@@ -97,6 +97,14 @@ function appendSummary(env, markdown) {
 	if (!file) return;
 	appendFileSync(file, `${markdown}\n`);
 }
+/**
+* One line for the job log (stderr). The runner reads workflow commands from stderr as well as stdout, and log lines
+* carry PR-controlled text (file names, thrown messages), so control characters are escaped (a newline cannot start a
+* `::error::`/`::add-mask::`/`::stop-commands::` line of its own) and a leading `::` is broken.
+*/
+function logLine(s) {
+	return s.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`).replace(/^(\s*):/, "$1\\u003a");
+}
 
 //#endregion
 //#region src/model.ts
@@ -155509,7 +155517,8 @@ async function certifyMode(env, deps, gh, event, mode, dryRun, emit) {
 		}
 	});
 	const n = [...touched.values()].reduce((a, m) => a + m.size, 0);
-	deps.log(`undefined-certify: ${files.length} changed file(s) since ${mergeBase.slice(0, 7)}; ${n} exported function(s) touched under ${include.patterns.join(", ")}`);
+	const log = (line) => deps.log(logLine(line));
+	log(`undefined-certify: ${files.length} changed file(s) since ${mergeBase.slice(0, 7)}; ${n} exported function(s) touched under ${include.patterns.join(", ")}`);
 	let certified = {
 		functions: [],
 		notes: [],
@@ -155528,7 +155537,7 @@ async function certifyMode(env, deps, gh, event, mode, dryRun, emit) {
 			certifiedBy: await deps.certifiedBy(),
 			decidedAt,
 			exists,
-			log: deps.log
+			log
 		});
 	}
 	const report = {
@@ -155584,13 +155593,13 @@ async function certifyMode(env, deps, gh, event, mode, dryRun, emit) {
 			title: `undefined-certify: ${f.name}`
 		}));
 	}
-	for (const f of report.functions) deps.log(`  ${f.name} ${f.file}:${f.line}: ${f.verdict}${f.evidenceLine ? `: ${f.evidenceLine}` : f.headline ? `: ${f.headline}` : f.reason ? `: ${f.reason}` : ""}`);
+	for (const f of report.functions) log(`  ${f.name} ${f.file}:${f.line}: ${f.verdict}${f.evidenceLine ? `: ${f.evidenceLine}` : f.headline ? `: ${f.headline}` : f.reason ? `: ${f.reason}` : ""}`);
 	const body = renderComment(report);
 	appendSummary(env, body);
 	if (dryRun) deps.out(body);
 	else if (mode === "certify-and-comment") await postComment(deps, gh, report, body, emit);
 	const fails = failing(report);
-	if (fails.length > 0) deps.log(`undefined-certify: failing the check: ${fails.map((f) => `${f.name} (${f.verdict})`).join(", ")}`);
+	if (fails.length > 0) log(`undefined-certify: failing the check: ${fails.map((f) => `${f.name} (${f.verdict})`).join(", ")}`);
 	return fails.length > 0 ? 1 : 0;
 }
 async function postComment(deps, gh, report, body, emit) {

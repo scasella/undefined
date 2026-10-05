@@ -107,7 +107,7 @@ The prompt contains: role + hard rules (do NOT run commands, do NOT read/inspect
 | `apps/site/server/codexService.ts`, `apps/site/server/codexPlugin.ts` | service | Vite plugin `codexService()` mounting `GET /generate/health` and `POST /generate` (SSE) |
 | `packages/engine/src/gates/source.ts` | compile | `buildSource(spec, body): { source: string; bodyStartLine: number }`, `specFromCall(name, argTypes: string[]): FunctionSpec` (params named `arg0..`, returns null) |
 | `packages/engine/src/gates/compile.ts` | compile | `compileCandidate(spec, body): Promise<{ gate: GateResult; js: string \| null; source: string; returnType: string }>`, `transpileUserCode(src: string): { js: string; error?: string }`, lazy-loads `typescript` + lib `.d.ts` files |
-| `packages/engine/src/sandbox/testApi.ts`, `gateExecutor.ts`, `gateWorker.ts`, `gateRunner.ts` | sandbox-gates | `runExecutionGates(input: ExecGateInput, onGate?: (r: GateResult) => void): Promise<GateResult[]>` (3 results: tests, properties, invariants). `gateExecutor.ts` is the environment-agnostic core usable in Node tests (no Worker/timeout there); `gateWorker.ts` is the thin shell; `gateRunner.ts` owns Worker + watchdog + termination |
+| `packages/engine/src/sandbox/testApi.ts`, `gateExecutor.ts`, `gateRunner.ts`; `apps/site/src/sandbox/gateWorker.ts` | sandbox-gates | `runExecutionGates(input: ExecGateInput, onGate?: (r: GateResult) => void): Promise<GateResult[]>` (3 results: tests, properties, invariants). `gateExecutor.ts` is the environment-agnostic core usable in Node tests (no Worker/timeout there); `gateWorker.ts` is the thin shell; `gateRunner.ts` owns Worker + watchdog + termination |
 | `packages/engine/src/sandbox/mask.ts` | architect (DONE, read it) | `evalMasked(js, exportName)`, `InvariantViolation`, `isInvariantViolation`, `takeViolations()`, `scrubWorkerGlobals(self)`. Both workers use it; the gate executor must check `takeViolations()` after every phase/call because a candidate can swallow the thrown error |
 | `apps/site/src/sandbox/runtimeWorker.ts`, `runtime.ts` | sandbox-runtime | `class Runtime` (below) |
 | `packages/engine/src/program.ts` | core | pure program/revision operations (below) |
@@ -170,7 +170,7 @@ export class Runtime {
 ```
 The worker is long-lived. A call overrunning `callBudgetMs` (or the spec's `budgetMs`, passed per function via `define(name, js, budgetMs?, deps?)`; only the outermost call of a line is timed, so a caller's budget covers its callees) hard-terminates the worker; `Runtime` rebuilds it from its own record of functions + last good env and returns `{kind:'timeout'}`. Committed functions run with the same masked globals as in the gate. When a committed function throws, the thrown error is tagged with the function name and the call string and returned as `{kind:'fault'}`. Re-evaluation after growth is the engine's job: it splits a line into statement units (`shared/replSplit.ts`; a one-expression or one-binding line is sent whole, exactly as before), sends one `evaluate` per unit (`{ mode: 'stmt' }` for `if`/`for`/blocks…), and after a grow re-runs only the unit that made the undefined call. Side effects earlier in that same statement run twice; earlier statements never do (document it; do not hide it).
 
-### `core/program.ts` (pure)
+### `program.ts` (pure, `packages/engine/src/`)
 ```ts
 export function emptyProgram(): Program;
 export async function recordFor(spec: FunctionSpec, artifact?: Artifact | null): Promise<FunctionRecord>; // computes hashes

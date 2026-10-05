@@ -175,7 +175,7 @@ The output is one document:
 ```
 { format: "undefined-certify", version: 1, tool, exitCode, file, specFile, specSource,
   functions: { <name>: { verdict, source, specHash, testsHash, seed, rejectedBy?, headline?, reason?, unchecked,
-                         gates, diagnostics, gaps, evidenceLine, evidence, mutation, mutantLines,
+                         calls, gates, diagnostics, gaps, evidenceLine, evidence, mutation, mutantLines,
                          generatedTests?, skippedByTestFile, provenance } },
   order, issues, notes, unattributed }
 ```

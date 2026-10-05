@@ -14,7 +14,7 @@ recordings in `apps/site/public/recordings/`.
 4. **0:18** Candidate #2 appears, passes all four gates, and the verdict reads *Accepted · saved as r2 · returned `2.5`*.
    The console prints `2.5` labelled **Generated · revision 2**. Candidate #1 is still in **Attempts**, in red.
 5. **0:25** Press Enter on `median([9, 7, 1])`: `7`, instantly, labelled **cached artifact**, with the one-time line *"You didn't
-   write this. The model wrote it. Your compiler and tests decided whether to keep it."*
+   write this. The model wrote it. Your tests hold the contract, and your toolchain enforced it."*
 6. **0:35** Click the **fibonacci** example, press Enter. Watch **Invariants** reject the first candidate for blowing the
    1.5 s bound, with the call and elapsed time on screen; the retry commits a fast-doubling version.
 7. **0:50** Open **Repo → median**, press **Break it**. The artifact turns *invalid: spec changed*. Call it again and it

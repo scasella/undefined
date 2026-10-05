@@ -119,7 +119,20 @@ function plural(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`;
 }
 
+/**
+ * Control characters from the certified code (a thrown message, a test name) are shown escaped, never written raw: an
+ * ESC/CSI/OSC sequence or a carriage return could otherwise repaint the verdict lines or drive the user's terminal
+ * (OSC 52 clipboard writes, hyperlinks). Tab and newline stay; the exit code is unaffected either way.
+ */
+export function terminalSafe(text: string): string {
+  return text.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+}
+
 export function renderHuman(rep: CertifyReport, quiet = false): string {
+  return terminalSafe(renderHumanRaw(rep, quiet));
+}
+
+function renderHumanRaw(rep: CertifyReport, quiet: boolean): string {
   const blocks: string[] = [];
   const res = rep.result;
   for (const msg of rep.fatal) blocks.push(`error: ${msg}`);

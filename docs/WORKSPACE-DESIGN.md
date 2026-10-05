@@ -2,7 +2,7 @@
 
 Status: step 1 (restructure) implemented, see §10; the engine API, the Node host and spec ingestion (steps 2–3 and the
 ingestion half of 4) implemented, see §11; the CLI (step 4) implemented, see §12; the Action (step 6) implemented, see §13; the parity
-fixture and docs steps are design only. Written against HEAD `0d1c13c`. Every claim about current behaviour cites the
+fixture and the docs were built in the Phase 4 commit as [EVIDENCE.md](EVIDENCE.md#node-and-cli-parity) describes. Written against HEAD `0d1c13c`. Every claim about current behaviour cites the
 file and function it comes from. Where the brief cannot be met as written, §9 says so and proposes the alternative.
 
 Brief (product owner, condensed): restructure into `packages/engine`, `packages/cli`, `packages/action`, `apps/site`

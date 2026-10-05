@@ -142,3 +142,17 @@ describe('exit 3: could not run (never a verdict on the code)', () => {
     expect(r.stdout).toContain('no exported function nothere');
   });
 });
+
+describe('output integrity', () => {
+  it('control characters from the certified code (ESC, CR, BEL) are printed escaped, never raw', async () => {
+    const { mkdtempSync, writeFileSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const dir = mkdtempSync(join(tmpdir(), 'undefined-cli-ctl-'));
+    writeFileSync(join(dir, 'g.ts'), 'export function g(x: number): number {\n  if (x === 1) throw new Error("a\\u001b[2K\\r\\u001b]52;c;aGk=\\u0007 ACCEPTED");\n  return x;\n}\n');
+    writeFileSync(join(dir, 'g.undefined.json'), JSON.stringify({ format: 'undefined-spec', version: 1, functions: { g: { tests: "test('t\\u001b[31m', () => { eq(g(1), 1); });" } } }));
+    const r = await cli(['certify', 'g.ts'], dir);
+    expect(r.code).toBe(1);
+    expect(r.stdout).not.toMatch(/[\u001b\u0007\r]/);
+    expect(r.stdout).toContain('a\\u001b[2K\\u000d\\u001b]52;c;aGk=\\u0007 ACCEPTED');
+  });
+});

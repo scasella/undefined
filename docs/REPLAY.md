@@ -24,7 +24,7 @@ shareable too. Three steps:
    ones as generated, replayed ones exactly as they were recorded, credited to the model, Codex version and effort that
    really wrote them (a replayed session is never marked live; a file that mixes both puts the other model on its own
    sessions). The recording includes your spec and test code and any dataset rows used in the session, with the prompts,
-   candidates and the calls you typed; nothing else. Nothing generated yet: the dialog says so.
+   candidates, the calls you typed and each attempt's Codex progress log (which can name local file paths); nothing else. Nothing generated yet: the dialog says so.
 2. **Host it** anywhere that serves the raw file with CORS: a GitHub gist's **Raw** URL or `raw.githubusercontent.com`
    both work (a `github.com/…/blob/…` or `gist.github.com/<user>/<id>` page URL is turned into its raw URL for you).
 3. **Paste that URL** into the dialog and copy the link it builds: `<this site>?recording=<url>`.

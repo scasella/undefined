@@ -37,7 +37,15 @@ try {
   };
   writeFileSync(join(project, 'tsconfig.json'), JSON.stringify(tsconfig, null, 2));
   console.log(`fresh project: ${project}\nnpm install vitest@${versions.vitest} fast-check@${versions.fastCheck} typescript@${versions.typescript} …`);
-  execFileSync(npm, ['install', '--no-audit', '--no-fund', '--loglevel=error'], { cwd: project, stdio: 'inherit' });
+  const install = ['install', '--no-audit', '--no-fund', '--loglevel=error'];
+  try {
+    execFileSync(npm, install, { cwd: project, stdio: 'inherit' });
+  } catch {
+    // npm 10.9.x (bundled with Node 22) crashes in arborist's peer-set resolution on this dependency set
+    // ("Cannot read properties of null (reading 'edgesOut')"); npm 10.8 and 11 do not. Retry without peer resolution.
+    console.log('npm install failed; retrying with --legacy-peer-deps');
+    execFileSync(npm, [...install, '--legacy-peer-deps'], { cwd: project, stdio: 'inherit' });
+  }
 
   const table = [];
   for (const row of rows) {

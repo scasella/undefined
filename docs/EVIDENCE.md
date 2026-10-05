@@ -107,7 +107,7 @@ when the recordings are re-made.
 
 The table above is the engine run in-process by vitest **without a watchdog** (a slow mutant is never stopped by the
 time limit there), on the examples' known-good bodies; it is not what the site shows. What the site shows for the
-recorded bodies is the browser measurement below.
+recorded bodies is the browser measurement above and the parity table below.
 
 ### Node and CLI parity
 

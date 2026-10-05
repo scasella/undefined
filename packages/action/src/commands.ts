@@ -50,3 +50,13 @@ export function appendSummary(env: Env, markdown: string): void {
   if (!file) return;
   appendFileSync(file, `${markdown}\n`);
 }
+
+/**
+ * One line for the job log (stderr). The runner reads workflow commands from stderr as well as stdout, and log lines
+ * carry PR-controlled text (file names, thrown messages), so control characters are escaped (a newline cannot start a
+ * `::error::`/`::add-mask::`/`::stop-commands::` line of its own) and a leading `::` is broken.
+ */
+export function logLine(s: string): string {
+  const flat = s.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+  return flat.replace(/^(\s*):/, '$1\\u003a');
+}

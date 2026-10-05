@@ -67,7 +67,7 @@ merged: killed, stopped by the time limit, survived (may be equivalent), did not
 | `slugify` (regex chain; also the shipped recording's body) | Node and browser | 1 of 1 (the body has a single mutation site) |
 | `slugify` (loop version) | Node | 12 of 12 killed |
 | `fibonacci` (fast doubling) | Node | 12 of 12 killed |
-| `fibonacci` (the body in the shipped recording) | same | 11 of 12 caught: 9 by a test or rule, 2 more by the time limit; 1 survived (it may behave exactly like the original) |
+| `fibonacci` (the body in the shipped recording) | browser, as for the `median` recording | 11 of 12 caught: 9 by a test or rule, 2 more by the time limit; 1 survived (it may behave exactly like the original) |
 | `topCustomersByRevenue` | n/a | skipped: no tests, nothing could kill a mutant |
 | any function with no tests at all | all five bodies tested | 0 killed (and the app says so) |
 
@@ -149,7 +149,8 @@ Fix exactly what the diagnostics show. Keep what worked. Do not repeat an approa
   tests notice changes, not that the spec is right.
 - **Replay is a recording, not a run.** The static site replays recorded candidates; only the gates run live in the visitor's
   browser. It is labelled as such on screen.
-- **Not tested:** Safari/Firefox (Chrome only); Node versions other than 20.20, 22.23, 25.8 and 26.8; any model other than
+- **Not tested:** Safari/Firefox (Chrome only); Node versions other than 20.20, 22.23, 25.8 and 26.8 for the site (the
+  engine's Node host, CLI and Action only on 25.8.1; Node 20 and 22 first in CI); any model other than
   `gpt-6-luna`; concurrent users (it is a local single-user tool).
 - **Data privacy:** in live mode a dataset's inferred type and up to 3 sample rows go to Codex (the user can turn the sample
   rows off and send the type only); nothing else about the data does, and in replay mode nothing leaves the browser.
