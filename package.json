@@ -15,7 +15,8 @@
     "test": "vitest run --configLoader runner",
     "record": "node scripts/record.mjs",
     "check:replay": "node scripts/replay-check.mjs",
-    "check:csp": "node scripts/csp-check.mjs"
+    "check:csp": "node scripts/csp-check.mjs",
+    "check:eject": "node scripts/eject-check.mjs"
   },
   "dependencies": {
     "@fontsource-variable/fraunces": "^5.3.0",

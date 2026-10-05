@@ -154,24 +154,10 @@ Fix exactly what the diagnostics show. Keep what worked. Do not repeat an approa
 - **Data privacy:** in live mode a dataset's inferred type and up to 3 sample rows go to Codex (the user can turn the sample
   rows off and send the type only); nothing else about the data does, and in replay mode nothing leaves the browser.
 
-## 5. Suggested outline for the essay (an outline, not the essay)
+## 5. Suggested outline for the essay
 
-1. **The inversion, in ten seconds.** The opening sequence: a call to a function that doesn't exist, a rejection card, a
-   retry, a commit. State the claim: the model is upstream, the toolchain is downstream and decides.
-2. **Who holds the contract?** The pivot of the piece. Median-of-nothing and the apostrophe are not model mistakes; the
-   spec was silent and the tests chose. Contrast with the fibonacci rejection, where everything was stated and the model
-   did not time its own loop. Use the 18/18 first-try pass rate to show a strong model needs no help on a well-specified
-   function: the toolchain's value is concentrated where specs are incomplete.
-3. **Making the verdict legible.** The rejection card: the headline, the "who decided" line, the fairness line. Why every
-   decision names its gate and its evidence.
-4. **What the toolchain can and cannot see.** The hostile-calls section: the faked stubs (20 → 2), the decline protocol,
-   then the residual: run-to-run variance and overfit-to-the-example that no gate catches without a test.
-5. **Tests that accrete from use.** Pin result as test; the data scratchpad; why a pin is outside the hash and what re-certify does.
-6. **How much to trust a committed function.** The confidence line without a score; mutation kill rates as a way to ask
-   "did the gate check anything?" (the weak-spec 8-of-12 versus the shipped 12-of-12).
-7. **Honest limits and what was measured.** One model, one day; built rejections; the sandbox; the numbers in section 1.
-8. **Where it goes.** A program that is a log of accepted changes: revisions, rollback including live state, hot reload,
-   share a session as a file that replays with live gates.
+Moved to [ESSAY-OUTLINE.md](ESSAY-OUTLINE.md): the section structure, the evidence each section should cite (with the
+numbers above), and what each section must not claim.
 
 ## 6. Assets and how to regenerate everything here
 
@@ -186,3 +172,5 @@ Fix exactly what the diagnostics show. Keep what worked. Do not repeat an approa
 | replay check on the production build | `npm run build && npm run check:replay` |
 | screenshots in both schemes and sizes | `node scripts/shots.mjs` |
 | `docs/opening.gif`, `docs/demo.mp4` | `node scripts/capture.mjs` |
+| `docs/opening-<id>.gif` (the opening for `?opener=<id>`) | `node scripts/capture.mjs --opener=<id>` |
+| `docs/social.png` and `public/social.png` (link preview, 1200x630, from the real rejection card) | `node scripts/social.mjs` |

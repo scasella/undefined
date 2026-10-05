@@ -23,6 +23,8 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npm run check:csp
+      # every shipped example's committed function, ejected and run in a fresh vitest + fast-check project (~15 s)
+      - run: npm run check:eject
   replay:
     # The static build must work with no backend: serve it and replay every shipped example through the real UI
     # (gates run live in headless Chrome, which the runner image provides).

@@ -74,6 +74,7 @@ import { parseJsonData } from '../data/json';
 import { coerceCsvRows } from '../data/infer';
 import { buildDataset, canonicalJson, DATASET_LIMITS, utf8Length, validateVariableName } from '../data/dataset';
 import { CORS_HINT, fetchRecording, parseRecordingText, recordingParamFromLocation, seedFromRecording, type FetchResult } from '../share/source';
+import { openerFromSearch } from './opener';
 import { createSessionLog, SESSION_LOG_FLAG, type SessionLog, type SessionLogEntry } from '../sessionlog/log';
 import { testNamesOf } from '../shared/specInfo';
 import { describeSend, sampleForModel } from '../data/sample';
@@ -179,7 +180,7 @@ export interface EngineDeps {
   createSessionLog?(): SessionLog;
   /** fetch used ONLY for a recording URL the user supplied (menu field or `?recording=`). Optional. */
   fetchRecording?: typeof fetch;
-  /** The page address, read once at boot for `?recording=<url>`. Optional; null outside a browser. */
+  /** The page address, read once at boot for `?recording=<url>` and `?opener=<id>`. Optional; null outside a browser. */
   location?(): { search: string; hash: string } | null;
   /**
    * The channel tabs of this app use to notice each other (default: BroadcastChannel TAB_CHANNEL_NAME when the
@@ -1243,7 +1244,20 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     if (persisted) await persistDatasets();
     if (restoreProblems.length > 0) notice('error', restoreProblems.join(' '));
 
-    const ex = initialExample();
+    let loc: { search: string; hash: string } | null = null;
+    try {
+      loc = deps.location?.() ?? null;
+    } catch {
+      loc = null;
+    }
+    let ex = initialExample();
+    // `?opener=<id>` (first visit only): r1 stays the default seed and the opener is loaded exactly as its chip would be
+    const openerId = !persisted && loc ? openerFromSearch(loc.search, examples.map((e) => e.id)) : null;
+    if (openerId && openerId !== ex?.id) {
+      await loadExampleInner(openerId); // init already runs inside exclusive
+      if (myEpoch !== epoch) return;
+      ex = examples.find((e) => e.id === openerId) ?? ex;
+    }
     const remembered = persisted ? deps.inputMemory.load() : null;
     set({
       replInput: remembered ?? ex?.call ?? '',
@@ -1256,12 +1270,6 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     // The session log's count: only touch its storage when it is on or was used before (no database otherwise).
     if (slog.isEnabled() || sessionLogWasUsed()) void refreshLogState();
     // `?recording=<url>`: fetch and validate it now (in the background), but only OFFER it; the user decides.
-    let loc: { search: string; hash: string } | null = null;
-    try {
-      loc = deps.location?.() ?? null;
-    } catch {
-      loc = null;
-    }
     const offerUrl = loc ? recordingParamFromLocation(loc.search, loc.hash) : null;
     if (offerUrl) void offerRecording(offerUrl, myEpoch);
   }

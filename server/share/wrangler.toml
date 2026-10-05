@@ -1,0 +1,14 @@
+# Optional one-click share endpoint for Undefined (see docs/SHARE-DEPLOY.md). Deploy from this directory:
+#   npx wrangler@latest deploy
+name = "undefined-share"
+main = "worker.ts"
+compatibility_date = "2026-10-01"
+# No logs, traces or analytics beyond what Cloudflare does by default.
+workers_dev = true
+
+[observability]
+enabled = false
+
+[[r2_buckets]]
+binding = "RECORDINGS"
+bucket_name = "undefined-recordings"

@@ -633,6 +633,24 @@ main:focus {
   font-variant-numeric: tabular-nums;
 }
 
+/* two plain sentences under the masthead: the inversion, for a first-time visitor */
+.argument {
+  margin: var(--s2) 0 0;
+  font: 400 var(--t-sm) / var(--lh-body) var(--font-ui);
+  color: var(--muted);
+}
+/* one sentence per line where there is room; a phone lets them run on */
+@media (min-width: 641px) {
+  .argument span {
+    display: block;
+  }
+}
+@media (max-width: 640px) {
+  .argument {
+    padding: 0 var(--s4);
+  }
+}
+
 /* the row under the masthead: examples on the left, the replay line on the right */
 .subhead {
   display: flex;
@@ -2743,6 +2761,18 @@ input[type='checkbox'] {
 .share-nothing {
   color: var(--muted);
 }
+.share-oneclick {
+  margin-top: var(--s4);
+  padding-bottom: var(--s4);
+  border-bottom: 1px solid var(--edge);
+}
+.share-oneclick h3 {
+  margin-top: 0;
+}
+.share-oneclick .form-error,
+.share-oneclick-or {
+  margin-top: var(--s2) !important;
+}
 .field {
   display: flex;
   flex-direction: column;
@@ -3767,4 +3797,11 @@ html:has(dialog[open]) {
 .panel,
 .headline {
   scroll-margin-top: 12px;
+}
+
+/* ── Eject (src/ui/components/Eject.tsx) ── */
+.eject-row {
+  margin: var(--s2) 0 0;
+  display: flex;
+  justify-content: flex-start;
 }

@@ -3,12 +3,16 @@
 // rejection card is held) and writes:
 //   docs/opening.gif   the opening sequence (Enter -> rejection -> retry -> commit), 1440 px wide
 //   docs/demo.mp4      ~30 s: the opening sequence + the data flow (orders: data drawer, spec-less call, table, pin), 2880x1800
+// node scripts/capture.mjs --opener=<id> [--skip-build]  — the opening sequence only, loaded with `?opener=<id>`, written
+// to docs/opening-<id>.gif (docs/opening.gif and docs/demo.mp4 are left alone)
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { startServer, launch } from './lib/drive.mjs';
 
+const opener = process.argv.find((a) => a.startsWith('--opener='))?.slice('--opener='.length) ?? null;
+if (opener !== null && !/^[a-z]+$/.test(opener)) throw new Error(`--opener: not an example id: ${opener}`);
 if (!process.argv.includes('--skip-build')) execFileSync('npm', ['run', 'build'], { stdio: 'ignore' });
-const OUT = '.tmp/capture';
+const OUT = opener ? `.tmp/capture-${opener}` : '.tmp/capture';
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
 const srv = await startServer({ mode: 'preview', port: 5202 });
@@ -44,15 +48,17 @@ const at = {}; // named moments for segmenting
 
 await p.goto(srv.url);
 await p.evaluate(async () => { localStorage.clear(); await new Promise((r) => { const q = indexedDB.deleteDatabase('undefined-image'); q.onsuccess = q.onerror = q.onblocked = () => r(); setTimeout(r, 1500); }); });
-await p.goto(srv.url);
+await p.goto(opener ? `${srv.url}?opener=${opener}` : srv.url);
 await p.waitForSelector('#repl-input');
+if (opener) await p.waitForFunction(() => !!document.querySelector('.opener-fn') && !!document.querySelector('#repl-input')?.value, null, { timeout: 30000 });
 capturing = true;
 const loop = captureLoop();
 await p.waitForTimeout(1600); at.idleEnd = now(); // the opening line and the pre-typed call
 await p.locator('#repl-input').press('Enter'); at.enter = now();
-await p.waitForFunction(() => document.querySelector('.panel-gates')?.getAttribute('data-verdict') === 'fail', null, { timeout: 90000 }); at.rejected = now();
+if (opener !== 'orders') { await p.waitForFunction(() => document.querySelector('.panel-gates')?.getAttribute('data-verdict') === 'fail', null, { timeout: 90000 }); at.rejected = now(); }
 await p.waitForFunction(() => /Accepted · saved as r\d+/.test(document.body.innerText), null, { timeout: 90000 }); at.committed = now();
 await p.waitForTimeout(2600); at.openingEnd = now();
+if (!opener) {
 // data flow
 await p.locator('button.example', { hasText: 'topCustomersByRevenue(' }).click(); await p.waitForTimeout(900);
 await p.locator('.menu summary').click(); await p.waitForTimeout(250); await p.getByRole('menuitem', { name: /^Data/ }).click(); at.drawerOpen = now(); await p.waitForTimeout(3200);
@@ -62,6 +68,7 @@ await p.waitForFunction(() => document.querySelectorAll('table').length > 0 && /
 await p.waitForTimeout(1300);
 await p.getByRole('button', { name: /Pin result as test/ }).last().click(); at.pinned = now();
 await p.waitForTimeout(2600); at.end = now();
+}
 sampling = false;
 capturing = false;
 await loop;
@@ -95,8 +102,11 @@ function build(from, to, name, fps, extra) {
   return total;
 }
 mkdirSync('docs', { recursive: true });
-const dMp4 = build(at.idleEnd - 1.2, at.end, 'mp4', 30);
-execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'concat', '-safe', '0', '-i', `${OUT}/mp4.txt`, '-vf', 'fps=30,format=yuv420p', '-c:v', 'libx264', '-crf', '20', '-preset', 'slow', '-movflags', '+faststart', 'docs/demo.mp4']);
-build(at.idleEnd - 1.2, at.openingEnd, 'gif', 12);
-execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'concat', '-safe', '0', '-i', `${OUT}/gif.txt`, '-vf', 'fps=12,scale=1440:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=160:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=3', '-loop', '0', 'docs/opening.gif']);
-console.log('wrote docs/demo.mp4 (' + dMp4.toFixed(1) + ' s) and docs/opening.gif');
+const gifOut = opener ? `docs/opening-${opener}.gif` : 'docs/opening.gif';
+const dMp4 = opener ? null : build(at.idleEnd - 1.2, at.end, 'mp4', 30);
+if (!opener) execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'concat', '-safe', '0', '-i', `${OUT}/mp4.txt`, '-vf', 'fps=30,format=yuv420p', '-c:v', 'libx264', '-crf', '20', '-preset', 'slow', '-movflags', '+faststart', 'docs/demo.mp4']);
+const dGif = build(at.idleEnd - 1.2, at.openingEnd, 'gif', 12);
+execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'concat', '-safe', '0', '-i', `${OUT}/gif.txt`, '-vf', 'fps=12,scale=1440:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=160:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=3', '-loop', '0', gifOut]);
+const real = (a, b) => (a !== undefined && b !== undefined ? (b - a).toFixed(1) + ' s' : 'n/a');
+console.log(`opening (real time): Enter -> rejected ${real(at.enter, at.rejected)}, Enter -> committed ${real(at.enter, at.committed)}; ${gifOut} ${dGif.toFixed(1)} s`);
+console.log(opener ? `wrote ${gifOut}` : 'wrote docs/demo.mp4 (' + dMp4.toFixed(1) + ' s) and docs/opening.gif');

@@ -29,6 +29,7 @@ import {
   sessionLogCountText,
   shareLinkFor,
 } from '../share';
+import { CONFIGURED_SHARE_ENDPOINT, endpointHost, uploadRecording } from '../../share/upload';
 import { copyText, downloadText, loadRecordingOpen, pendingImport, pendingRecording, sessionLogOpen, shareOpen, showNotice } from '../uiState';
 
 /** A modal <dialog> driven by `open`; Escape / the close button call onClose. */
@@ -55,17 +56,18 @@ function Sheet({ open, onClose, labelId, title, children }: { open: boolean; onC
 
 // ───────────────────────── share ─────────────────────────
 
-export function ShareDialog({ engine }: { engine: Engine }) {
+/** `endpoint`: the optional one-click share server (VITE_SHARE_ENDPOINT at build time); null keeps the manual flow only. */
+export function ShareDialog({ engine, endpoint = CONFIGURED_SHARE_ENDPOINT }: { engine: Engine; endpoint?: string | null }) {
   const open = shareOpen.value;
   const close = () => (shareOpen.value = false);
   return (
     <Sheet open={open} onClose={close} labelId="share-title" title="Share this session">
-      <ShareBody engine={engine} />
+      <ShareBody engine={engine} endpoint={endpoint} />
     </Sheet>
   );
 }
 
-function ShareBody({ engine }: { engine: Engine }) {
+function ShareBody({ engine, endpoint }: { engine: Engine; endpoint: string | null }) {
   // computed once per opening (the dialog body mounts fresh each time), not per keystroke in the URL field
   const [rec] = useState(() => engine.exportRecording());
   const summary = recordingSummary(rec);
@@ -83,6 +85,7 @@ function ShareBody({ engine }: { engine: Engine }) {
         Someone who opens your link replays what the model wrote here, and all four gates judge it again, live, in their
         browser.
       </p>
+      {endpoint && rec && <OneClickShare endpoint={endpoint} rec={rec} />}
       <ol class="share-steps">
         <li>
           <h3>Download the recording</h3>
@@ -144,6 +147,58 @@ function ShareBody({ engine }: { engine: Engine }) {
         </li>
       </ol>
     </>
+  );
+}
+
+/** Upload to the configured endpoint and show (and copy) `<this page>?recording=<endpoint>/<hash>`. */
+function OneClickShare({ endpoint, rec }: { endpoint: string; rec: NonNullable<ReturnType<Engine['exportRecording']>> }) {
+  const host = endpointHost(endpoint);
+  const [phase, setPhase] = useState<{ kind: 'idle' | 'uploading' } | { kind: 'done'; link: string; copied: boolean } | { kind: 'error'; error: string }>({ kind: 'idle' });
+  const create = async () => {
+    setPhase({ kind: 'uploading' });
+    const up = await uploadRecording(endpoint, rec);
+    if (!up.ok) return setPhase({ kind: 'error', error: up.error });
+    const made = shareLinkFor(location.href, up.recordingUrl);
+    if (!made.ok) return setPhase({ kind: 'error', error: made.error ?? 'The link could not be made.' });
+    setPhase({ kind: 'done', link: made.link, copied: await copyText(made.link) });
+  };
+  return (
+    <section class="share-oneclick" aria-labelledby="share-oneclick-title">
+      <h3 id="share-oneclick-title">One-click link</h3>
+      <p class="small">
+        <strong>What leaves your browser:</strong> pressing Create link uploads this recording (your specs and tests,
+        the prompts and the model's candidates, the calls you typed and any dataset rows in the session) to{' '}
+        <span class="mono">{host}</span>, where anyone with the link can read it. It is stored under its content hash,
+        with nothing about who uploaded it. Nothing is uploaded until you press the button.
+      </p>
+      {phase.kind === 'done' ? (
+        <div class="linkbox">
+          <code class="mono" aria-label="Your share link">
+            {phase.link}
+          </code>
+          <button
+            type="button"
+            class="btn"
+            onClick={async () => {
+              const ok = await copyText(phase.link);
+              setPhase({ ...phase, copied: ok });
+            }}
+          >
+            {phase.copied ? 'copied ✓' : 'Copy link'}
+          </button>
+        </div>
+      ) : (
+        <button type="button" class="btn btn-primary" disabled={phase.kind === 'uploading'} onClick={() => void create()}>
+          {phase.kind === 'uploading' ? 'Uploading…' : 'Create link'}
+        </button>
+      )}
+      {phase.kind === 'error' && (
+        <p class="form-error" role="alert">
+          {phase.error}
+        </p>
+      )}
+      <p class="muted small share-oneclick-or">Or keep it off that server: download the file and host it yourself.</p>
+    </section>
   );
 }
 

@@ -20,6 +20,19 @@ revision of your running program. Everything runs in your browser except the mod
 
 > **You didn't write this. The model wrote it. Your tests hold the contract, and your toolchain enforced it.**
 
+## Try it
+
+- **In your browser:** [scasella.github.io/undefined](https://scasella.github.io/undefined/) opens with `median([3, 1, 4, 2])`
+  in the console. Press Enter, watch the first draft get rejected and the retry committed. The other examples are one click away.
+- **Try a different opener (`?opener=…`):** [`?opener=fibonacci`](https://scasella.github.io/undefined/?opener=fibonacci),
+  `?opener=slugify` or `?opener=orders` starts on that example instead (first visit only; anything else falls back to
+  `median`). [What the fibonacci opener looks like](docs/opening-fibonacci.gif).
+- **Make it yours:** call any function that doesn't exist. With no spec, only Compile and Invariants judge it; pin a
+  result as a test or write a one-line spec to make the gate stricter. [All features](docs/FEATURES.md).
+- **Eject** a committed function: a zip with `<name>.ts`, its tests for vitest + fast-check, `provenance.json` and a
+  README, runnable without the app. [Details](docs/FEATURES.md#eject).
+- **Share** a session as a `?recording=` link. [How](docs/REPLAY.md#share-a-session).
+
 ## Run it
 
 **Prerequisites:** Node `^20.19 || >=22.12` (Vite 8's floor; typecheck, 1126 tests and the build were run on Node 20.20, 22.23 and 26.8; older 20.x releases fail Vite's own engine check), [Codex CLI](https://github.com/openai/codex) 0.157 or later (`npm i -g @openai/codex`), and
@@ -41,60 +54,6 @@ npm test             # unit + integration tests (Node)
 npm run typecheck
 ```
 
-## What you can do
-
-- **Call anything.** Type `slugify("Hello World")` with no setup: the signature is inferred from your real arguments, only
-  *Compile* and *Invariants* gate it, and the UI says so ("no tests yet, add one to make the gate stricter").
-- **Four one-click examples** (the first three are specs where a rejection happens naturally, see below; the fourth, `orders`, is the data scratchpad with no spec at all): `median`, `slugify`, `fibonacci`, `topCustomersByRevenue(rows)`.
-  Each has a **Break it** button that edits the spec: the artifact's hashes no longer match, it is marked invalid, and the
-  next call regenerates it.
-- **It will say no.** A call that needs the clock, randomness, the network, files or hidden state cannot be a pure
-  function, and a name like `clean` or `process` says nothing about what it should do. Rather than commit a stub with a
-  green tick, the model can decline, and the REPL says why and what to do (pass the randomness in as an argument; write a
-  one-line spec). A decline commits nothing. `docs/HOSTILE.md` has the 54 stranger-style calls behind this.
-- **Revisions.** Every accepted change is a numbered revision of the whole program *and its live state* (REPL variables).
-  One click rolls back; rollbacks are themselves revisions, so history is never rewritten.
-- **Hot reload.** Accepted functions are swapped into the running sandbox worker without a restart and without touching
-  your REPL variables.
-- **Structured recovery.** If a committed function throws, the REPL offers restarts: retry with the error fed back to the
-  model, roll back, or edit the spec. Never a crash.
-- **Export / import** your whole program (revisions, specs, artifacts, provenance) as one JSON file. Importing replaces
-  the program, so it asks first (*This replaces your current program (N revisions, M functions). Export it first if
-  you want to keep it.*: **Export current first**, **Replace**, **Cancel**). State persists in IndexedDB.
-
-## Data scratchpad
-
-Open **Session → Data…** in the header to paste or drop CSV, TSV, JSON or JSON Lines (`.csv .tsv .json .jsonl .txt`). The file is
-read in your browser, parsed, and its columns typed (numbers, booleans; empty cells become `null`). The preview shows the
-row count, each column's type, the declared `type Row = {…}` and the first 20 rows. **Load** binds the rows to a REPL
-variable (`rows` by default) as a revision. Rows are stored once, by content hash, in IndexedDB and in exported images,
-and come back with rollback like any other variable. Limits: 20,000 rows and 1 MB.
-
-Then call a function that does not exist on it, e.g. `topCustomersByRevenue(rows)`. The parameter is typed `Row[]`, the
-type declaration is compiled in front of the function, and the gates replay the call on the real rows, frozen, so a
-candidate that sorts `rows` in place is rejected.
-
-**What is sent to Codex, and when.** Nothing is sent when you paste, preview or load. When a call that uses a dataset
-grows (or regrows) a function in live mode, that prompt contains the variable name, the row count, the `type Row = {…}`
-declaration and, while **Send 3 sample rows to Codex along with the type** is on (the default; your choice is
-remembered), three rows spread across the data (first, middle, last), with long strings cut and at most 1.5 kB of JSON.
-The drawer shows that exact text before you load anything. A *retry* prompt also carries what the gates reported about
-the rejected draft. While any dataset is loaded, the parts of that feedback built from real arguments and results (a
-pinned result, the call the Invariants gate replayed, a runtime error's call and message) are replaced by *(withheld:
-derived from your data)* when the toggle is off; when it is on, retry feedback may quote up to 200 characters of your
-data per field. Property counterexamples (generated by fast-check) and your unit tests' own values are sent as they are.
-**What the model saw** shows each prompt exactly as sent. In replay mode nothing is sent.
-
-**Pin result as test.** Under a result, **Pin result as test** turns the call and its result into a unit test on that function
-(dataset arguments are stored by reference, not copied). Pins are outside both hashes, so pinning invalidates nothing.
-The next regeneration must reproduce the pinned result, or the Tests gate rejects it and says that you pinned it.
-Remove a pin in **Repo**.
-
-The **orders** example binds a bundled, fictional `orders.csv` (332 rows) to `rows` and pre-types
-`topCustomersByRevenue(rows)` with no spec. Only Compile and Invariants judge the result, so it is yours to judge: pin
-it. Once the function exists, its **Break it** (in Repo) states what revenue means: refunds excluded, discounts applied,
-rounded to cents. A recorded session ships for it (and for its *Break it*), so it replays on the static site too.
-
 ## What leaves your browser
 
 - **Replay mode / the static site:** nothing about your program. The page loads its own files and the bundled
@@ -103,276 +62,20 @@ rounded to cents. A recorded session ships for it (and for its *Break it*), so i
 - **Live mode:** each generation is a `POST ./generate` to the local service on the same host, which runs `codex exec`
   with the prompt; Codex sends it to the model provider. The prompt holds the signature, the doc, the *names* of your
   tests and properties (never their bodies), the argument types of the triggering call, declared types and sample rows
-  as described above. A retry adds the rejected draft and the gates' diagnostics, and a "retry with the error fed
-  back" adds the failing call and its error; these can quote argument values and results, except as described above
+  as described in [Data scratchpad](docs/FEATURES.md#data-scratchpad). A retry adds the rejected draft and the gates' diagnostics, and a "retry with the error fed
+  back" adds the failing call and its error; these can quote argument values and results, except as described there
   while data is loaded.
 - **A recording link** (`?recording=<url>` or **Load a recording** → link): that one URL is fetched.
-- **Sharing:** nothing is uploaded. **Share this session** downloads a file; you decide where to host it.
+- **Sharing:** nothing is uploaded. **Share this session** downloads a file; you decide where to host it. A copy of
+  the site built with the optional `VITE_SHARE_ENDPOINT` (off by default; the public site does not set one unless its
+  owner builds with it; see [docs/SHARE-DEPLOY.md](docs/SHARE-DEPLOY.md)) also shows **Create link**: pressing it
+  uploads the recording (specs, tests, prompts, candidates, calls and any dataset rows in the session) to that
+  endpoint, whose host the dialog names, and nothing is uploaded until you press it.
 - Your program, data and the optional session log stay in this browser's IndexedDB.
-
-## How a call is decided
-
-```
-REPL call ──► runtime worker (name lookup is a Proxy scope) ──► name not defined
-   │
-   └─► grow loop (visible retry budget, default 3 candidates)
-         prompt ─► codex exec (read-only, empty temp dir) ─► candidate body
-         ┌─────────────────────────── gates (the toolchain decides) ───────────────────────────┐
-         │ 1 Compile     strict TypeScript, lib ES2022 only (no DOM, no Node globals)             │
-         │ 2 Tests       your unit tests, run in a Web Worker                                      │
-         │ 3 Properties fast-check, fixed seed derived from the spec hashes, shrunk counterexample│
-         │ 4 Invariants  pure (masked globals, frozen-argument replay, determinism) and            │
-         │               bounded (per-call wall-clock budget; the worker is terminated on overrun) │
-         └──────────────────────────────────────────────────────────────────────────────────────┘
-         fail ─► diagnostic (file/line/message, or counterexample + expected vs actual) goes back to the model
-         pass ─► new revision, hot-swapped into the running program, original call completes
-```
-
-Every decision shows who made it: which gate, which line or counterexample. A rejected candidate stays visible in the
-candidate strip, so you can see the toolchain turning work away. If the budget runs out, the call fails cleanly and the
-program is unchanged.
-
-**What the model sees:** the signature, the doc, the *names* of your tests and properties (never their bodies or the
-reference implementation), the time budget per call, the *types* of the triggering call's arguments (never the values),
-and on retries the previous attempt plus structured diagnostics. Every candidate keeps the exact prompt it was generated
-from: open *What the model saw* under the candidate (or in the Repo tab's candidate history) to read it, headed by a plain
-summary of what was and was not sent. For replayed sessions that is the prompt stored in the recording (older recordings predate
-the budget line, and the summary says only what their prompt contains). The gates know more than the model; that is the
-point. When a failing check declares that the doc never covered the case, the rejection card says so: the spec was
-silent, your tests decided, and the candidate's choice was defensible.
-
-**Gate semantics worth knowing.** An invariant violation seen in *any* phase is reported by the Invariants gate. The
-runaway candidate in `fibonacci` is killed while the Tests gate is running, so Tests and Properties show as "interrupted"
-and Invariants shows the rejection with the exact call and the budget. Fast-check's seed is derived from the spec hashes,
-so the same candidate always gets the same verdict and the same shrunk counterexample: the *gates* are deterministic; the
-*model* is not.
-
-**Provenance, not reproducibility.** Each artifact records its spec hash, tests hash, model id, Codex CLI version, and the
-full candidate history including rejected attempts. Nothing here claims the model would produce the same code twice.
-
-## How much to trust a committed function
-
-Under the *Accepted · saved as rN* verdict, in **What was checked** (and in the Repo tab's artifact card), is one muted line of facts
-about what actually ran against the function, for example:
-
-> Compiled. 4 tests passed. 3 rules held for 100 random inputs each. 26 calls re-run to look for side effects. Your
-> checks caught 11 of 12 deliberately broken copies.
-
-(In the UI the sentence is written in plain words like this; the precise terms, *properties*, *replayed on frozen
-arguments*, *mutants*, are in its tooltip. The rest of this section uses the precise terms.)
-
-It always lists the same five facts and says "no …" when one of them is zero: whether it compiled, the unit tests (and
-pinned tests), the properties with their fast-check run counts, how many calls the Invariants gate replayed on frozen
-arguments, and the mutation check. **It deliberately has no score, grade or percentage.** Counts of checks do not add up
-to "how correct", and a single number would claim more than the gates know. The evidence is metadata attached to the
-artifact after the fact. It is not part of any hash, so recording it never invalidates anything.
-
-**Mutation testing** asks whether the checks actually check anything. Once the program has been idle for a few
-seconds after a commit (never sooner than 10 s after you pressed Enter, and any new call or edit cancels it), up to 12
-*broken copies* of the committed function are made. Each one changes one small thing in the compiled code, such as `<`
-to `<=`, `+` to `-`, a constant `0` to `1`, or a condition negated. Every copy is run against the same tests,
-properties and pins, with at most 1 s per call and a 6 s time box for the whole check. Each copy lands in one of four
-buckets, which are reported separately and never merged:
-
-- **killed**: a test or property failed.
-- **stopped by the time limit**: a call did not return within the bound, as with an infinite loop. This is a kill,
-  reported on its own.
-- **survived**: every check accepted the broken copy. It *may be an equivalent mutant* (a change that makes no
-  observable difference), so a survivor is a lead, not a verdict. "See what slipped through" lists each one as
-  `line N of the compiled code: original → mutated`. N is a line of the compiled JavaScript body, not of the TypeScript the model
-  wrote.
-- **did not compile**: never run and never counted as a kill.
-
-If the check cannot run at all (a broken copy fails to load, or the gate runner fails), it says *Mutation check could
-not run: …* and counts nothing as killed. A function with no tests, properties or pins reads *No tests yet: nothing
-could kill a mutant. Add one to make the gate stricter.* **Re-run the broken-copy check** in the Repo tab runs it again on
-demand.
-
-**More checks you can add.** When the function's name, types or doc suggest a property its spec does not state yet
-(sorted output, same length, idempotence, round trips…), grey rows offer it with a one-line reason and an **Add**
-button. Adding one re-checks the *committed* function against the strengthened spec, using its stored body and the new
-seed. If it passes, the function is **re-certified in place**: the hashes are restamped, it stays live, nothing is
-regenerated, and the log says *re-certified at rN: Added check "…"*. If it fails, the spec change stands, the function
-goes stale (it regenerates on the next call), and **Checks** shows the smallest failing input. "Same input twice gives the
-same result" and "The arguments are not modified" are listed as *already checked*: the Invariants gate runs both on
-every candidate, so they are never offered. The shipped median, slugify and fibonacci specs already state everything
-the suggester knows, so they get no suggestions. That is expected.
-
-**Measured kill rates of the shipped checks**: the engine's own path, run on each known-good body in `src/examples`
-(seed derived from the spec hashes, default 6 s box; printed by `src/core/engine.evidence.test.ts`, which runs in
-Node, where there is no watchdog):
-
-| example | body | result |
-|---|---|---|
-| median | goodBodies[0] | killed 11 of 12 (1 survived: compiled line 1, `0 → -1`) |
-| median | goodBodies[1] | killed 11 of 12 (1 survived: compiled line 1, `0 → -1`) |
-| slugify | goodBodies[0] | killed 1 of 1 (the body has a single mutation site) |
-| slugify | goodBodies[1] | killed 12 of 12 |
-| fibonacci | goodBodies[0] | killed 12 of 12 |
-| orders | (spec-less) | no tests yet: nothing could kill a mutant |
-
-In the browser, replaying the shipped recordings from the production build with the real watchdog (`node
-scripts/mutation-check.mjs`, measured after the final re-record), the app itself reads: median 12 of 12, slugify 1 of 1,
-and fibonacci 11 of 12 (two of them stopped by the time limit; one survived). These belong to the recorded bodies and change
-when the recordings are re-made.
-
-## The examples: who held the contract (read this)
-
-`gpt-6-luna` is a strong model, and with a fully specified ticket it passes first time: in my first sampling, **18 of 18**
-attempts at tightly specified versions of these examples passed every gate on the first try. So a demo of rejection cannot
-claim the model "blundered". Each example is built so that the *reason* for the rejection is plain on screen, and the
-rejection card says which kind it is:
-
-- **The spec was silent and your tests decided.** The check carries a marker saying what the doc never said, and the card
-  reads "The spec didn't say what the median of nothing is. Your tests did." plus a line saying the candidate's choice was
-  defensible. The marker can carry a condition on the *shrunk counterexample*, so a real bug elsewhere in the same check
-  is never labelled a spec gap.
-- **The spec stated it and the candidate broke it** (compile errors, the time limit, a mutation of the arguments).
-
-The model sees the signature, the doc, the *names* of your checks, and the time budget; never the bodies of the tests or
-properties (tests are the contract, not a hint sheet). The "What the model saw" panel under every candidate shows the exact
-prompt, and what was withheld.
-
-| example | the one sentence a skeptic needs | what rejects it | measured over 8 full sessions: first candidate rejected → committed within 3 attempts |
-|---|---|---|---|
-| `median` | A median of nothing has no right answer: throwing, `NaN`, `0` and `undefined` are all defensible and the doc ("Returns the median of a list of numbers.") never says which, so when the tests say `NaN` the contract is speaking, not the model failing. | Properties (fast-check generates `[]` and shrinks to it): `median([]) threw Error…, expected NaN` | 8/8 → 8/8 |
-| `slugify` | Whether an apostrophe splits a word, what `&` becomes and how `ß` is spelled are conventions the doc ("Turns a title into a URL slug.") never states; our tests state ours, and each of those rejections is labelled "the spec didn't say". | Tests: `slugify("Don't Stop") returned "don-t-stop", expected "dont-stop"` (or `Straße`/`stra-e`) | 6/8 → 7/8 (2 sessions passed first time; 1 ran out of attempts) |
-| `fibonacci` | The doc states the range (n up to 1,000,000) and the prompt states the 1.5 s limit; the model wrote an O(n) loop it never timed (about 4 s at that n), so the fault is the candidate's and nothing was withheld. | Invariants (bounded): `fibonacci(1000000) did not return within 1500 ms` | 6/8 → 7/8 (2 sessions passed first time with fast doubling; 1 ran out of attempts) |
-| `topCustomersByRevenue(rows)` | There is no spec and no test, so nothing can reject it: the claims are only that it compiles, is pure and replays on the real rows. The model's own note states its assumptions (here: revenue after discount, refunded orders counted) and the result is yours to judge; pin it to make it a test, or use *Break it* to say refunded orders don't count. | none (spec-less: Compile and Invariants only) | 8/8 committed on the first candidate |
-
-Measured 2026-10-04 with `gpt-6-luna`, effort `low`, Codex CLI 0.159.2, as 8 complete sessions per example through the real
-app (`node scripts/sessions.mjs`: real Worker watchdog, the real 3-attempt budget). These are one day's rates for one model,
-not a guarantee. They are lower than my earlier single-retry sampling (8/8 for all three), which is why I quote
-session-level numbers: the model sometimes passes first time (2 of 8 slugify and fibonacci sessions) and sometimes runs out
-of attempts (1 of 8 each). The shipped recordings are real sessions captured by `npm run record`, which keeps a session only
-if its first candidate was rejected and prints how many tries that took (median 1, slugify 1, fibonacci 2).
-
-Models also fail in ways nobody tuned: in one live `slugify` run the first candidate came back with a literal `\n` in place
-of a newline and the compiler rejected it ("Invalid character"), which is exactly the kind of thing the compile gate is for.
-
-Where the idealised story differs: the `median` rejection is the empty list (shrunk by fast-check), not `median([1, 2])`
-returning `1`, because this model gets the textbook cases right; and the fibonacci rejection is a slow-but-correct loop, not
-naive recursion, because the model never wrote the recursion.
-
-## Replay mode and recordings
-
-Every session is recordable: **Session → Share…** saves a JSON file of the model candidates with their
-prompts and progress lines (see *Share a session* below). Recordings in `public/recordings/` are matched by function name + spec hash + tests hash, so
-replay works for the unmodified examples and for their **Break it** edits. Edit a spec to something that was never
-recorded and replay mode says so, and tells you how to run live.
-
-Maintainers re-record the shipped sessions with `npm run record` (starts the dev server, drives headless Chrome through the
-real app against your Codex login, and writes `public/recordings/*.json`; it keeps a session only if the first candidate
-was rejected and prints how many tries that took). `npm run check:replay` serves the production build with no backend and
-checks that each example replays from its recording through the real UI.
-
-## Share a session
-
-**Session → Share…** works on the static site as well as in live mode, because a session you *replayed* is
-shareable too. Three steps:
-
-1. **Download the recording** (`undefined-session.json`). It holds every candidate generated in this page load: live
-   ones as generated, replayed ones exactly as they were recorded, credited to the model, Codex version and effort that
-   really wrote them (a replayed session is never marked live; a file that mixes both puts the other model on its own
-   sessions). The recording includes your spec and test code and any dataset rows used in the session, with the prompts,
-   candidates and the calls you typed; nothing else. Nothing generated yet: the dialog says so.
-2. **Host it** anywhere that serves the raw file with CORS: a GitHub gist's **Raw** URL or `raw.githubusercontent.com`
-   both work (a `github.com/…/blob/…` or `gist.github.com/<user>/<id>` page URL is turned into its raw URL for you).
-3. **Paste that URL** into the dialog and copy the link it builds: `<this site>?recording=<url>`.
-
-Someone who opens the link is asked first; nothing loads or runs on its own. The page fetches that one URL when it
-opens (the only request it makes to anywhere other than the site that serves it; see *What leaves your browser*),
-validates it, and shows what it holds: the functions with their test and property counts, the number of calls,
-datasets, the model / CLI / date, anything that will be skipped and why, and the plain warning *"This recording
-contains code written by someone else: model-written functions and the test code of the specs. It runs in your
-browser's sandbox, which limits what it can do but is not a security boundary. Only load recordings from people you
-trust."* A link that fails to load shows the error and the CORS hint.
-
-The same confirmation appears when you **drop a .json file anywhere on the page** (a recording and an exported program
-image are told apart by their `format`; an image gets the same *replace your program?* confirmation as **Import
-image…**) or use **Session → Load
-recording…** (a file picker and a URL field). **Load** adds the recording's specs and datasets (bound to their variable
-names) as one revision, *Loaded recording: <title>*, registers its candidates so they replay by hash even when the live
-service is up (anything it does not cover goes to the normal generator), types its first call into the REPL, and shows a
-dismissible banner: *Replaying a recorded session from <source>: press Enter to run its calls; the gates run live in
-your browser.* Each Enter on a recorded call types the next one in. What is checked before anything loads: every
-session's spec must hash to what its candidates were recorded under and have a growable name, and every dataset's rows
-must hash to their content address and fit the data limits; failures are listed and skipped. A spec of the same name in
-your program is replaced (the dialog says so; roll back to undo). An older (version 1) recording that carries only hashes
-replays only when you already have the matching spec, for example a shipped example; otherwise the dialog says there is
-nothing it can replay. Loaded candidates last for the page load; the specs stay in your program.
-
-## Local session log
-
-**Session → Session log** is off by default. Turned on, it keeps a short log of what you type and what
-the gates decided, in this browser's storage only (IndexedDB database `undefined-session-log`, memory if that is
-blocked); it is never sent anywhere. It may contain values you typed in your own calls, never dataset rows or prompts.
-Each entry is small: REPL inputs, the kind of outcome (never the value), which gate rejected a candidate, declines,
-commits, pins, rollbacks, spec edits, dataset loads (name, row and column counts only) and errors. A gate's headline
-(cut to 200 characters), a decline's reason and an error's message are kept only while no dataset is loaded and the
-function is not typed over one; otherwise the entry says only *rejected by invariants (pure)*, *declined
-(cannot-be-pure)*, *boom threw TypeError*. Error notices are logged by their leading phrase only. The dialog shows the
-entry count, **Export log**
-(`undefined-session-log.json`) and **Clear**; turning it off stops new entries and keeps the old ones until you clear
-them. At most 5,000 entries are kept (oldest dropped first).
-
-## The generation service
-
-A small Vite dev-server middleware (`server/`), absent from the static build: `GET /generate/health`, `POST /generate`
-(server-sent events). One `codex exec` per request, serialised, in an empty temp directory:
-
-```
-codex exec - --model gpt-6-luna --sandbox read-only --skip-git-repo-check --ephemeral --ignore-user-config \
-  -C <empty tmp dir> --output-schema <{body,notes}> -o <tmp file> --json -c model_reasoning_effort=low
-```
-
-The service does nothing else: no compiling, testing, or caching. It kills the whole process group on timeout or client
-disconnect, streams Codex's progress to the browser, and returns structured errors the **Checks** panel displays with the fix
-(`npm i -g @openai/codex`, `codex login`). It only answers same-host requests. Environment overrides:
-`UNDEFINED_MODEL`, `UNDEFINED_EFFORT` (default `low`; your own Codex config may default to something much slower),
-`UNDEFINED_TIMEOUT_MS`, `UNDEFINED_CODEX_BIN`.
-
-Codex returns its answer in one piece, so "typed out as it arrives" is a typewriter over the received candidate; the live
-progress lines above it (session started, turn started, tokens) are real Codex events.
-
-## Security model
-
-Generated code, and the test code in a spec, run in Web Workers and never on the page's main thread. This is a set of
-guard rails with a real policy behind them, **not a security boundary**: treat a recording from a stranger like a script
-from a stranger, and only load recordings from people you trust (the app asks before it loads one).
-
-**What is enforced**
-
-- **No network for worker code except the one door we cannot close, and that door is shut by policy.** `fetch`,
-  `XMLHttpRequest`, `WebSocket`, `EventSource`, `importScripts`, `caches`, `Worker` and similar are removed from the worker
-  scope, and the candidate sees trapping stand-ins for the clock, `Math.random`, timers and the global object. Dynamic
-  `import()` is syntax and cannot be removed, so a Content-Security-Policy closes it: both workers start from a `blob:`
-  wrapper (GitHub Pages cannot send headers, and a page's `<meta>` CSP is *not* inherited by a worker loaded from a normal
-  URL, but *is* inherited by a blob worker; checked in Chrome 154), and the policy's `script-src` allows only this site.
-  `import()` of an `http(s):`, `data:` or `blob:` URL is refused, including when the code is built from a string through
-  `(() => 0).constructor`. `npm run check:csp` fails the build if the shipped policy is weakened.
-- **Verdicts cannot be forged from inside the worker.** Every worker message carries a per-run secret nonce that user
-  code cannot read, and `postMessage` is locked after the worker takes its private copy.
-- **Test code is also restricted:** `import()` is rejected at transpile time, and the network and global names are trapped.
-- **CPU is bounded** by a watchdog (per-call budget, a 15 s overall cap, then the worker is terminated).
-- **Datasets are read-only** in the REPL, and replayed on frozen copies in the gates.
-
-**What is not guaranteed**
-
-- The `(() => 0).constructor` escape still reaches the worker's real global object. What it finds there has the network and
-  messaging APIs removed, but this is the reason this is not a boundary.
-- `connect-src` allows `https:` (the page fetches a recording URL you give it), and the workers inherit that. Outbound
-  `https` from a worker is therefore stopped only by the removal of `fetch` and friends, not by the policy.
-- A spec's author decides its verdict: a stranger's tests can make any candidate "pass" by asserting nothing. What is
-  guaranteed is that the verdict matches the tests you are shown.
-- Memory exhaustion is bounded only by what the browser does to the tab. A hostile spec can spend up to the CPU cap on each run.
-- Verified in Chrome only. **There is no end-to-end automated attack test:** the CSP behaviour was verified empirically and
-  by unit tests (nonce protocol, test-code restrictions, the policy text), but a harness that loads a crafted malicious
-  recording and asserts zero outbound requests was not built.
 
 ## Limits and known gaps
 
-- **The sandbox is not a security boundary.** See *Security model* above for exactly what it does and does not do.
+- **The sandbox is not a security boundary.** See [docs/SECURITY.md](docs/SECURITY.md) for exactly what it does and does not do.
 - **REPL lines** are one expression or one binding (`x = …`, `const x = …`); no destructuring or multi-statement lines.
   After a function grows, the original line is re-evaluated, so side effects that happened *before* the undefined call run
   twice.
@@ -384,50 +87,17 @@ from a stranger, and only load recordings from people you trust (the app asks be
   tab's saves; a stored image that still refers to rows that are missing is repaired (those datasets are unbound, and
   the page says which), and one that cannot be read at all is discarded with a notice saying why. No async tests.
 - Browsers with IndexedDB blocked fall back to in-memory state for the session.
+- The measured rejection rates are one day's rates for one model, not a guarantee ([docs/EXAMPLES.md](docs/EXAMPLES.md)).
 
-## Layout
+## Documentation
 
-```
-server/            Vite middleware: the codex generation service, dev-only recording save
-src/core/          engine (orchestrator), program/revision model, IndexedDB store, generators (live, replay)
-src/gates/         strict TypeScript compile gate (lazy-loaded compiler + libs), source wrapper
-src/sandbox/       gate executor + worker + watchdog, REPL runtime worker, purity masking
-src/shared/        prompt builder, value display/serialisation, hashing, type inference
-src/examples/      median, slugify, fibonacci (+ known-good and known-bad candidates used by tests)
-src/share/         loading a shared recording (text, URL, ?recording=);  src/sessionlog/  the opt-in local session log
-src/ui/            Preact UI;  public/recordings/  recorded sessions;  docs/DESIGN.md  module contracts
-scripts/           tune.tune.ts: samples the real model against the real gates (see below)
-```
-
-`TUNE_N=8 TUNE_EX=median,slugify,fibonacci npx vitest run -c scripts/vitest.tune.config.ts` re-measures the rejection
-rates above against your own Codex login (results in `.tmp/tune-out.json`).
-
-## A 60-second demo script
-
-1. **0:00** Open the page. One line of copy: *"`median` doesn't exist yet. Press Enter and a model will write it — your
-   checks decide if it stays."* The console holds `median([3, 1, 4, 2])`.
-   Press **Enter**.
-2. **0:03** The console prints `ReferenceError: median is not defined`, then *Writing `median`…* with a timer (the live
-   Codex progress lines are under **Details**). Point at **Attempts**: 1 of 3.
-3. **0:10** Candidate #1 types into **Draft**. **Checks** run top to bottom: **Compile ✓**, **Tests ✓**, then
-   **Properties ✗**. The rejection card (*✕ Rejected by Properties — spec was silent*) names the gate and the smallest failing input: `median([]) threw Error: …,
-   expected NaN`. *"The model didn't lose an argument with a person; a property check it never saw said no."*
-4. **0:18** Candidate #2 appears, passes all four gates, and the verdict reads *Accepted · saved as r2 · returned `2.5`*.
-   The console prints `2.5` labelled **Generated · revision 2**. Candidate #1 is still in **Attempts**, in red.
-5. **0:25** Press Enter on `median([9, 7, 1])`: `7`, instantly, labelled **cached artifact**, with the one-time line *"You didn't
-   write this. The model wrote it. Your compiler and tests decided whether to keep it."*
-6. **0:35** Click the **fibonacci** example, press Enter. Watch **Invariants** reject the first candidate for blowing the
-   1.5 s bound, with the call and elapsed time on screen; the retry commits a fast-doubling version.
-7. **0:50** Open **Repo → median**, press **Break it**. The artifact turns *invalid: spec changed*. Call it again and it
-   regenerates.
-8. **0:52** Click **orders** and press Enter (it replays from its recording; live mode generates it afresh). The model sees only `type Row` and three sample rows (the
-   **Session → Data…** drawer shows exactly which). The result renders as a table; press **Pin result as test**. From now on every
-   regeneration of `topCustomersByRevenue` has to reproduce that result, or Tests rejects it.
-9. **0:54** Back on the committed median, wait a few seconds: under the Accepted verdict the confidence line fills in
-   with the mutation check (the recorded median reads *Your checks caught 12 of 12 deliberately broken copies*). When something survives,
-   **See what slipped through** shows the broken copy your checks let through. There is no score, only what ran.
-10. **0:55** Open **Revisions** and click **Restore** on r2 (it appears on hover). Then **Session → Export image** to
-    download your whole program.
-11. **0:58** **Session → Share…**: download `undefined-session.json`, put it in a gist, paste the gist's Raw URL
-    and copy the `?recording=` link. Whoever opens it is asked first, then presses Enter to watch your session replay with
-    the gates running live in their browser.
+- [docs/FEATURES.md](docs/FEATURES.md): everything you can do, the data scratchpad, pinning, Eject, `?opener=`, the local session log.
+- [docs/EXAMPLES.md](docs/EXAMPLES.md): the four examples, why each first draft is rejected, measured session rates.
+- [docs/EVIDENCE.md](docs/EVIDENCE.md): the confidence line, mutation testing, measured kill rates.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how a call is decided, what the model sees, the generation service, source layout.
+- [docs/SECURITY.md](docs/SECURITY.md): the security model, what is enforced and what is not.
+- [docs/REPLAY.md](docs/REPLAY.md): replay mode, re-recording, sharing a session.
+- [docs/DEMO-SCRIPT.md](docs/DEMO-SCRIPT.md): a 60-second demo script.
+- [docs/HOSTILE.md](docs/HOSTILE.md): 54 stranger-style calls and how each one went.
+- [docs/SHARE-DEPLOY.md](docs/SHARE-DEPLOY.md): deploying the optional one-click share endpoint.
+- [docs/DESIGN.md](docs/DESIGN.md): module contracts. [docs/LAUNCH.md](docs/LAUNCH.md), [docs/COPY-OPTIONS.md](docs/COPY-OPTIONS.md).

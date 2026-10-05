@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Engine, EngineState } from '../types';
+import { Argument } from './components/Argument';
 import { CodePane } from './components/CodePane';
 import { Examples, Header, RunLiveDialog, Toast } from './components/Chrome';
 import { DataDrawer } from './components/DataDrawer';
@@ -130,6 +131,7 @@ export function App({ engine, initError }: { engine: Engine; initError?: string 
       <div class="stage">
         <PanelBoundary name="Header">
           <Header state={state} engine={engine} onRunLive={() => setRunLive(true)} />
+          <Argument />
           <div class="subhead">
             <Examples state={state} engine={engine} />
           </div>

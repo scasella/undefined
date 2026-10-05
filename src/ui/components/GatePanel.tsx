@@ -7,6 +7,7 @@ import { DiagnosticFacts, DiagnosticItem } from './Diagnostics';
 import { declineCopy, GATE_CAPTION, GATE_PLAIN, GATE_QUESTION, howFound, NOT_REACHED_TEXT, plainGateText, plainHeadline, rejectionClass, shortGateStatus, splitCall, whoDecided } from '../explain';
 import { committedArtifact } from '../evidence';
 import { Confidence, MoreChecks } from './Evidence';
+import { EjectButton } from './Eject';
 
 /** Under a re-check's headline: why a committed function is being rejected at all. */
 export const RECHECK_LINE = 'You added this check after the function was committed. The committed function fails it.';
@@ -277,6 +278,11 @@ export function GatePanel({ gen, state, engine }: { gen: GenerationView | null; 
           {gen && a && <Headline gen={gen} a={a} value={value} />}
         </div>
         {committed && gen && <Confidence a={committed} fn={gen.fn} mutation={state?.mutation} />}
+        {committed && gen && state && engine && gen.phase === 'committed' && (
+          <p class="eject-row">
+            <EjectButton state={state} engine={engine} fn={gen.fn} />
+          </p>
+        )}
         {checksFor && state && engine && <MoreChecks state={state} engine={engine} fn={checksFor} />}
 
         {diags.length > 0 && (

@@ -8,6 +8,7 @@ import { CodeView } from './CodeView';
 import { GeneratedBadge, StatusIcon } from './common';
 import { ModelSaw } from './ModelSaw';
 import { ArtifactEvidence } from './Evidence';
+import { EjectButton } from './Eject';
 
 const TEST_API = `// Globals in scope: the function under test by its own name, plus
 test(name: string, body: () => void, meta?: { silentOn?: string; reasonable?: string }): void
@@ -168,6 +169,9 @@ function ArtifactView({ a, spec, stale, state, engine }: { a: Artifact; spec: Fu
         </dd>
       </dl>
       <ArtifactEvidence a={a} fn={spec.name} stale={stale} state={state} engine={engine} />
+      <p class="eject-row">
+        <EjectButton state={state} engine={engine} fn={spec.name} />
+      </p>
       <CodeView signature={signatureOf(spec, a.returnType)} body={a.body} />
       <details class="history">
         <summary>Every draft, and which gate turned it away</summary>
