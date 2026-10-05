@@ -357,6 +357,32 @@ describe('session controller (fake engine)', () => {
     s.dispose();
   });
 
+  it('a typed question: added, selected, its words installed as the contract, then asked (basic checks)', async () => {
+    const { engine, calls, state } = fakeEngine('live');
+    const s = createSession(engine);
+    await s.useSample('orders');
+    expect(await s.addQuestion('How many orders were refunded?')).toBe(true);
+    expect(s.questionId.value).toBe('own:howManyOrdersWereRefunded');
+    expect(s.question.value).toMatchObject({ call: 'howManyOrdersWereRefunded(rows)', level: 'basic', text: 'How many orders were refunded?' });
+    expect(s.questions.value).toHaveLength(4);
+    expect(s.agreement.value.empty).toBe(true);
+    // the same words again select the same chip, not a second one
+    expect(await s.addQuestion('how many orders were refunded?')).toBe(true);
+    expect(s.questions.value).toHaveLength(4);
+    expect(await s.ask()).toBe(true);
+    expect(calls.slice(-2)).toEqual(['upsertSpec howManyOrdersWereRefunded', 'submit howManyOrdersWereRefunded(rows)']);
+    const spec = state.value.program.functions.howManyOrdersWereRefunded!.spec;
+    expect(spec.doc).toContain('How many orders were refunded?');
+    expect(spec.tests).toBe('');
+    // asking again does not install it twice
+    await s.ask();
+    expect(calls.filter((c) => c === 'upsertSpec howManyOrdersWereRefunded')).toHaveLength(1);
+    // other data: typed questions belong to the table they were typed for
+    await s.useSample('sales');
+    expect(s.questions.value.some((q) => q.id.startsWith('own:'))).toBe(false);
+    s.dispose();
+  });
+
   it('seed off: no agreement is installed; the call goes out spec-less', async () => {
     const { engine, calls } = fakeEngine('live');
     const s = createSession(engine, { seed: false, sampleNames: { orders: 'data' } });
