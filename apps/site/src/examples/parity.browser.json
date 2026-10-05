@@ -1,8 +1,8 @@
 {
-  "measuredAt": "2026-10-05T11:08:38.733Z",
+  "measuredAt": "2026-10-05T11:53:09.523Z",
   "how": "node apps/site/scripts/parity-measure.mjs --write (production build, vite preview, replay mode, headless Chrome, real Worker watchdog)",
-  "head": "0d1c13c",
-  "dirtyTree": true,
+  "head": "e305e00",
+  "dirtyTree": false,
   "chrome": "154.0.8037.95",
   "recordings": {
     "median": [
