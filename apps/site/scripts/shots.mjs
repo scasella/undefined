@@ -10,7 +10,7 @@
 import { execSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { chromium } from 'playwright-core';
-import { startServer } from './lib/drive.mjs';
+import { startServer, workbench } from './lib/drive.mjs';
 
 const root = new URL('../', import.meta.url).pathname;
 const OUT = `${root}.tmp/shots`;
@@ -256,7 +256,7 @@ async function fixtureShots(browser, url, size, scheme) {
     const external = new Set();
     const { context, page } = await newPage(browser, size, scheme, origin, external);
     try {
-      await page.goto(`${url}?fixture=${f.fixture}`);
+      await page.goto(workbench(url, `?fixture=${f.fixture}`));
       await page.waitForSelector('#repl-input', { timeout: 30000 });
       await page.waitForTimeout(350);
       if (f.prep) await f.prep(page);
@@ -283,7 +283,7 @@ try {
     servers.push(prev);
     for (const size of sizes) for (const scheme of schemes) {
       console.log(`replay · ${size} · ${scheme}`);
-      await replaySequence(browser, prev.url, size, scheme);
+      await replaySequence(browser, workbench(prev.url), size, scheme);
     }
   }
   if (!flag('no-fixtures')) {
@@ -291,7 +291,7 @@ try {
     servers.push(dev);
     for (const size of sizes) for (const scheme of schemes) {
       console.log(`fixtures · ${size} · ${scheme}`);
-      await fixtureShots(browser, dev.url, size, scheme);
+      await fixtureShots(browser, workbench(dev.url), size, scheme);
     }
   }
 } finally {

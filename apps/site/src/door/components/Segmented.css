@@ -1,0 +1,10 @@
+.fd-seg {
+  display: inline-flex; flex-wrap: wrap; padding: 3px; gap: 2px; border-radius: var(--fd-r-md); background: var(--fd-surface-2);
+  max-width: 100%; box-sizing: border-box;
+}
+.fd-seg__item {
+  min-height: 40px; padding: 0 14px; border: 0; border-radius: var(--fd-r-sm);
+  font-family: inherit; font-size: 14px; line-height: 20px; font-weight: 500; cursor: pointer;
+  background: transparent; color: var(--fd-ink-2); transition: background-color 120ms ease;
+}
+.fd-seg__item.is-on { background: var(--fd-surface); color: var(--fd-ink); box-shadow: 0 1px 2px rgba(11, 13, 18, 0.1), 0 0 0 1px var(--fd-line); }

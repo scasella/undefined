@@ -1,0 +1,53 @@
+/* The landing stage (V3-Door-Landing 97-384): question row, trace, answer, agreement rail. The trace, the answer card
+   and the rail style themselves (components/); this file lays them out and styles the question row, the illustration
+   caption and the stop scenario's mini question. */
+.fd-stage { padding: 8px 0 24px; }
+.fd-stage__wrap { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+.fd-stage__main { flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+
+/* question row */
+.fd-stage__ask { padding: 12px 12px 12px 20px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; }
+.fd-stage__asked { flex: 1 1 220px; min-width: 0; }
+/* 44px targets (the design's pills are 40px tall; the contract asks for 44) */
+.fd-stage__ask .fd-seg__item { min-height: 44px; }
+.fd-stage__question { margin-top: 4px; font-size: 16px; line-height: 22px; font-weight: 600; letter-spacing: -0.005em; }
+.fd-stage__replay {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border: 0; border-radius: var(--fd-r-md);
+  background: var(--fd-surface); box-shadow: var(--fd-sh-ring-2); color: var(--fd-ink);
+  font-family: inherit; font-size: 14px; line-height: 20px; font-weight: 500; cursor: pointer;
+  transition: background-color 120ms ease, box-shadow 120ms ease;
+}
+.fd-stage__replay:hover { background: var(--fd-surface-3); box-shadow: 0 0 0 1px var(--fd-ink-3); }
+.fd-stage__replay svg { flex: none; }
+
+/* the trace and its quiet illustration label */
+.fd-stage__trace { min-width: 0; }
+.fd-stage__caption {
+  margin: 8px 0 0 4px; font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: 0.01em; color: var(--fd-ink-3);
+}
+
+/* the stop scenario's mini question (above the agreement card) */
+@keyframes fd-stage-qi { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+.fd-stage__q {
+  background: var(--fd-amber-wash); border: 1px solid var(--fd-amber); border-radius: var(--fd-r-lg);
+  box-shadow: var(--fd-sh-float); padding: 20px;
+  animation: fd-stage-qi var(--fd-qi-dur, 0.24s) var(--fd-ease) var(--fd-qi-delay, 2.8s) 1 both;
+}
+.fd-stage__q-eyebrow {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--fd-mono); font-size: 11px; line-height: 14px; font-weight: 500; letter-spacing: 0.08em; color: var(--fd-amber-ink);
+}
+.fd-stage__q-eyebrow svg { flex: none; }
+.fd-stage__q-head { margin-top: 8px; font-size: 16px; line-height: 22px; font-weight: 600; color: var(--fd-ink); }
+.fd-stage__q-body { margin: 6px 0 0; font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
+.fd-stage__q-cta {
+  display: inline-flex; align-items: center; margin-top: 12px; min-height: 44px; padding: 0 14px; border-radius: var(--fd-r-md);
+  background: var(--fd-indigo); color: #FFFFFF; text-decoration: none; font-size: 14px; font-weight: 500;
+}
+.fd-stage__q-cta:hover { background: var(--fd-indigo-hover); color: #FFFFFF; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fd-stage__q { animation: none !important; }
+}
+
+/* Phones: the lane min-width (one line per lane, the list scrolls sideways) lives in components/CheckTrace.css. */

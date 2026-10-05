@@ -47,8 +47,22 @@ export async function launch({ width = 1440, height = 900, dsf = 1, mobile = fal
   return { browser, context, page, close: () => browser.close() };
 }
 
-/** Open the app and wait until the engine is ready. In dev the engine is on window.__undefined. */
-export async function openApp(page, url, { fresh = true } = {}) {
+/**
+ * The workbench page (the original REPL UI: #repl-input, .panel-gates, button.example …) for a server URL. The site root
+ * (index.html) is the front door (src/door); every script that drives the REPL by selector goes through this. A URL whose
+ * path already names a page is returned unchanged; the query (?opener=, ?fixture=, …) and hash are kept.
+ * workbench('http://localhost:5194/', '?opener=orders') → 'http://localhost:5194/workbench.html?opener=orders'
+ */
+export function workbench(url, query = '') {
+  const u = new URL(url);
+  if (u.pathname.endsWith('/')) u.pathname += 'workbench.html';
+  if (query) u.search = query;
+  return u.href;
+}
+
+/** Open the workbench (see workbench()) and wait until the engine is ready. In dev the engine is on window.__undefined. */
+export async function openApp(page, base, { fresh = true } = {}) {
+  const url = workbench(base);
   await page.goto(url);
   if (fresh) {
     await page.evaluate(async () => {

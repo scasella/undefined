@@ -9,7 +9,7 @@
 // to docs/opening-<id>.gif (docs/opening.gif and docs/demo.mp4 are left alone)
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { startServer, launch } from './lib/drive.mjs';
+import { startServer, launch, workbench } from './lib/drive.mjs';
 process.chdir(new URL('../', import.meta.url).pathname); // paths below are relative to apps/site, wherever this is run from
 
 const DOCS = new URL('../../../docs/', import.meta.url).pathname; // the repository's docs/, not apps/site
@@ -51,9 +51,9 @@ let sampling = true;
 const now = () => (performance.now() - t0) / 1000;
 const at = {}; // named moments for segmenting
 
-await p.goto(srv.url);
+await p.goto(workbench(srv.url));
 await p.evaluate(async () => { localStorage.clear(); await new Promise((r) => { const q = indexedDB.deleteDatabase('undefined-image'); q.onsuccess = q.onerror = q.onblocked = () => r(); setTimeout(r, 1500); }); });
-await p.goto(opener ? `${srv.url}?opener=${opener}` : srv.url);
+await p.goto(workbench(srv.url, opener ? `?opener=${opener}` : ''));
 await p.waitForSelector('#repl-input');
 if (opener) await p.waitForFunction(() => !!document.querySelector('.opener-fn') && !!document.querySelector('#repl-input')?.value, null, { timeout: 30000 });
 capturing = true;

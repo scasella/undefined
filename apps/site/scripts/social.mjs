@@ -1,11 +1,11 @@
 // node scripts/social.mjs [--skip-build] [--scheme=light|dark]  — the 1200x630 link-preview image (og:image).
-// Replays the median opening on the production build, screenshots the REAL rejection card and wordmark at 3x, reads the
-// two argument sentences from the page, and composes them on a 1200x630 canvas (a small static page of our own, rendered
-// at 2x and downscaled). Writes docs/social.png and copies it to public/social.png (served by the site; index.html points
-// og:image / twitter:image at it).
+// Replays the median opening on the production build's workbench page (workbench.html), screenshots the REAL rejection
+// card and wordmark at 3x, reads the two argument sentences from the page, and composes them on a 1200x630 canvas (a small static page of our own, rendered
+// at 2x and downscaled). Writes docs/social.png and copies it to public/social.png (served by the site; index.html and
+// workbench.html point og:image / twitter:image at it).
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { startServer, launch } from './lib/drive.mjs';
+import { startServer, launch, workbench } from './lib/drive.mjs';
 
 const root = new URL('../', import.meta.url).pathname; // apps/site/
 const repo = new URL('../../../', import.meta.url).pathname; // docs/ and the hoisted node_modules/ live here
@@ -21,9 +21,9 @@ const p = b.page;
 let parts;
 try {
   await p.emulateMedia({ colorScheme: scheme });
-  await p.goto(srv.url);
+  await p.goto(workbench(srv.url));
   await p.evaluate(async () => { localStorage.clear(); await new Promise((r) => { const q = indexedDB.deleteDatabase('undefined-image'); q.onsuccess = q.onerror = q.onblocked = () => r(); setTimeout(r, 1500); }); });
-  await p.goto(srv.url);
+  await p.goto(workbench(srv.url));
   await p.waitForSelector('#repl-input');
   const argument = await p.$$eval('.argument span', (s) => s.map((e) => e.textContent.trim()));
   if (argument.length !== 2) throw new Error('expected the two argument sentences under the masthead');

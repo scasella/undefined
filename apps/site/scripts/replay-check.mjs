@@ -3,7 +3,7 @@
 // the recorded first candidate is rejected by the recorded gate (gates run live) and the retry commits. Then the
 // opener matrix: each `?opener=<id>` pre-types that example on a fresh load (orders: `rows` bound), and pressing
 // Enter on it replays to commit with the same expectations.
-import { startServer, launch } from './lib/drive.mjs';
+import { startServer, launch, workbench } from './lib/drive.mjs';
 const EXPECT = {
   median: { gate: 'PROPERTIES', text: 'median([])', call: 'median([3, 1, 4, 2])' },
   slugify: { gate: 'TESTS', text: 'slugify(', call: 'slugify("Hello, World! Crème Brûlée")' },
@@ -17,7 +17,7 @@ let failed = 0;
 const timings = [];
 
 async function fresh(p, url) {
-  await p.goto(srv.url);
+  await p.goto(workbench(srv.url));
   await p.evaluate(async () => { localStorage.clear(); await new Promise((r) => { const q = indexedDB.deleteDatabase('undefined-image'); q.onsuccess = q.onerror = q.onblocked = () => r(); setTimeout(r, 1500); }); });
   await p.goto(url);
   await p.waitForSelector('#repl-input');
@@ -51,7 +51,7 @@ async function enterAndCheck(p, id, want, label) {
 try {
   for (const [id, want] of Object.entries(EXPECT)) {
     const p = b.page;
-    await fresh(p, srv.url);
+    await fresh(p, workbench(srv.url));
     if (id !== 'median') await p.locator('button.example', { hasText: (want.button ?? id + '(') }).click();
     await enterAndCheck(p, id, want, id);
   }
@@ -63,7 +63,7 @@ try {
   // opener matrix: no chip click; the pre-typed state itself is checked before Enter
   for (const [id, want] of Object.entries(EXPECT)) {
     const p = b.page;
-    await fresh(p, `${srv.url}?opener=${id}`);
+    await fresh(p, workbench(srv.url, `?opener=${id}`));
     let pre = false;
     try {
       await p.waitForFunction(({ call, bound }) => document.querySelector('#repl-input')?.value === call && document.querySelector('.opener-fn')?.textContent === call.slice(0, call.indexOf('(')) && (!bound || (document.body.innerText.includes(bound) && [...document.querySelectorAll('.env-var')].some((e) => e.textContent.startsWith('rows = [')))), { call: want.call, bound: want.bound ?? null }, { timeout: 30000 });
@@ -75,7 +75,7 @@ try {
     await enterAndCheck(p, id, want, `opener=${id}`);
   }
   // an unknown opener falls back to median
-  await fresh(b.page, `${srv.url}?opener=nope`);
+  await fresh(b.page, workbench(srv.url, '?opener=nope'));
   await b.page.waitForFunction(() => !!document.querySelector('#repl-input')?.value, null, { timeout: 30000 }).catch(() => {});
   const fallback = await b.page.evaluate(() => document.querySelector('#repl-input')?.value);
   console.log(fallback === EXPECT.median.call ? 'PASS' : 'FAIL', 'opener=nope falls back to median', fallback === EXPECT.median.call ? '' : fallback);
@@ -91,7 +91,7 @@ try {
       if (!ok) failed++;
     };
     const waitText = (re, timeout = 60000) => p.waitForFunction((src) => new RegExp(src).test(document.body.innerText), re.source, { timeout }).then(() => true, () => false);
-    await fresh(p, srv.url);
+    await fresh(p, workbench(srv.url));
     await p.locator('#repl-input').press('Enter');
     await waitText(/Accepted · saved as r\d+/, 120000);
     const pick = async (labelText) => {
@@ -129,7 +129,7 @@ try {
     const waitText = (re, timeout = 60000) => p.waitForFunction((src) => new RegExp(src).test(document.body.innerText), re.source, { timeout }).then(() => true, () => false);
     const envHas = (s) => p.evaluate((t) => [...document.querySelectorAll('.env-var')].some((e) => e.textContent.replace(/\s+/g, ' ').trim() === t), s);
     try {
-      await fresh(p, srv.url);
+      await fresh(p, workbench(srv.url));
       await p.fill('#repl-input', 'n = 0; xs = [3, 1, 4, 2]; n = n + 1; m = median(xs)');
       await p.locator('#repl-input').press('Enter');
       const committed = await waitText(/Accepted · saved as r\d+/, 120000);
@@ -156,7 +156,7 @@ try {
       if (!ok) failed++;
     };
     try {
-      await fresh(p, srv.url);
+      await fresh(p, workbench(srv.url));
       await p.waitForFunction((call) => document.querySelector('#repl-input')?.value === call, EXPECT.median.call, { timeout: 30000 }).catch(() => {});
       const first = await p.evaluate(() => {
         const btn = document.querySelector('.data-start-file');

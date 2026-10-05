@@ -3,6 +3,21 @@
 How a call is decided, what the model sees, the local generation service and the source layout. Module contracts are in
 [DESIGN.md](DESIGN.md); the security properties of the sandbox are in [SECURITY.md](SECURITY.md).
 
+## Two pages, one engine
+
+The static site ships two pages, both built by `apps/site/vite.config.ts` (`build.rollupOptions.input`) into
+`apps/site/dist/`, both carrying the production Content-Security-Policy `<meta>` (`npm run check:csp` asserts it on each):
+
+- `index.html` → `src/door/main.tsx`: the **front door** (landing `#/`, first run `#/start`), a guided, plain-language
+  surface over the engine. Contract, vocabulary map, honesty rules, layout and recordings: [FRONT-DOOR.md](FRONT-DOOR.md).
+  A root URL carrying the workbench's `?opener=` / `?recording=` is redirected to `workbench.html` (`src/door/legacyLinks.ts`).
+- `workbench.html` → `src/workbench.tsx`: the **workbench**, the original REPL UI (`src/ui/`, `src/styles.css`) with
+  every engine feature. The maintainer scripts that drive the UI by selector (`apps/site/scripts/*.mjs`) open this page
+  through `workbench()` in `scripts/lib/drive.mjs`.
+
+Both create the same engine (`src/core/engine.ts`) against the same IndexedDB image, so a function grown on one page
+is there on the other. Everything below describes the engine; it is the same under either page.
+
 ## How a call is decided
 
 ```
@@ -98,15 +113,17 @@ packages/engine/src/
   node/              Node only (never imported by the site): the gate host (a worker_thread + node:vm realm with the
                      same watchdog; NOT a secure sandbox, docs/SECURITY.md), TypeScript libs from disk, certifyFile()
 apps/site/
-  index.html  vite.config.ts  public/recordings/ (recorded sessions)
+  index.html         the front door's page (src/door/main.tsx); workbench.html the workbench's (src/workbench.tsx)
+  vite.config.ts  public/recordings/ (recorded sessions)
   server/            Vite middleware: the codex generation service, dev-only recording save; share/ the optional share Worker
   src/core/          engine (orchestrator), IndexedDB store, generators (live, replay), REPL line splitting
   src/gates/libs.ts  the site's lib source for the compile gate (a lazy Vite glob)
   src/sandbox/       worker spawning (blob: wrapper, CSP), the gate and REPL runtime workers, the site's gate runner (default worker)
   src/shared/        prompt builder, REPL statement splitter
   src/examples/      median, slugify, fibonacci, orders (+ known-good and known-bad candidates used by tests)
-  src/share/ src/sessionlog/ src/data/ src/ui/   shared recordings, the opt-in session log, data scratchpad, Preact UI
-  scripts/           checks (replay, csp, eject), recording, screenshots, tune.tune.ts (see below)
+  src/share/ src/sessionlog/ src/data/ src/ui/   shared recordings, the opt-in session log, data scratchpad, the workbench UI
+  src/door/          the front door (landing + first run): components/, model/ (pure, tested view-models), landing/, start/
+  scripts/           checks (replay, csp, eject), recording (record.mjs; record-door.mjs for the front door), screenshots, tune.tune.ts (see below)
 packages/cli/      undefined-certify: args, the certify command over the engine's certify(), human and --json reports,
                    mutant line mapping, examples/ (pass, rejected, spec gap); dist/ built by scripts/build.mjs
 packages/action/   the GitHub Action (action.yml): PR diff → touched exported functions → the engine's certify() on the
