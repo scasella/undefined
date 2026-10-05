@@ -16,6 +16,11 @@ import { EjectButton } from './Eject';
 export const RECHECK_LINE = 'You added this check after the function was committed. The committed function fails it.';
 /** The same line when the re-check was of a decision the user made after the commit. */
 export const RECHECK_DECISION_LINE = 'You decided this after the function was committed. The committed function fails it.';
+/** The same line when a function it calls changed after it was committed (composition). `what`: "slugify changed r4 → r7". */
+export function recheckCalleeLine(what: string, names: readonly string[]): string {
+  const list = names.join(', ');
+  return `A function it calls changed after it was committed (${what}). With the new ${list}, its unchanged code fails its own checks, so it does not run; the next call writes it again.`;
+}
 
 const GATE_LABEL = { compile: 'Compile', tests: 'Tests', properties: 'Properties', invariants: 'Invariants' } as const;
 
@@ -181,7 +186,7 @@ function Headline({ gen, a, value, state, engine }: { gen: GenerationView; a: At
             <span aria-hidden="true">✕ </span>Rejected
           </span>
           <span>by {GATE_LABEL[fail.gate]}</span>
-          <span class="hg-class">— {rejectionClass(fail)}</span>
+          <span class="hg-class">— {recheck && gen.recheck?.callees ? `${gen.recheck.callees.names.join(', ')} changed` : rejectionClass(fail)}</span>
           <span class="hg-sep" aria-hidden="true">·</span>
           <span>{recheck ? 're-check of the committed function' : `#${a.attempt}`}</span>
           {fail.note && fail.note !== 'spec error' && (
@@ -194,7 +199,11 @@ function Headline({ gen, a, value, state, engine }: { gen: GenerationView; a: At
         <p class="headline-text">
           <VerdictText text={headline} />
         </p>
-        {recheck && <p class="recheck-line">{gen.recheck?.decision ? RECHECK_DECISION_LINE : RECHECK_LINE}</p>}
+        {recheck && (
+          <p class="recheck-line">
+            {gen.recheck?.callees ? recheckCalleeLine(gen.recheck.callees.what, gen.recheck.callees.names) : gen.recheck?.decision ? RECHECK_DECISION_LINE : RECHECK_LINE}
+          </p>
+        )}
         <div class="who" aria-label="Who decided">
           {whoDecided(fail, a.attempt).map((line, i) => (
             <p key={i} class={i === 0 ? 'who-line' : 'who-line who-fair'}>
@@ -245,7 +254,10 @@ function verdictAnnouncement(gen: GenerationView | null, a: AttemptView | undefi
   if (fail) {
     const h = fail.headline ?? a.candidate?.headline;
     // a re-check judges the committed function (after a spec edit or a decision), not a new candidate
-    if (gen.kind === 'recheck') return `The committed ${gen.fn} failed ${GATE_LABEL[fail.gate]}${h ? `: ${plainHeadline(h)}` : '.'}`;
+    if (gen.kind === 'recheck') {
+      const callees = gen.recheck?.callees ? ` with the new ${gen.recheck.callees.names.join(', ')}` : '';
+      return `The committed ${gen.fn} failed ${GATE_LABEL[fail.gate]}${callees}${h ? `: ${plainHeadline(h)}` : '.'}`;
+    }
     return `Candidate ${a.attempt} rejected by ${GATE_LABEL[fail.gate]}${h ? `: ${plainHeadline(h)}` : '.'}`;
   }
   if (a.status === 'accepted' && gen.phase === 'committed' && gen.revision !== undefined) {

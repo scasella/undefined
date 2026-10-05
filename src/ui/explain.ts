@@ -19,6 +19,14 @@ export function whoDecided(fail: GateResult, attempt: number): string[] {
   if (d && (d.kind === 'test' || d.kind === 'property') && d.name === '(gate runner)') {
     return ['The gate runner failed before it could judge the candidate. This is not a verdict on the model.'];
   }
+  const refused = dependencyRefusal(d);
+  if (refused) {
+    return [
+      refused.cycle
+        ? `The model's code called ${refused.callee}, which already calls ${refused.caller}. Generated functions cannot call each other in a cycle, so the compile gate refused it.`
+        : `The model's code called ${refused.callee}, which it may not call right now (${refused.callee} was not offered to it). The compile gate refused it.`,
+    ];
+  }
   if (fail.gate === 'compile' || d?.kind === 'compile') {
     return ["The model's code didn't compile. The compiler decided."];
   }
@@ -28,6 +36,9 @@ export function whoDecided(fail: GateResult, attempt: number): string[] {
       const took = d.elapsedMs !== undefined ? `The candidate took longer (stopped at ${Math.round(d.elapsedMs)} ms).` : 'The candidate took longer.';
       return [`${limit} ${took}`];
     }
+    // composition: the trap fired inside a function it calls (gateExecutor sets this detail): blame is shared
+    const inside = /^inside ([A-Za-z_$][\w$]*), called by /.exec(d.detail ?? '');
+    if (inside) return [`The model was told to be side-effect free. The candidate wasn't: the side effect happened inside ${inside[1]}, which it calls.`];
     return ['The model was told to be side-effect free. The candidate wasn\'t.'];
   }
   if (d && d.kind === 'test' && d.name.startsWith(PINNED_TEST_PREFIX)) {
@@ -74,13 +85,22 @@ export function promptData(prompt: string): Array<{ name: string; samples: numbe
 }
 
 /** What the prompt itself contains, detected from its section markers (shared/prompt.ts). */
-export function promptFeatures(prompt: string): { budget: boolean; previous: boolean; runtimeFault: boolean; callTypes: boolean } {
+export function promptFeatures(prompt: string): { budget: boolean; previous: boolean; runtimeFault: boolean; callTypes: boolean; others: string[] } {
   return {
     budget: /^- Each call must return within \d+ ms\.$/m.test(prompt),
     previous: /^PREVIOUS ATTEMPT\b/m.test(prompt),
     runtimeFault: /^RUNTIME FAULT$/m.test(prompt),
     callTypes: /^TRIGGERING CALL$/m.test(prompt),
+    others: promptOthers(prompt),
   };
+}
+
+/** The functions an OTHER FUNCTIONS section listed (shared/prompt.ts othersSection), in order; [] when none. */
+export function promptOthers(prompt: string): string[] {
+  const at = prompt.search(/^OTHER FUNCTIONS \(/m);
+  if (at < 0) return [];
+  const section = prompt.slice(at).split('\n\n')[0]!;
+  return [...section.matchAll(/^- function ([A-Za-z_$][\w$]*)\(/gm)].map((m) => m[1]!);
 }
 
 /**
@@ -109,6 +129,7 @@ export function modelSawSummary(spec: Pick<FunctionSpec, 'tests' | 'properties' 
         : `the type of ${d.name} and ${count(d.samples, 'sample row', 'sample rows')}`,
     );
   }
+  if (f.others.length > 0) parts.push(`the signatures and one-line docs of the functions it may call (${f.others.join(', ')}), not their code`);
   if (f.budget) parts.push('the time budget');
   if (f.runtimeFault) parts.push('the error a previous version hit at runtime');
   if (f.previous) parts.push('the previous attempt and its diagnostics');
@@ -205,9 +226,22 @@ export function shortGateStatus(g: Pick<GateResult, 'gate' | 'status' | 'summary
 const sentence = (s: string): string => (s ? s[0]!.toUpperCase() + s.slice(1) : s);
 
 /** The second half of the rejection eyebrow: whose fault the verdict says it is, in two or three words. */
+/**
+ * A compile-gate refusal of a call to another generated function (gates/compile.ts: harness code 0, "f cannot call g:
+ * why"), or null. `cycle` when g already calls f.
+ */
+export function dependencyRefusal(d: Diagnostic | undefined): { caller: string; callee: string; cycle: boolean } | null {
+  if (!d || d.kind !== 'compile' || d.code !== 0) return null;
+  const m = /^([A-Za-z_$][\w$]*) cannot call ([A-Za-z_$][\w$]*): (.*)$/s.exec(d.message);
+  if (!m) return null;
+  return { caller: m[1]!, callee: m[2]!, cycle: /in a cycle/.test(m[3]!) };
+}
+
 export function rejectionClass(fail: GateResult): string {
   const d: Diagnostic | undefined = fail.diagnostics[0];
   if (fail.note === 'spec error') return 'your spec did not load';
+  const refused = dependencyRefusal(d);
+  if (refused) return refused.cycle ? 'would call itself in a cycle' : 'called a function it may not';
   if (d && (d.kind === 'test' || d.kind === 'property') && d.name === '(gate runner)') return 'gate runner fault';
   if (d && d.kind === 'test' && d.name.startsWith(PINNED_TEST_PREFIX)) return 'disagrees with your pin';
   if (d && (d.kind === 'test' || d.kind === 'property') && d.silentOn) return 'spec was silent';

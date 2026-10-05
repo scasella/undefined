@@ -5,7 +5,7 @@
  * - define() hot-swaps a function in the live worker: no restart, REPL variables untouched.
  * - The main thread keeps its own record of the committed functions and the last good env (every evaluate reply
  *   carries the env snapshot), so a worker can be rebuilt at any time without losing anything.
- * - evaluate() has a hard wall-clock limit of `callBudgetMs` for the whole line, and additionally a committed
+ * - evaluate() has a hard wall-clock limit of `callBudgetMs` for the whole unit (a line, or one statement of it), and additionally a committed
  *   function defined with its own `budgetMs` gets that limit per call (the worker posts enter/leave around each
  *   REPL-level committed call). On overrun the worker is terminated — the only thing that stops a synchronous
  *   loop — and a fresh one is built from the record; the outcome is `{kind:'timeout'}` naming the call in flight.
@@ -36,12 +36,16 @@ export interface RuntimeOptions {
   workerFactory?: () => RuntimeWorkerLike;
 }
 
-/** A committed function as the runtime records it. `budgetMs` (the spec's) caps each REPL-level call. */
-export type RuntimeFunction = string | { js: string; budgetMs?: number };
+/**
+ * A committed function as the runtime records it. `budgetMs` (the spec's) caps each REPL-level call (and covers the
+ * functions it calls). `deps`: the other committed functions it calls (late-bound in the worker; absent = none).
+ */
+export type RuntimeFunction = string | { js: string; budgetMs?: number; deps?: string[] };
 
 interface FnEntry {
   js: string;
   budgetMs?: number;
+  deps?: string[];
 }
 
 interface Live {
@@ -119,12 +123,16 @@ export class Runtime {
     this.factory = opts.workerFactory ?? defaultWorkerFactory;
   }
 
-  /** Hot-swap: (re)define a committed function in the live worker. No restart, env untouched. */
-  define(name: string, js: string, budgetMs?: number): Promise<void> {
+  /**
+   * Hot-swap: (re)define a committed function in the live worker. No restart, env untouched. `deps` are the committed
+   * functions it calls (bound late: they may be defined before or after it).
+   */
+  define(name: string, js: string, budgetMs?: number, deps?: readonly string[]): Promise<void> {
     return this.enqueue(async () => {
       await this.ensureWorker();
-      await this.request({ type: 'define', name, js });
-      this.functions.set(name, budgetMs === undefined ? { js } : { js, budgetMs });
+      const d = deps && deps.length > 0 ? [...deps] : undefined;
+      await this.request(d ? { type: 'define', name, js, deps: d } : { type: 'define', name, js });
+      this.functions.set(name, { js, ...(budgetMs !== undefined ? { budgetMs } : {}), ...(d ? { deps: d } : {}) });
     });
   }
 
@@ -167,10 +175,11 @@ export class Runtime {
     });
   }
 
-  evaluate(input: string): Promise<EvalOutcome> {
+  /** `mode: 'stmt'`: `input` is one statement run for its effect (replCore.ts evaluate). */
+  evaluate(input: string, opts: { mode?: 'expr' | 'stmt' } = {}): Promise<EvalOutcome> {
     return this.enqueue(async () => {
       await this.ensureWorker();
-      const outcome = await this.evaluateWithWatchdog(input);
+      const outcome = await this.evaluateWithWatchdog(input, opts.mode === 'stmt');
       if (outcome.kind === 'timeout') {
         const lost = await this.ensureWorker().catch((): string[] => []); // rebuild eagerly
         if (lost.length > 0) outcome.lost = lost;
@@ -256,8 +265,8 @@ export class Runtime {
       if (this.worker === live) this.kill(new Error(`runtime worker crashed: ${message}`));
     });
     this.worker = live;
-    const functions: Record<string, string> = {};
-    for (const [name, f] of this.functions) functions[name] = f.js;
+    const functions: Record<string, string | { js: string; deps: string[] }> = {};
+    for (const [name, f] of this.functions) functions[name] = f.deps && f.deps.length > 0 ? { js: f.js, deps: f.deps } : f.js;
     const { result } = await this.request({ type: 'reset', functions, env: this.env, datasets: Object.fromEntries(this.datasetRows) });
     const lost = Array.isArray((result as { lost?: unknown } | null)?.lost) ? (result as { lost: string[] }).lost : [];
     if (lost.length > 0) {
@@ -317,7 +326,7 @@ export class Runtime {
     });
   }
 
-  private evaluateWithWatchdog(input: string): Promise<EvalOutcome> {
+  private evaluateWithWatchdog(input: string, stmt = false): Promise<EvalOutcome> {
     const start = now();
     return new Promise<EvalOutcome>((resolve) => {
       let settled = false;
@@ -351,7 +360,7 @@ export class Runtime {
           clearTimeout(callTimer);
         },
       };
-      this.request({ type: 'evaluate', input }).then(
+      this.request(stmt ? { type: 'evaluate', input, mode: 'stmt' } : { type: 'evaluate', input }).then(
         ({ result, env }) => {
           if (env) this.env = env;
           settle(result as EvalOutcome);

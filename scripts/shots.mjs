@@ -65,6 +65,14 @@ const FIXTURES = {
   'decide-custom': { fixture: 'decide-custom', element: '.headline-fail' },
   'decide-needs-live': { fixture: 'decide-needs-live', element: '.panel-gates' },
   'decision-applied': { fixture: 'decision-applied', element: '.decisions', scrollTo: '.decisions' },
+  // Composition and multi-statement lines (src/ui/dev/composeFixtures.ts)
+  'composed-committed': { fixture: 'composed-committed', element: '.panel-code' },
+  'repo-composed': { fixture: 'composed-committed', element: '.lower', scrollTo: '.lower' },
+  'dependent-stale': { fixture: 'dependent-stale', element: '.panel-gates' },
+  'repo-dependent-stale': { fixture: 'dependent-stale', element: '.lower', scrollTo: '.deps' },
+  'cycle-rejected': { fixture: 'cycle-rejected', element: '.headline-fail' },
+  'repo-cycle': { fixture: 'cycle-rejected', element: '.lower', scrollTo: '.deps' },
+  'repl-multi': { fixture: 'repl-multi', element: '.panel-repl' },
   'image-menu': { fixture: 'committed', prep: async (page) => { await page.locator('.menu summary').click(); await page.waitForTimeout(300); } },
 };
 

@@ -823,3 +823,60 @@ describe('ReplCore value outcomes: callRecords', () => {
     expect(core.evaluate('median([])')).toMatchObject({ kind: 'fault' });
   });
 });
+
+describe('ReplCore — statement units (mode: stmt) and comma assignments', () => {
+  it('runs a statement for its effect: value undefined, assignments reach REPL variables, inner let/var stay local', () => {
+    const core = new ReplCore();
+    core.evaluate('total = 0');
+    const out = core.evaluate('for (let i = 1; i <= 3; i++) { var seen = i; total += i }', { mode: 'stmt' });
+    expect(out).toMatchObject({ kind: 'value', shown: 'undefined' });
+    expect(core.envShown()).toEqual({ total: '6' });
+  });
+
+  it('an undefined call inside a statement is an undefined call with the real arguments; nothing after it ran', () => {
+    const core = new ReplCore();
+    core.evaluate('n = 0');
+    const out = core.evaluate('if (true) { n = n + 1; f(n); n = 100 }', { mode: 'stmt' });
+    expect(out).toMatchObject({ kind: 'undefined-call', name: 'f', argShown: ['1'] });
+    expect(core.envShown()).toEqual({ n: '1' });
+  });
+
+  it('a thrown error in a statement is an error outcome; a bad statement is a SyntaxError', () => {
+    const core = new ReplCore();
+    expect(core.evaluate('throw new RangeError("no")', { mode: 'stmt' })).toEqual({ kind: 'error', errorName: 'RangeError', message: 'no' });
+    expect(core.evaluate('break', { mode: 'stmt' })).toMatchObject({ kind: 'error', errorName: 'SyntaxError' });
+  });
+
+  it('a statement offers nothing to pin', () => {
+    const core = new ReplCore();
+    core.define('double', 'function double(x) { return x * 2; }');
+    const out = core.evaluate('for (const x of [1, 2]) double(x)', { mode: 'stmt' });
+    expect(out).toMatchObject({ kind: 'value', calls: ['double', 'double'] });
+    expect(out).not.toHaveProperty('callRecords');
+  });
+
+  it('the dispatcher passes the mode through', () => {
+    const msgs: RuntimeMessage[] = [];
+    const dispatch = createDispatcher((m) => msgs.push(m));
+    dispatch({ id: 1, type: 'evaluate', input: 'if (true) { x = 1 }', mode: 'stmt' });
+    expect(msgs[0]).toMatchObject({ type: 'reply', id: 1, ok: true, result: { kind: 'value', shown: 'undefined' }, env: { x: 1 } });
+  });
+
+  it('`x = 1, y = 2` assigns each (a comma expression, not x = (1, y = 2)); `x = f(a, b)` is still one binding', () => {
+    const core = new ReplCore();
+    expect(core.evaluate('x = 1, y = 2')).toMatchObject({ kind: 'value', shown: '2' });
+    expect(core.envShown()).toEqual({ x: '1', y: '2' });
+    core.evaluate('z = Math.max(1, 5)');
+    expect(core.envShown()).toMatchObject({ z: '5' });
+  });
+});
+
+describe('ReplCore — destructured bindings survive an env snapshot', () => {
+  it('a destructuring assignment binds plain REPL variables that round-trip through snapshotEnv/restoreEnv', () => {
+    const core = new ReplCore();
+    core.evaluate('({a, b: [c], ...rest} = ({a: 1, b: [2], d: "x"}\n))');
+    const fresh = new ReplCore();
+    expect(fresh.restoreEnv(core.snapshotEnv())).toEqual([]);
+    expect(fresh.envShown()).toEqual({ a: '1', c: '2', rest: '{ d: "x" }' });
+  });
+});

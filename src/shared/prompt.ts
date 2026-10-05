@@ -27,6 +27,12 @@ export interface PromptInput {
    * what the re-check reported (shown in a RULING section; not a history entry, since it was not a model candidate).
    */
   ruling?: { body: string; gates: GateResult[]; decision: Decision };
+  /**
+   * Other certified functions of the program this body may call (compose/graph.ts othersFor): the declaration line,
+   * the first sentence of the doc, and the type declarations its signature needs that TYPES does not already show.
+   * The OTHER FUNCTIONS section is emitted ONLY when this is non-empty: absent and [] give byte-identical prompts.
+   */
+  others?: Array<{ decl: string; doc: string; types?: string[] }>;
 }
 
 export function declarationLine(spec: FunctionSpec, opts: { forceInferredReturn?: string } = {}): string {
@@ -71,6 +77,8 @@ export function buildPrompt(input: PromptInput): string {
     fn.push('No return type is declared: it is inferred from your body and must be consistent with the contract below.');
   }
   sections.push(fn.join('\n'));
+
+  if (input.others && input.others.length > 0) sections.push(othersSection(input.others));
 
   sections.push(
     [
@@ -125,6 +133,24 @@ export function buildPrompt(input: PromptInput): string {
   );
 
   return sections.join('\n\n') + '\n';
+}
+
+/**
+ * OTHER FUNCTIONS: what else the body may call. The last two sentences guard decline calibration: a listed function
+ * never gives a meaningless name a meaning, and a self-chosen seed never stands in for randomness. This wording was
+ * chosen by measurement (docs/COMPOSE-MEASUREMENTS.md §2): the first draft's broader impurity sentence made the model
+ * decline `hello()`. The HONESTY section itself is unchanged.
+ */
+export function othersSection(others: NonNullable<PromptInput['others']>): string {
+  const types: string[] = [];
+  for (const o of others) for (const t of o.types ?? []) if (!types.includes(t)) types.push(t);
+  return [
+    'OTHER FUNCTIONS (already certified in this program; you may call them by name; do not redeclare them)',
+    ...(types.length > 0 ? ['Their types (declared for you):', ...types] : []),
+    ...others.flatMap((o) => [`- ${o.decl}`, `  ${o.doc.replace(/\s+/g, ' ').trim() || '(no doc)'}`]),
+    'Calling one is optional. It runs under the same purity and time limits, and its time counts toward yours.',
+    'A listed function does not give a meaningless name a meaning: the NEEDS_SPEC rule still applies. A seed you pick yourself is not fresh randomness: a task that needs randomness is still declined as HONESTY says, even if a listed function takes a seed.',
+  ].join('\n');
 }
 
 // ───────────────────────── declining honestly ─────────────────────────

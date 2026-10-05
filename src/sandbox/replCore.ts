@@ -9,11 +9,12 @@
  * values. Any other use of the thunk is a ReferenceError, like JS itself.
  *
  * Known limitations (honest, not hidden):
- * - Growth re-evaluates the ORIGINAL input. Side effects that ran before the undefined call (e.g. `(n = n + 1,
- *   median(xs))`) therefore run twice: once before the call was found undefined, once on re-evaluation.
+ * - One evaluate() runs one UNIT: an expression or a single binding (`x = …`, `const|let|var x = …`), or, with
+ *   `{ mode: 'stmt' }`, one statement (`if`, `for`, a block…) run for its effect (value `undefined`). The engine splits
+ *   a multi-statement line into units (shared/replSplit.ts) and, after growing a function, re-evaluates only the unit
+ *   that called it. Side effects earlier in THAT unit (e.g. `(n = n + 1, median(xs))`) run twice: once before the call
+ *   was found undefined, once on re-evaluation.
  * - `typeof someUndefinedName` is 'function': `typeof` on a Proxy fires no trap. `typeof x.y` does throw.
- * - REPL lines are expressions or a single binding statement (`x = …`, `const|let|var x = …`). Destructuring
- *   bindings and multi-statement lines are not supported (they end up as SyntaxError).
  * - Masked globals other than Math/Date (fetch, setTimeout, globalThis, …) and `eval`/`Function` are hidden from the
  *   REPL; calling one is reported as an undefined call of that name. The REPL line itself runs in strict mode with
  *   `this === undefined`, but code that obtains a constructor through a value (`(()=>0).constructor('return this')`)
@@ -21,8 +22,13 @@
  * - An undefined name anywhere inside a value (`median([1, foo])`, `x = {a: foo}`) is a plain ReferenceError; it never
  *   reaches a committed function. A REPL variable holding a committed function (`g = median`) stops working (as a
  *   ReferenceError) once that function is undefined or redefined.
- * - Committed functions cannot see each other (each is compiled alone); recursion uses the inner declaration name,
- *   so only REPL-level calls go through the wrapper (and produce enter/leave events).
+ * - Committed functions reach each other only through what their certification recorded (composition,
+ *   docs/COMPOSE-DESIGN.md §A5): define(name, js, deps) binds each dependency to a LATE-BOUND stub that looks the callee
+ *   up when it is called, so a dependent always reaches the callee's current wrapper (faults are tagged by the innermost
+ *   function). A callee with no runnable code is an undefined call OF THE CALLEE, with its real arguments
+ *   (`calledBy` set), even when the dependent's body swallows the signal in try/catch. Recursion uses the inner
+ *   declaration name. Only depth-0 calls (made directly by the REPL line) fire enter/leave, so the outermost call's
+ *   budget covers its callees.
  * - An undefined function passed to an Array method (`[1, 2, 3].map(double)`) is first called with (value, index,
  *   array). When the arguments have exactly that shape and the line does not call the name directly, only the value
  *   is kept for the inferred spec (`argsTrimmed: 'array-callback'`); the grown function ignores the extra arguments.
@@ -46,6 +52,7 @@ import { deepFreeze, evalMasked, isInvariantViolation, isReadOnlyWriteError, MAS
 import { callString, isMap, isPlainObject, isSet, show } from '../shared/show';
 import { decodeEnv, encodeEnv, encodeReport, encodeValue } from '../shared/serialize';
 import { inferArgType } from '../shared/inferType';
+import { STATEMENTS_MESSAGE, topLevel, unclosed } from '../shared/replSplit';
 
 /** Masked for candidates, but harmless and necessary for ordinary REPL arithmetic. */
 const REPL_ALLOWED = new Set(['Math', 'Date']);
@@ -58,6 +65,8 @@ class UndefinedCallSignal {
   constructor(
     readonly name: string,
     readonly args: unknown[],
+    /** The committed function whose body made the call (a dependency without runnable code). */
+    readonly calledBy?: string,
   ) {}
 }
 
@@ -67,6 +76,8 @@ class CommittedFault {
     readonly fn: string,
     readonly call: string,
     readonly error: unknown,
+    /** The committed function that called `fn` (absent for a call made by the REPL line). */
+    readonly calledBy?: string,
   ) {}
 }
 
@@ -74,6 +85,13 @@ class ReplError extends Error {
   constructor(name: string, message: string) {
     super(message);
     this.name = name;
+  }
+}
+
+/** The unit did not compile: nothing in it ran (the outcome carries `parse: true`). */
+class ReplParseError extends ReplError {
+  constructor(message: string) {
+    super('SyntaxError', message);
   }
 }
 
@@ -122,6 +140,10 @@ export class ReplCore {
   private records: CallRecord[] = [];
   /** Nesting depth of committed calls: only depth-0 calls are made "directly from the line". */
   private depth = 0;
+  /** The committed calls in flight, outermost first (for `calledBy`, and to blame a caller's own violation). */
+  private callStack: Array<{ fn: string; call: string }> = [];
+  /** A dependency reached with no runnable code during this evaluation (survives a body's try/catch). */
+  private pendingUndefined: UndefinedCallSignal | null = null;
   private bindings = new Map<string, DatasetBinding & { value: unknown[] }>();
   private readonly scope: object;
 
@@ -129,11 +151,29 @@ export class ReplCore {
     this.scope = this.makeScope();
   }
 
-  /** (Re)define a committed function from strict-mode JS declaring `function <name>`. Hot swap: env is untouched. */
-  define(name: string, js: string): void {
-    const fn = evalMasked<(...args: unknown[]) => unknown>(js, name);
+  /**
+   * (Re)define a committed function from strict-mode JS declaring `function <name>`. Hot swap: env is untouched.
+   * `deps`: the other committed functions its certification recorded; each is bound to a late-bound stub.
+   */
+  define(name: string, js: string, deps: readonly string[] = []): void {
+    const fn =
+      deps.length === 0
+        ? evalMasked<(...args: unknown[]) => unknown>(js, name)
+        : evalMasked<(...args: unknown[]) => unknown>(js, name, Object.fromEntries(deps.map((d) => [d, this.stub(d, name)])));
     if (typeof fn !== 'function') throw new TypeError(`${name} is not a function after evaluating its code`);
     this.functions.set(name, this.wrap(name, fn));
+  }
+
+  /** What a dependent's body holds for callee `dep`: looks the callee up at call time. */
+  private stub(dep: string, caller: string): (...args: unknown[]) => unknown {
+    const core = this;
+    return function (this: unknown, ...args: unknown[]): unknown {
+      const callee = core.functions.get(dep);
+      if (callee) return callee.apply(undefined, args);
+      const signal = new UndefinedCallSignal(dep, args, caller);
+      core.pendingUndefined ??= signal;
+      throw signal;
+    };
   }
 
   undefine(name: string): void {
@@ -241,23 +281,37 @@ export class ReplCore {
   }
 
   /** Replace functions and env wholesale. Returns the variables that could not be restored (see restoreEnv). */
-  reset(functions: Record<string, string>, env: Record<string, Json>, datasets?: Record<Hash, unknown[]>): string[] {
+  reset(functions: Record<string, string | { js: string; deps?: string[] }>, env: Record<string, Json>, datasets?: Record<Hash, unknown[]>): string[] {
     this.functions.clear();
-    for (const [name, js] of Object.entries(functions)) this.define(name, js);
+    for (const [name, f] of Object.entries(functions)) {
+      if (typeof f === 'string') this.define(name, f);
+      else this.define(name, f.js, f.deps ?? []);
+    }
     return this.restoreEnv(env, datasets);
   }
 
-  evaluate(input: string): EvalOutcome {
+  /**
+   * Evaluate one unit. Default: an expression or a single binding. `mode: 'stmt'`: a statement run for its effect
+   * (`let`/`var` declared inside it are local to it; assignments reach REPL variables through the scope).
+   */
+  evaluate(input: string, opts: { mode?: 'expr' | 'stmt' } = {}): EvalOutcome {
+    if (opts.mode === 'stmt') return this.evaluateStatement(input);
     this.calls = [];
     this.records = [];
     this.depth = 0;
+    this.callStack = [];
+    this.pendingUndefined = null;
     takeViolations();
     const start = now();
     const src = input.trim().replace(/;+\s*$/, '');
     try {
       if (src === '') return { kind: 'value', shown: 'undefined', ms: 0, calls: [] };
-      const bind = BIND_DECL.exec(src) ?? BIND_ASSIGN.exec(src);
+      const assign = BIND_ASSIGN.exec(src);
+      // `x = 1, y = 2` is a comma expression (x = 1), (y = 2): run it as one, its assignments go through the scope
+      const bind = BIND_DECL.exec(src) ?? (assign && topLevel(assign[2]!).commas.length === 0 ? assign : null);
       const value = this.run(bind ? bind[2]! : src);
+      // a dependent swallowed the undefined call of its callee: it is still that call (nothing is assigned)
+      if (this.pendingUndefined) return this.outcomeFor(this.pendingUndefined, src);
       this.rejectThunk(value);
       if (bind) this.assign(bind[1]!, value);
       const ms = now() - start;
@@ -269,7 +323,36 @@ export class ReplCore {
       if (this.records.length > 0) out.callRecords = [...this.records];
       return out;
     } catch (e) {
-      return this.outcomeFor(e, src);
+      return this.outcomeFor(this.pendingUndefined ?? e, src);
+    } finally {
+      takeViolations();
+    }
+  }
+
+  private evaluateStatement(input: string): EvalOutcome {
+    this.calls = [];
+    this.records = [];
+    this.depth = 0;
+    this.callStack = [];
+    this.pendingUndefined = null;
+    takeViolations();
+    const start = now();
+    const src = input.trim();
+    try {
+      let fn: (scope: object) => void;
+      try {
+        // eslint-disable-next-line no-new-func
+        fn = new Function('__scope', `with (__scope) { (function () { "use strict"; ${src}\n }).call(undefined); }`) as (scope: object) => void;
+      } catch (e) {
+        if (e instanceof SyntaxError) throw new ReplParseError(e.message.replace(/^./, (c) => c.toLowerCase()));
+        throw e;
+      }
+      fn(this.scope);
+      if (this.pendingUndefined) return this.outcomeFor(this.pendingUndefined, src);
+      // a statement is run for its effect: its value is undefined and there is no result to pin
+      return { kind: 'value', shown: 'undefined', ms: now() - start, calls: [...this.calls], encoded: encodeValue(undefined) };
+    } catch (e) {
+      return this.outcomeFor(this.pendingUndefined ?? e, src);
     } finally {
       takeViolations();
     }
@@ -286,7 +369,7 @@ export class ReplCore {
         `with (__scope) { return (function () { "use strict"; return (${expr}\n); }).call(undefined); }`,
       ) as (scope: object) => unknown;
     } catch (e) {
-      if (e instanceof SyntaxError) throw new ReplError('SyntaxError', syntaxErrorMessage(expr, e));
+      if (e instanceof SyntaxError) throw new ReplParseError(syntaxErrorMessage(expr, e));
       throw e;
     }
     return fn(this.scope);
@@ -429,32 +512,45 @@ export class ReplCore {
       if (core.functions.get(name) !== wrapper) throw new ReplError('ReferenceError', `${name} is not defined`);
       core.rejectThunk(args); // an undefined name anywhere in the arguments is the REPL line's error, not a fault
       const call = callString(name, args);
-      core.calls.push(name);
+      const outer = core.depth === 0;
+      const caller = outer ? undefined : core.callStack[core.callStack.length - 1];
+      const calledBy = caller?.fn;
+      if (outer) core.calls.push(name);
       // A call made directly from the REPL line (not from inside another committed call) is recorded for "Pin as
       // test"; its arguments are captured BEFORE the call.
-      const direct = core.depth === 0 && core.records.length < MAX_CALL_RECORDS;
+      const direct = outer && core.records.length < MAX_CALL_RECORDS;
       const pinArgs = direct ? args.map((a) => core.pinArg(a)) : null;
-      takeViolations();
-      core.hooks.onEnter?.(name, call);
+      // Start clean. Inside another committed call, a violation already recorded is the CALLER's (it touched a trap
+      // and caught the error before calling): it is reported for the caller, never blamed on this callee.
+      const carried = takeViolations();
+      if (caller && carried.length > 0) {
+        const grand = core.callStack[core.callStack.length - 2]?.fn;
+        throw new CommittedFault(caller.fn, caller.call, new ReplError('InvariantViolation', violationMessage(carried[0]!)), grand);
+      }
+      // enter/leave only for the outermost call: its budget covers the functions it calls
+      if (outer) core.hooks.onEnter?.(name, call);
       core.depth++;
+      core.callStack.push({ fn: name, call });
       let result: unknown;
       try {
         result = fn.apply(undefined, args);
         const violations = takeViolations();
         if (violations.length > 0) {
-          throw new CommittedFault(name, call, new ReplError('InvariantViolation', violationMessage(violations[0]!)));
+          throw new CommittedFault(name, call, new ReplError('InvariantViolation', violationMessage(violations[0]!)), calledBy);
         }
       } catch (e) {
         if (e instanceof CommittedFault) throw e; // tag only once: the innermost wrapper wins
+        if (e instanceof UndefinedCallSignal) throw e; // a callee with no runnable code: not a fault of this function
         // A write to a frozen argument (a dataset's rows, or a value the caller froze) is a purity fault, not a bug
         // report about Array.prototype.push.
         if (isReadOnlyWriteError(e) && args.some(isFrozenObject)) {
-          throw new CommittedFault(name, call, new ReplError('InvariantViolation', `candidate mutated its argument (${(e as Error).message})`));
+          throw new CommittedFault(name, call, new ReplError('InvariantViolation', `candidate mutated its argument (${(e as Error).message})`), calledBy);
         }
-        throw new CommittedFault(name, call, e);
+        throw new CommittedFault(name, call, e, calledBy);
       } finally {
         core.depth--;
-        core.hooks.onLeave?.(name);
+        core.callStack.pop();
+        if (outer) core.hooks.onLeave?.(name);
       }
       if (pinArgs && core.records.length < MAX_CALL_RECORDS) {
         const r = encodeCapped(result);
@@ -499,15 +595,18 @@ export class ReplCore {
       };
       if (trimmed) out.argsTrimmed = 'array-callback';
       if (argDatasets.some((d) => d !== null)) out.argDatasets = argDatasets;
+      if (e.calledBy !== undefined) out.calledBy = e.calledBy;
       return out;
     }
     if (e instanceof CommittedFault) {
       const err = e.error;
       const out: EvalOutcome = { kind: 'fault', fn: e.fn, call: e.call, errorName: nameOf(err), message: messageOf(err) };
+      if (e.calledBy !== undefined) out.calledBy = e.calledBy;
       if (err instanceof Error && typeof err.stack === 'string') out.stack = err.stack;
       if (isInvariantViolation(err)) out.errorName = 'InvariantViolation';
       return out;
     }
+    if (e instanceof ReplParseError) return { kind: 'error', errorName: 'SyntaxError', message: e.message, parse: true };
     if (isReadOnlyWriteError(e)) {
       const ds = this.datasetNamed(src);
       if (ds) {
@@ -577,43 +676,13 @@ export function syntaxErrorMessage(expr: string, wrapped: SyntaxError): string {
     bare = e;
   }
   if (bare === null) {
-    return 'a REPL line must be one expression or one binding (x = …); this parses only as statements';
+    return STATEMENTS_MESSAGE;
   }
   const msg = bare instanceof SyntaxError ? bare.message : wrapped.message;
   // a token the user never typed can only come from a wrapper: the line ended too early (`1 +`)
   const token = /^Unexpected token '([)}\]])'$/.exec(msg)?.[1];
   if ((token && !expr.includes(token)) || /end of input/i.test(msg)) return 'unexpected end of input';
   return msg.replace(/^./, (c) => c.toLowerCase());
-}
-
-/** The innermost bracket or quote left open at the end of `src` (simple scan: strings, templates, comments). */
-function unclosed(src: string): string | null {
-  const stack: string[] = [];
-  const close: Record<string, string> = { '(': ')', '[': ']', '{': '}' };
-  for (let k = 0; k < src.length; k++) {
-    const c = src[k]!;
-    if (c === '"' || c === "'" || c === '`') {
-      let j = k + 1;
-      while (j < src.length && src[j] !== c) j += src[j] === '\\' ? 2 : 1;
-      if (j >= src.length) return `the string starting with ${c} is not closed`;
-      k = j;
-    } else if (c === '/' && src[k + 1] === '/') {
-      const nl = src.indexOf('\n', k);
-      if (nl < 0) break;
-      k = nl;
-    } else if (c === '/' && src[k + 1] === '*') {
-      const end = src.indexOf('*/', k + 2);
-      if (end < 0) return 'a /* comment is not closed';
-      k = end + 1;
-    } else if (c in close) {
-      stack.push(c);
-    } else if (c === ')' || c === ']' || c === '}') {
-      if (!stack.length || close[stack[stack.length - 1]!] !== c) return null; // a stray closer: the parser says it best
-      stack.pop();
-    }
-  }
-  const top = stack[stack.length - 1];
-  return top ? `a \`${top}\` is never closed (missing \`${close[top]}\`)` : null;
 }
 
 // ───────────────────────── encoded values and table previews ─────────────────────────
@@ -700,12 +769,12 @@ function messageOf(e: unknown): string {
 // ───────────────────────── worker protocol (shared by runtimeWorker.ts and in-process fakes) ─────────────────────────
 
 export type RuntimeRequest =
-  | { id: number; type: 'define'; name: string; js: string }
+  | { id: number; type: 'define'; name: string; js: string; deps?: string[] }
   | { id: number; type: 'undefine'; name: string }
-  | { id: number; type: 'evaluate'; input: string }
+  | { id: number; type: 'evaluate'; input: string; mode?: 'stmt' }
   | { id: number; type: 'snapshot' }
   | { id: number; type: 'envShown' }
-  | { id: number; type: 'reset'; functions: Record<string, string>; env: Record<string, Json>; datasets?: Record<Hash, unknown[]> }
+  | { id: number; type: 'reset'; functions: Record<string, string | { js: string; deps?: string[] }>; env: Record<string, Json>; datasets?: Record<Hash, unknown[]> }
   | { id: number; type: 'bindDataset'; name: string; hash: Hash; rows: unknown[]; typeName: string }
   | { id: number; type: 'unbindDataset'; name: string }
   | { id: number; type: 'datasets' };
@@ -730,13 +799,13 @@ export function createDispatcher(emit: (m: RuntimeMessage) => void): (req: Runti
     try {
       switch (req.type) {
         case 'define':
-          core.define(req.name, req.js);
+          core.define(req.name, req.js, req.deps ?? []);
           return emit({ type: 'reply', id: req.id, ok: true, result: null });
         case 'undefine':
           core.undefine(req.name);
           return emit({ type: 'reply', id: req.id, ok: true, result: null });
         case 'evaluate': {
-          const result = core.evaluate(req.input);
+          const result = req.mode === 'stmt' ? core.evaluate(req.input, { mode: 'stmt' }) : core.evaluate(req.input);
           return emit({ type: 'reply', id: req.id, ok: true, result, env: core.snapshotEnv() });
         }
         case 'snapshot':

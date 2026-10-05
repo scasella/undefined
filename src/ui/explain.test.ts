@@ -247,3 +247,18 @@ describe('short gate status cells', () => {
     expect(`${Object.values(GATE_CAPTION).join(' ')} ${Object.values(GATE_PLAIN).join(' ')}`).not.toMatch(/property-based|\binvariant\b|\bmutants?\b|\bshrunk\b|fast-check|counterexample/i);
   });
 });
+
+describe('dependency refusals in the Checks panel', () => {
+  it('names a cycle refusal by the compile gate, not as a model mistake', async () => {
+    const { SCENARIOS } = await import('./dev/fixtures');
+    const { dependencyRefusal, rejectionClass, whoDecided } = await import('./explain');
+    const fail = SCENARIOS['cycle-rejected']().generation!.attempts[0]!.gates[0]!;
+    expect(dependencyRefusal(fail.diagnostics[0])).toEqual({ caller: 'slugifyAll', callee: 'uniqueSlugs', cycle: true });
+    expect(rejectionClass(fail)).toBe('would call itself in a cycle');
+    expect(whoDecided(fail, 1)[0]).toContain('uniqueSlugs, which already calls slugifyAll');
+    const other = { ...fail, diagnostics: [{ ...fail.diagnostics[0]!, message: "slugifyAll cannot call slugify: slugify is out of date (its spec changed after it was certified), so it cannot be called until it is regrown." }] } as typeof fail;
+    expect(rejectionClass(other)).toBe('called a function it may not');
+    // tsc's own errors are not refusals
+    expect(dependencyRefusal(fail.diagnostics[1])).toBeNull();
+  });
+});

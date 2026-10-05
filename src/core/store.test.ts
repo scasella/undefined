@@ -125,7 +125,7 @@ describe('validateImage', () => {
   const corruptions: Array<[string, (raw: any) => void, string]> = [
     ['not an object', () => {}, 'image must be an object'],
     ['wrong format', (r) => (r.format = 'zip'), 'format must be "undefined-image"'],
-    ['wrong version', (r) => (r.version = 3), 'version must be 1 or 2'],
+    ['wrong version', (r) => (r.version = 4), 'version must be 1, 2 or 3'],
     ['exportedAt', (r) => (r.exportedAt = 5), 'exportedAt must be a string'],
     ['head type', (r) => (r.head = '3'), 'head must be a number'],
     ['head missing from revisions', (r) => (r.head = 9), 'head must be the id of a revision (got 9)'],

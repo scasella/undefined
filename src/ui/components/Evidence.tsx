@@ -42,12 +42,12 @@ export function Confidence({ a, fn, mutation }: { a: Artifact; fn: string; mutat
   const progress = plainMutationProgress(mutation, fn);
   const done = !!a.evidence.mutation;
   // until the check has run, one muted line says when it will (instead of "has not run yet" plus a "Next:" line)
-  const text = done ? plainEvidence(a.evidence) : plainEvidence(a.evidence).replace(/\s*The broken-copy check has not run yet\.\s*$/, '');
+  const text = done ? plainEvidence(a.evidence, Object.keys(a.deps ?? {}).sort()) : plainEvidence(a.evidence, Object.keys(a.deps ?? {}).sort()).replace(/\s*The broken-copy check has not run yet\.\s*$/, '');
   const pending = mutation?.fn === fn && mutation.phase === 'running' ? progress : 'Broken-copy check runs when idle…';
   return (
     <div class="evidence" aria-label="What was checked" data-mutation={done ? 'done' : 'pending'}>
       <p class="evidence-label">What was checked</p>
-      <p class="confidence" title={describeEvidence(a.evidence)}>
+      <p class="confidence" title={describeEvidence(a.evidence, Object.keys(a.deps ?? {}).sort())}>
         {text}
       </p>
       {!done && <p class="mut-progress">{pending}</p>}
@@ -168,8 +168,8 @@ export function ArtifactEvidence({
     <section class="artifact-evidence" aria-label="Evidence">
       <h4>What was checked</h4>
       {a.evidence ? (
-        <p class="confidence" title={describeEvidence(a.evidence)}>
-          {plainEvidence(a.evidence)}
+        <p class="confidence" title={describeEvidence(a.evidence, Object.keys(a.deps ?? {}).sort())}>
+          {plainEvidence(a.evidence, Object.keys(a.deps ?? {}).sort())}
         </p>
       ) : (
         <p class="muted small">Nothing was recorded for this function (it was committed before this was kept).</p>
@@ -181,7 +181,7 @@ export function ArtifactEvidence({
           type="button"
           class="btn btn-ghost btn-xs"
           disabled={stale || state.busy || running}
-          title={stale ? 'The function is out of date: it is written again on the next call' : 'Mutation testing: run deliberately broken copies against the current checks again'}
+          title={stale ? 'The function is out of date: the next call re-checks it or writes it again first' : 'Mutation testing: run deliberately broken copies against the current checks again'}
           onClick={() => void engine.runMutation(fn)}
         >
           Re-run the broken-copy check

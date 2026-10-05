@@ -693,8 +693,8 @@ describe('engine: images and persistence', () => {
     const { engine, s } = setup();
     await engine.init();
     const before = { program: s().program, revisions: s().revisions };
-    await engine.importImage('{"format":"undefined-image","version":3}');
-    expect(s().notice).toEqual({ tone: 'error', text: 'Import failed: version must be 1 or 2' });
+    await engine.importImage('{"format":"undefined-image","version":4}');
+    expect(s().notice).toEqual({ tone: 'error', text: 'Import failed: version must be 1, 2 or 3' });
     await engine.importImage('not json');
     expect(s().notice!.text).toMatch(/^Import failed: the file is not JSON/);
     expect(s().program).toBe(before.program);

@@ -8,7 +8,8 @@
  * the REAL gate executor and the REAL REPL core.
  *
  * Known, documented behaviour (not hidden):
- * - Growth re-evaluates the ORIGINAL input, so side effects that ran before the undefined call run twice.
+ * - A REPL line runs as statement units (shared/replSplit.ts). After a grow only the unit that made the undefined call
+ *   runs again, from its start: side effects earlier in THAT statement run twice; earlier statements never re-run.
  * - The REPL transcript is not persisted; the image, the live state (REPL variables) and two flags are.
  */
 import { signal, type ReadonlySignal } from '@preact/signals';
@@ -58,7 +59,22 @@ import type {
   SpecPatch,
 } from '../types';
 import { GATE_ORDER } from '../types';
-import { compileCandidate, transpileUserCode, warmUp, type CompileOutput } from '../gates/compile';
+import { compileCandidate, splitReplLine, transpileUserCode, warmUp, type CompileContext, type CompileOutput } from '../gates/compile';
+import { needsSplit, STATEMENTS_MESSAGE, type ReplUnit } from '../shared/replSplit';
+import {
+  closureOf,
+  dependencyStatus,
+  directDeps,
+  implHash,
+  isRunnable,
+  otherFromArtifact,
+  othersFor,
+  stampDeps,
+  topoOrder,
+  transitiveDependents,
+  type Callable,
+  type OtherFunction,
+} from '../compose/graph';
 import { specFromCall } from '../gates/source';
 import { evidenceFrom, runExecutionGates, type ExecGateInput, type PinnedCase } from '../sandbox/gateRunner';
 import { DEFAULT_MAX_MUTANTS, DEFAULT_TIME_BOX_MS, runMutation as runMutants, type MutantRunner } from '../mutation/run';
@@ -185,7 +201,8 @@ export interface EngineDeps {
   loadRecordings(): Promise<Recording[]>;
   createReplayGenerator(recordings: Recording[], maxMs: number): Generator;
   createRuntime(): RuntimeLike;
-  compile(spec: FunctionSpec, body: string): Promise<CompileOutput>;
+  /** `ctx`: the other functions the body may call (absent or empty = a compile exactly as before composition). */
+  compile(spec: FunctionSpec, body: string, ctx?: CompileContext): Promise<CompileOutput>;
   warmUp(): Promise<void>;
   transpile(src: string): { js: string; error?: string };
   execGates(input: ExecGateInput, onGate?: (r: GateResult) => void): Promise<GateResult[]>;
@@ -281,6 +298,21 @@ export const ARRAY_CALLBACK_INFO = '(called by an Array method with (value, inde
 /** Prefix of gateExecutor's NEVER_CALLED_NOTE (not imported: that module pulls fast-check into the main bundle). */
 const NEVER_CALLED_PREFIX = 'the candidate was never called';
 export const FUNCTION_ARG_NOTE = "an argument was a function, which can't be replayed";
+
+/** REPL line when a committed function reached a callee with no runnable code (its dependent was "waiting"). */
+/**
+ * The line after a statement of a multi-statement REPL line ran again (after a grow, a re-check or a retry): which one,
+ * and that the ones before it were not run again. `k` is 0-based.
+ */
+export function rerunText(k: number, n: number): string {
+  const head = `Re-ran statement ${k + 1} of ${n} from its start`;
+  if (k === 0) return `${head}.`;
+  return `${head}; ${k === 1 ? 'statement 1 was' : `statements 1–${k} were`} not run again.`;
+}
+
+export function calledByInfo(fn: string, by: string): string {
+  return `${by} calls ${fn}, which has no runnable code: growing ${fn} with the arguments ${by} passed it, then ${by} is re-checked with it.`;
+}
 
 function endSentence(s: string): string {
   const t = s.trim();
@@ -686,6 +718,19 @@ interface RestartContext {
   dataArgs?: DataArg[];
   /** A re-grow against the user's decision: there is no REPL input to re-run after it commits. */
   decision?: { id: string; call: string };
+  /** The line's statement units and the one this entry is about: a retry resumes there (earlier units never re-run). */
+  at?: UnitPos;
+}
+
+/** Where a REPL line is: its statement units and the index of the current one. */
+interface UnitPos {
+  units: ReplUnit[];
+  k: number;
+}
+
+/** ` (statement k+1 of n)` for a line of several statements; '' for one. */
+function unitSuffix(at: UnitPos | undefined): string {
+  return at && at.units.length > 1 ? ` (statement ${at.k + 1} of ${at.units.length})` : '';
 }
 
 interface GrowRequest {
@@ -907,6 +952,12 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
   let viewChecks: { id: string; tests: string; properties: string } | null = null;
   /** Bumped by reset/dispose so a superseded async flow stops touching state. */
   let epoch = 0;
+  /**
+   * Functions whose dependency re-check failed while the current REPL input runs (runInput sets it, recheckDependency
+   * adds to it). When the re-run statement then reaches the same function, the identical re-check is not run (and
+   * reported) a second time: it goes straight to the regrow. A later input re-checks again, as documented.
+   */
+  let failedRechecks: Set<string> | null = null;
   let focusNonce = 0;
   let disposed = false;
   let tabs: TabChannel | null = null;
@@ -1111,11 +1162,64 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     if (lost.length > 0) info(`${LOST_PREFIX}${lost.join(', ')}`, 'warn');
   };
 
+  /**
+   * What the live runtime holds, as this engine defined it (name → js, budget and deps). syncRuntime() brings the
+   * runtime in line with jsFunctions(head) by undefining first, then defining: a dependent whose callee changed is
+   * removed BEFORE the new callee is defined, so it can never run against code it was not certified with.
+   */
+  let liveFns = new Map<string, string>();
+  const fnKey = (f: { js: string; budgetMs?: number; deps?: string[] }): string => JSON.stringify([f.js, f.budgetMs ?? null, f.deps ?? []]);
+
   /** Replace the live program wholesale; returns the REPL variables the runtime could not restore. */
-  async function resetRuntime(fns: Parameters<RuntimeLike['reset']>[0], env: Record<string, Json>): Promise<string[]> {
+  async function resetRuntime(fns: ReturnType<typeof jsFunctions>, env: Record<string, Json>): Promise<string[]> {
+    liveFns = new Map();
     const r: unknown = await runtime!.reset(fns, env, runtimeDatasets());
+    liveFns = new Map(Object.entries(fns).map(([n, f]) => [n, fnKey(f)]));
     return lostOf(r);
   }
+
+  /** Must run inside `exclusive`. Undefine what `program` (default: the head) no longer runs, then (re)define the rest. */
+  async function syncRuntime(program: Program = headRev().program): Promise<void> {
+    if (!runtime) return;
+    const want = jsFunctions(program);
+    for (const name of [...liveFns.keys()]) {
+      if (name in want) continue;
+      liveFns.delete(name);
+      await runtime.undefine(name).catch(() => undefined);
+    }
+    for (const [name, f] of Object.entries(want)) {
+      const k = fnKey(f);
+      if (liveFns.get(name) === k) continue;
+      if (f.deps) await runtime.define(name, f.js, f.budgetMs, f.deps);
+      else await runtime.define(name, f.js, f.budgetMs);
+      liveFns.set(name, k);
+    }
+  }
+
+  /** The other functions `spec`'s body may call in `program` (head by default), and the ones it may not, with why. */
+  function callableFor(spec: FunctionSpec, program: Program = headRev().program): Callable {
+    return othersFor(program, spec);
+  }
+
+  const compileContext = (c: Callable): CompileContext | undefined =>
+    c.others.length > 0 || c.unavailable.length > 0 ? { others: c.others, unavailable: c.unavailable } : undefined;
+
+  /** deps.compile with a context only when there is one (so a program without other functions compiles as before). */
+  function compileWith(spec: FunctionSpec, body: string, c: Callable): Promise<CompileOutput> {
+    const ctx = compileContext(c);
+    return ctx ? deps.compile(spec, body, ctx) : deps.compile(spec, body);
+  }
+
+  /** ExecGateInput.deps for a compiled body: its closure with certified js, callees first; absent when it calls nothing. */
+  function execDeps(program: Program, direct: readonly string[] | undefined): Pick<ExecGateInput, 'deps'> {
+    if (!direct || direct.length === 0) return {};
+    const closure = closureOf(program, direct);
+    return closure.length > 0 ? { deps: closure } : {};
+  }
+
+  /** The prompt's OTHER FUNCTIONS entries (absent when there are none). */
+  const promptOthers = (c: Callable): Pick<PromptInput, 'others'> =>
+    c.others.length > 0 ? { others: c.others.map((o) => ({ decl: o.decl, doc: o.doc, ...(o.types.length > 0 ? { types: o.types.map((t) => t.text) } : {}) })) } : {};
 
   /**
    * Never trust stored or imported `artifact.js`: recompile every LIVE artifact's body against its spec and use the
@@ -1127,18 +1231,27 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     const dropped = new Set<string>();
     const out: Revision[] = [];
     for (const rev of revisions) {
-      const functions: Program['functions'] = {};
-      for (const [name, rec] of Object.entries(rev.program.functions)) {
-        if (!isLive(rec)) {
-          functions[name] = rec;
-          continue;
-        }
+      const functions: Program['functions'] = { ...rev.program.functions };
+      // Callees first: a dependent is recompiled against its callees' declarations as recompiled in this revision,
+      // read from their artifacts (what it was certified against), never from a spec edited since.
+      for (const name of topoOrder(rev.program, Object.keys(rev.program.functions))) {
+        const rec = functions[name];
+        if (!rec || !isLive(rec)) continue;
         const artifact = rec.artifact!;
-        const key = `${rec.specHash}\u0000${rec.testsHash}\u0000${JSON.stringify(rec.spec)}\u0000${artifact.body}`;
+        const called = directDeps(rec);
+        const others: OtherFunction[] = [];
+        for (const n of called) {
+          const a = functions[n]?.artifact;
+          const o = a ? otherFromArtifact(n, a, rec.spec.typeDecls) : null;
+          if (o) others.push(o);
+        }
+        // the callees' identities are part of the key (no entry at all without callees: the key of a program
+        // without dependencies is unchanged)
+        const calleeKey = called.map((n) => `${n}=${functions[n]?.artifact ? implHash(functions[n]!.artifact!) : '-'}`).join(',');
+        const key = `${rec.specHash}\u0000${rec.testsHash}\u0000${JSON.stringify(rec.spec)}\u0000${artifact.body}${calleeKey ? `\u0000${calleeKey}` : ''}`;
         let compiled = cache.get(key);
         if (!compiled) {
-          compiled = deps
-            .compile(rec.spec, artifact.body)
+          compiled = (others.length > 0 ? deps.compile(rec.spec, artifact.body, { others }) : deps.compile(rec.spec, artifact.body))
             .then((c) => (c.gate.status !== 'fail' && c.js !== null ? c : null))
             .catch(() => null);
           cache.set(key, compiled);
@@ -1151,7 +1264,10 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
           dropped.add(name);
         }
       }
-      out.push({ ...rev, program: { ...rev.program, functions } });
+      // keep the program's own key order (the topological walk above only decides what is compiled first)
+      const ordered: Program['functions'] = {};
+      for (const name of Object.keys(rev.program.functions)) ordered[name] = functions[name]!;
+      out.push({ ...rev, program: { ...rev.program, functions: ordered } });
     }
     const results = await Promise.all(cache.values());
     return { revisions: out, recompiled: results.filter((c) => c !== null).length, dropped: [...dropped].sort() };
@@ -1288,6 +1404,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       reportLost(await resetRuntime(jsFunctions(headRev().program), liveEnv));
     } catch (e) {
       notice('error', `Could not restore the live program (${errorText(e)}); starting with no live functions.`);
+      liveFns = new Map();
       await runtime.reset({}, {}).catch(() => undefined);
     }
     await refreshEnv();
@@ -1419,32 +1536,120 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     if (next !== undefined) set({ replInput: next });
   }
 
+  /** The statement units of a line that needs the parser, or null after reporting its SyntaxError. */
+  async function unitsOf(input: string): Promise<ReplUnit[] | null> {
+    const split = await splitReplLine(input);
+    if (!split.ok) {
+      log({ kind: 'outcome', summary: 'error: SyntaxError' });
+      errorEntry('SyntaxError', split.message);
+      return null;
+    }
+    return split.units;
+  }
+
   /**
-   * Evaluate `input`, growing undefined functions (up to MAX_GROWTHS_PER_SUBMIT) and re-evaluating. `already` carries
-   * what an earlier grow for this same input (a retry) produced.
+   * Evaluate `input` statement by statement (docs/COMPOSE-DESIGN.md §B2), growing undefined functions (up to
+   * MAX_GROWTHS_PER_SUBMIT per line). After a grow (or a re-check) only the statement that made the call runs again;
+   * earlier statements never do. A line `needsSplit` does not route to the parser is one unit, sent exactly as typed.
+   * `already` carries what an earlier grow for this same input (a retry) produced; `resume` is where a retry picks up.
    */
-  async function runInput(input: string, myEpoch: number, already?: { revision: number; grown: Grown }): Promise<void> {
+  async function runInput(input: string, myEpoch: number, already?: { revision: number; grown: Grown }, resume?: UnitPos): Promise<void> {
     let revision = already?.revision;
     const grown: Grown[] = already ? [already.grown] : [];
     let growths = 0;
+    let rechecked = 0;
+    const failedHere = new Set<string>();
+    failedRechecks = failedHere;
+    // fast path: one unit, sent as typed (the opener's line never waits for the parser)
+    let fast = !resume && !needsSplit(input);
+    let units: ReplUnit[];
+    if (resume) units = resume.units;
+    else if (fast) units = [{ kind: 'expr', text: input }];
+    else {
+      const split = await unitsOf(input);
+      if (myEpoch !== epoch || !split) return;
+      units = split;
+    }
+    if (units.length === 0) {
+      reportOutcome({ kind: 'value', shown: 'undefined', ms: 0, calls: [] }, input, grown, revision);
+      return;
+    }
+    let k = resume?.k ?? 0;
+    // a retry resumes by running its statement again from the start
+    let rerun = resume !== undefined;
     for (;;) {
-      const outcome = await runtime!.evaluate(input);
+      const unit = units[k]!;
+      const outcome = unit.kind === 'stmt' ? await runtime!.evaluate(unit.text, { mode: 'stmt' }) : await runtime!.evaluate(unit.text);
       if (myEpoch !== epoch) return;
+      // The runtime could not compile the line as one expression or binding, so none of it ran (`parse` is set only
+      // for that, never for an error the code threw). The scan in needsSplit can miss a `;` (a regex holding a quote
+      // or `//`, a template's `${…;…}`) and a line can start with `{`: ask the parser, and when it finds statements,
+      // start again from the first one. Otherwise the runtime's own message stands.
+      if (fast && outcome.kind === 'error' && outcome.parse) {
+        fast = false;
+        const split = await splitReplLine(input);
+        if (myEpoch !== epoch) return;
+        if (!split.ok) {
+          // the parser says it better for statement-only input (`function f() {}`); otherwise keep the runtime's text
+          if (outcome.message === STATEMENTS_MESSAGE) {
+            log({ kind: 'outcome', summary: 'error: SyntaxError' });
+            errorEntry('SyntaxError', split.message);
+          } else {
+            reportOutcome(outcome, input, grown, revision);
+          }
+          return;
+        }
+        if (split.units.length === 0) {
+          reportOutcome({ kind: 'value', shown: 'undefined', ms: 0, calls: [] }, input, grown, revision);
+          return;
+        }
+        if (split.units.length === 1 && split.units[0]!.kind === 'expr') {
+          reportOutcome(outcome, input, grown, revision);
+          return;
+        }
+        units = split.units;
+        k = 0;
+        continue;
+      }
+      const at: UnitPos = { units, k };
+      if (rerun && units.length > 1) info(rerunText(k, units.length));
+      rerun = false;
+      if (outcome.kind === 'value' && k < units.length - 1) {
+        k++;
+        continue;
+      }
       if (outcome.kind !== 'undefined-call') {
-        reportOutcome(outcome, input, grown, revision);
+        reportOutcome(outcome, input, grown, revision, at);
         return;
       }
       const reason = notGrowableReason(outcome.name);
       if (reason) {
-        errorEntry('ReferenceError', `${outcome.name} is not defined. ${reason}`);
+        errorEntry('ReferenceError', `${outcome.name} is not defined. ${reason}${unitSuffix(at)}`);
         return;
       }
+      // Committed, but out of the runtime because a function it calls changed since it was certified: re-check its
+      // unchanged body with the new callee first (no model); only a failing re-check falls through to a regrow.
+      const known = state.value.program.functions[outcome.name];
+      // (not again when it already failed for this input, e.g. the eager re-check after its callee grew a moment ago)
+      if (known && isLive(known) && dependencyStatus(state.value.program, outcome.name).kind === 'changed' && !failedHere.has(outcome.name) && rechecked < MAX_GROWTHS_PER_SUBMIT) {
+        rechecked++;
+        info(`${outcome.name} is out of date: a function it calls changed. Re-checking it…`, 'accent');
+        const r = await recheckDependency(outcome.name);
+        if (myEpoch !== epoch) return;
+        if (r === 'recertified') {
+          await settleDependents([outcome.name]);
+          rerun = true;
+          continue;
+        }
+        if (r === 'infra') return;
+      }
       if (growths >= MAX_GROWTHS_PER_SUBMIT) {
-        errorEntry('ReferenceError', `${outcome.name} is not defined (stopped after growing ${MAX_GROWTHS_PER_SUBMIT} functions for one input)`);
+        errorEntry('ReferenceError', `${outcome.name} is not defined (stopped after growing ${MAX_GROWTHS_PER_SUBMIT} functions for one input)${unitSuffix(at)}`);
         return;
       }
       errorEntry('ReferenceError', `${outcome.name} is not defined`, undefined, undefined, true);
       log({ kind: 'outcome', fn: outcome.name, summary: `undefined-call: ${outcome.name} is not defined; growing it` });
+      if (outcome.calledBy) info(calledByInfo(outcome.name, outcome.calledBy));
       if (outcome.argsTrimmed === 'array-callback') info(ARRAY_CALLBACK_INFO);
       info('Generating…', 'accent');
       const rec = state.value.program.functions[outcome.name];
@@ -1457,7 +1662,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       const result = await grow(
         {
           fn: outcome.name,
-          call: resolved.call,
+          call: outcome.calledBy ? `${resolved.call} (called by ${outcome.calledBy})` : resolved.call,
           spec,
           ...(spec.origin === 'call' ? { callArgTypes: outcome.argTypes } : {}),
           ...(callArgs ? { callArgs } : {}),
@@ -1466,11 +1671,13 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         },
         input,
         myEpoch,
+        at,
       );
       if (result.kind !== 'committed') return;
       revision = result.revision;
       grown.push(result.grown);
       growths++;
+      rerun = true;
     }
   }
 
@@ -1545,7 +1752,9 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     return { fn: last.fn, call: pinLabel(last.fn, last.args), args: last.args, expected: last.result };
   }
 
-  function reportOutcome(outcome: Exclude<EvalOutcome, { kind: 'undefined-call' }>, input: string, grownNow: Grown[], revision?: number): void {
+  function reportOutcome(outcome: Exclude<EvalOutcome, { kind: 'undefined-call' }>, input: string, grownNow: Grown[], revision?: number, at?: UnitPos): void {
+    const suffix = unitSuffix(at);
+    const multi = at !== undefined && at.units.length > 1;
     const grew = grownNow.length > 0;
     // the kind of outcome only: never the value
     log({
@@ -1596,7 +1805,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         return;
       }
       case 'error':
-        errorEntry(outcome.errorName, outcome.message);
+        errorEntry(outcome.errorName, `${outcome.message}${suffix}`);
         return;
       case 'fault': {
         const rec = state.value.program.functions[outcome.fn];
@@ -1607,10 +1816,11 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
           input,
           fault: { errorName: outcome.errorName, message: outcome.message, previousBody: rec?.artifact?.body ?? '' },
           ...(rec?.artifact ? { artifactRevision: rec.artifact.revision } : {}),
+          ...(multi ? { at } : {}),
         };
         errorEntry(
           outcome.errorName,
-          `${outcome.call} threw ${outcome.errorName}: ${outcome.message}`,
+          `${outcome.call}${outcome.calledBy ? ` (called by ${outcome.calledBy})` : ''} threw ${outcome.errorName}: ${outcome.message}${suffix}`,
           [RESTART.retryFault, RESTART.rollback, RESTART.editSpec],
           ctx,
         );
@@ -1620,11 +1830,13 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         const rec = outcome.fn ? state.value.program.functions[outcome.fn] : undefined;
         const n = rec ? rec.spec.budgetMs : outcome.ms;
         const lost = lostOf(outcome);
+        // one request per statement: the rebuilt worker holds the env as it was after the previous statement
+        const restored = multi ? `the program was restored to before statement ${at.k + 1}` : 'the program was restored';
         const message = `${outcome.call ?? 'call'} exceeded ${n} ms and was terminated; ${
           lost.length > 0
-            ? `the program was restored except ${plural(lost.length, 'variable')} that could not be restored (${lost.join(', ')})`
-            : 'the program was restored'
-        }`;
+            ? `${restored} except ${plural(lost.length, 'variable')} that could not be restored (${lost.join(', ')})`
+            : restored
+        }${suffix}`;
         if (outcome.fn && outcome.call) {
           errorEntry('TimeoutError', message, [RESTART.retryFault, RESTART.rollback, RESTART.editSpec], {
             kind: 'timeout',
@@ -1637,6 +1849,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
               previousBody: rec?.artifact?.body ?? '',
             },
             ...(rec?.artifact ? { artifactRevision: rec.artifact.revision } : {}),
+            ...(multi ? { at } : {}),
           });
         } else {
           errorEntry('TimeoutError', message);
@@ -1649,13 +1862,13 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
 
   // ───────────────────────── grow loop ─────────────────────────
 
-  async function grow(req: GrowRequest, input: string, myEpoch: number): Promise<GrowResult> {
+  async function grow(req: GrowRequest, input: string, myEpoch: number, at?: UnitPos): Promise<GrowResult> {
     growCtrl?.abort();
     const ctrl = new AbortController();
     growCtrl = ctrl;
     const sig = ctrl.signal;
     try {
-      return await growInner(req, input, sig);
+      return await growInner(req, input, sig, at);
     } catch (e) {
       if (e instanceof Aborted || isAbort(e) || sig.aborted || myEpoch !== epoch) return { kind: 'aborted' };
       throw e;
@@ -1664,7 +1877,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     }
   }
 
-  async function growInner(req: GrowRequest, input: string, sig: AbortSignal): Promise<GrowResult> {
+  async function growInner(req: GrowRequest, input: string, sig: AbortSignal, at?: UnitPos): Promise<GrowResult> {
     const { fn, spec } = req;
     const { specHash, testsHash } = await hashesFor(spec);
     // Decisions that all agree with the checks they answer were implied by the recorded checks: replay may use the
@@ -1691,6 +1904,8 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     viewChecks = { id: view.id, tests: spec.tests, properties: spec.properties };
     set({ generation: view });
     const pinned = decodePins(spec);
+    // What else this body may call (the program cannot change during the grow: it holds the operation queue).
+    const callable = callableFor(spec);
 
     const rejected: PromptInput['history'] = [];
     const candidates: Candidate[] = [];
@@ -1708,6 +1923,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       ...(req.callArgs ? { callArgs: req.callArgs } : {}),
       ...(req.functionArgs ? { functionArgs: true } : {}),
       ...(req.dataArgs ? { dataArgs: req.dataArgs } : {}),
+      ...(at && at.units.length > 1 ? { at } : {}),
     };
     if (req.runtimeFault) {
       growCtx.fault = { errorName: req.runtimeFault.errorName, message: req.runtimeFault.message, previousBody: req.runtimeFault.previousBody };
@@ -1756,6 +1972,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       if (req.runtimeFault) promptInput.runtimeFault = withData ? redactFaultForModel(req.runtimeFault, fn, samples) : req.runtimeFault;
       if (req.dataArgs && req.dataArgs.length > 0) promptInput.dataSamples = dataSamplesFor(req.dataArgs, mode);
       if (req.ruling && index === 0) promptInput.ruling = req.ruling;
+      Object.assign(promptInput, promptOthers(callable));
       const genReq: GenerateRequest = {
         fn,
         specHash,
@@ -1865,7 +2082,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
 
       // gates
       setGen({ phase: 'gating' });
-      const gated = await runGates(index, spec, body, specHash, testsHash, sig, req.callArgs, pinned);
+      const gated = await runGates(index, spec, body, specHash, testsHash, sig, req.callArgs, pinned, callable);
       // TS7023/7024: with no declared return type a directly recursive body cannot be typed. The note travels to
       // the model (formatDiagnosticsForModel prints a failing gate's note) and is shown on the gate row.
       const recursion =
@@ -1899,6 +2116,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         shown: body,
         gates: gated.gates,
         candidate,
+        ...((gated.compile.deps ?? []).length > 0 ? { uses: [...gated.compile.deps] } : {}),
       });
 
       if (failing) {
@@ -1929,6 +2147,8 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         if (!ungated) enqueueMutation(fn);
         log({ kind: 'commit', fn, summary: `${fn} committed as r${revision}`, detail: { revision, attempt: attemptNo, candidates: candidates.length, source: result.source } });
         setGen({ phase: 'committed', revision });
+        // functions that call this one were certified against its previous code: re-check them now
+        await settleDependents([fn]);
         return { kind: 'committed', revision, grown: { fn, ungated: isUngated(spec), notes: result.notes } };
       }
 
@@ -2062,6 +2282,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     sig: AbortSignal,
     callArgs?: unknown[],
     pinned?: PinnedCase[],
+    callable: Callable = { others: [], unavailable: [] },
   ): Promise<Gated> {
     const gates: GateResult[] = GATE_ORDER.map(pendingGate);
     const show = (): void => setAttempt(index, { status: 'gating', gates: [...gates] });
@@ -2071,7 +2292,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     gates[0] = { ...gates[0]!, status: 'running' };
     show();
     let started = performance.now();
-    const compiled = await deps.compile(spec, body);
+    const compiled = await compileWith(spec, body, callable);
     await sleep(pacing.gateDwellMs - (performance.now() - started), sig);
     gates[0] = compiled.gate;
     if (compiled.gate.status === 'fail' || compiled.js === null) {
@@ -2134,6 +2355,8 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       ...(pinned && pinned.length > 0 ? { pinned } : {}),
       // Checks a decision replaced on the domain the spec was silent on.
       ...(eff.waived.length > 0 ? { waived: eff.waived } : {}),
+      // The other generated functions it calls, with their certified code: judged over the whole call tree.
+      ...execDeps(headRev().program, compiled.deps),
     };
     const all = deps
       .execGates(input, deliver)
@@ -2230,6 +2453,8 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       revision: revisionId,
       evidence,
     };
+    const stamps = stampDeps(withRec, compiled.deps ?? []);
+    if (stamps) artifact.deps = stamps;
     const program = withArtifact(withRec, fn, artifact);
     const rejected = candidates.filter((c) => c.verdict !== 'accepted').length;
     const rev = newRevision(history, {
@@ -2244,7 +2469,9 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       at: deps.now(),
     });
     await commitRevision(rev);
-    await runtime!.define(fn, artifact.js, spec.budgetMs); // hot swap: no restart, REPL variables untouched
+    // hot swap: no restart, REPL variables untouched. Functions certified against this one's previous code leave the
+    // runtime first (they come back when re-checked: settleDependents).
+    await syncRuntime();
     return rev.id;
   }
 
@@ -2271,9 +2498,10 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     let revalidated: Artifact | null = null;
     let unrecompilable = false;
     if (!hadLive && after.artifact && isLive(after)) {
-      const c = await deps.compile(after.spec, after.artifact.body).catch(() => null);
+      const c = await compileWith(after.spec, after.artifact.body, callableFor(after.spec, program)).catch(() => null);
       if (c && c.gate.status !== 'fail' && c.js !== null) {
         revalidated = { ...after.artifact, js: c.js, returnType: c.returnType, source: c.source };
+        // the stamps describe what it was certified against; the re-check after a callee change restamps them
         program = withArtifact(program, name, revalidated);
       } else {
         unrecompilable = true;
@@ -2281,8 +2509,8 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       }
       after = program.functions[name]!;
     }
-    if (invalidates) await runtime?.undefine(name).catch(() => undefined);
-    if (revalidated && runtime) await runtime.define(name, revalidated.js, after.spec.budgetMs);
+    // invalidated: it leaves the runtime (its dependents stay, "waiting": reaching it grows it); revalidated: back in
+    await syncRuntime(program);
     const env = await snapshotEnv();
     const title =
       opts.title ??
@@ -2325,6 +2553,8 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
               : 'no live artifact; the next call generates';
       info(`${name}: ${changes.length ? `${changes.join(' · ')} · ` : ''}${tail}`, invalidates || unrecompilable ? 'warn' : 'muted');
     }
+    // a revalidated artifact may differ from the one its callers were certified against
+    if (revalidated) await settleDependents([name]);
   }
 
   async function editSpecInner(fn: string, patch: SpecPatch): Promise<void> {
@@ -2496,9 +2726,10 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
           growReq.runtimeFault = { call: ctx.call, errorName: ctx.fault.errorName, message: ctx.fault.message, previousBody: ctx.fault.previousBody };
         }
         if (decision) growReq.decision = decision;
-        const result = await grow(growReq, ctx.input, myEpoch);
-        // a re-grow against a decision has no REPL input to re-run
-        if (result.kind === 'committed' && myEpoch === epoch && !ctx.decision && ctx.input !== '') await runInput(ctx.input, myEpoch, result);
+        const result = await grow(growReq, ctx.input, myEpoch, ctx.at);
+        // a re-grow against a decision has no REPL input to re-run; a line of several statements resumes at the one
+        // the error was about (the ones before it already ran)
+        if (result.kind === 'committed' && myEpoch === epoch && !ctx.decision && ctx.input !== '') await runInput(ctx.input, myEpoch, result, ctx.at);
         if (result.kind === 'committed' && decision) info(`${ctx.fn} re-grown against your decision: saved as r${result.revision}`, 'accent');
       } catch (e) {
         if (!(e instanceof Aborted) && myEpoch === epoch) errorEntry('InternalError', errorText(e));
@@ -2779,8 +3010,9 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
   /** Run the check for `fn` now (outside the queue). Resolves when it is stored, cancelled or not applicable. */
   async function runMutationNow(fn: string): Promise<void> {
     const rec = headRev().program.functions[fn];
-    if (!rec || !isLive(rec)) {
-      // regrown, edited or rolled away since it was queued: nothing to check
+    if (!rec || !isLive(rec) || !isRunnable(headRev().program, fn)) {
+      // regrown, edited or rolled away since it was queued, or a function it calls is not the one it was certified
+      // with: nothing to check (a re-certification queues it again)
       if (state.value.mutation?.fn === fn) setMutation(null);
       next();
       return;
@@ -2849,6 +3081,8 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       seed,
       ...(pinned.length > 0 ? { pinned } : {}),
       ...(eff.waived.length > 0 ? { waived: eff.waived } : {}),
+      // only this function is mutated; the functions it calls run as certified, in every run
+      ...execDeps(headRev().program, directDeps(rec)),
     };
     const budgetMs = Math.min(spec.budgetMs, MUTANT_CALL_BUDGET_MS);
     // The unmutated function first, through exactly the runner the mutants get: if it already fails its own checks
@@ -2948,6 +3182,54 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     | { kind: 'infra' };
 
   /**
+   * Compile `body` against `spec` (with the other functions it may call in the head program) and run the execution
+   * gates with the effective checks, pins, waivers and the callees it uses, with the seed of (specHash, testsHash).
+   * No model, no revision, no UI: the shared core of every re-check. A spec whose checks do not transpile is a
+   * 'load-error' (the spec's fault); a gate-runner fault comes back as a failing tests result (see infraFailure).
+   */
+  async function checkBody(
+    spec: FunctionSpec,
+    body: string,
+    specHash: Hash,
+    testsHash: Hash,
+  ): Promise<{ kind: 'checked'; compiled: CompileOutput; gates: GateResult[] } | { kind: 'load-error'; message: string }> {
+    const program = headRev().program;
+    const compiled = await compileWith(spec, body, callableFor(spec, program));
+    const eff = effectiveChecks(spec);
+    const tests = deps.transpile(eff.tests);
+    const props = deps.transpile(eff.properties);
+    const loadError = tests.error ?? props.error;
+    if (loadError) return { kind: 'load-error', message: loadError };
+    if (compiled.gate.status === 'fail' || compiled.js === null) {
+      return { kind: 'checked', compiled, gates: [compiled.gate, notReached('tests'), notReached('properties'), notReached('invariants')] };
+    }
+    const pinned = decodePins(spec);
+    const results = await deps
+      .execGates({
+        name: spec.name,
+        js: compiled.js,
+        testsJs: tests.js,
+        propertiesJs: props.js,
+        budgetMs: spec.budgetMs,
+        seed: gateSeed(specHash, testsHash),
+        ...(pinned.length > 0 ? { pinned } : {}),
+        ...(eff.waived.length > 0 ? { waived: eff.waived } : {}),
+        ...execDeps(program, compiled.deps),
+      })
+      .catch((e: unknown): GateResult[] => [
+        {
+          gate: 'tests',
+          status: 'fail',
+          ms: 0,
+          summary: 'gate runner error',
+          headline: `Rejected: gate runner error: ${errorText(e)}`,
+          diagnostics: [{ kind: 'test', name: '(gate runner)', message: errorText(e), error: errorText(e) }],
+        },
+      ]);
+    return { kind: 'checked', compiled, gates: [compiled.gate, ...GATE_ORDER.slice(1).map((g) => results.find((r) => r.gate === g) ?? notReached(g))] };
+  }
+
+  /**
    * Must run inside `exclusive`. Re-check the COMMITTED artifact of `fn` against `next` (a strengthened or changed
    * spec) instead of letting the hash change make it stale: its stored body is recompiled and run through the
    * effective tests, properties (with the decisions and their waivers), pins and invariants with the new spec's seed.
@@ -2984,43 +3266,12 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     }
     const artifact = rec.artifact!;
     const wasLive = isLive(rec);
-    const compiled = await deps.compile(next, artifact.body);
-    const eff = effectiveChecks(next);
-    const tests = deps.transpile(eff.tests);
-    const props = deps.transpile(eff.properties);
-    const loadError = tests.error ?? props.error;
-    if (loadError) {
-      notice('error', opts.loadError(loadError));
+    const checked = await checkBody(next, artifact.body, specHash, testsHash);
+    if (checked.kind === 'load-error') {
+      notice('error', opts.loadError(checked.message));
       return { kind: 'infra' };
     }
-    let gates: GateResult[];
-    if (compiled.gate.status === 'fail' || compiled.js === null) {
-      gates = [compiled.gate, notReached('tests'), notReached('properties'), notReached('invariants')];
-    } else {
-      const pinned = decodePins(next);
-      const results = await deps
-        .execGates({
-          name: fn,
-          js: compiled.js,
-          testsJs: tests.js,
-          propertiesJs: props.js,
-          budgetMs: next.budgetMs,
-          seed: gateSeed(specHash, testsHash),
-          ...(pinned.length > 0 ? { pinned } : {}),
-          ...(eff.waived.length > 0 ? { waived: eff.waived } : {}),
-        })
-        .catch((e: unknown): GateResult[] => [
-          {
-            gate: 'tests',
-            status: 'fail',
-            ms: 0,
-            summary: 'gate runner error',
-            headline: `Rejected: gate runner error: ${errorText(e)}`,
-            diagnostics: [{ kind: 'test', name: '(gate runner)', message: errorText(e), error: errorText(e) }],
-          },
-        ]);
-      gates = [compiled.gate, ...GATE_ORDER.slice(1).map((g) => results.find((r) => r.gate === g) ?? notReached(g))];
-    }
+    const { compiled, gates } = checked;
     const infra = gates.map(infraFailure).find((x) => x !== null);
     if (infra) {
       notice('error', opts.infraError(infra));
@@ -3029,11 +3280,12 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     const failing = gates.find((g) => g.status === 'fail');
     if (!failing) {
       const revision = await recertify(fn, next, artifact, compiled, gates, reason, { specHash, testsHash, before: rec.testsHash }, kind === 'decision' ? 'decision' : 'recertify', wasLive);
+      await settleDependents([fn]);
       return { kind: 'recertified', revision };
     }
     // The committed function fails the change: the spec change stands, the artifact is stale.
     await applySpec(next, { kind, title: opts.failedTitle, quiet: true });
-    if (!wasLive) await runtime?.undefine(fn).catch(() => undefined);
+    await syncRuntime();
     if (state.value.mutation?.fn === fn) setMutation(null);
     const accepted = artifact.candidates[artifact.candidates.length - 1];
     const candidate: Candidate = {
@@ -3115,14 +3367,16 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     reason: string,
     h: { specHash: Hash; testsHash: Hash; before: Hash },
     kind: 'recertify' | 'decision',
-    wasLive = true,
+    _wasLive = true,
+    text?: { title: string; detail: string; info: (revision: number) => string },
   ): Promise<number> {
     // withSpec first (it recomputes the record's hashes), then the artifact restamped to those same hashes: live.
     const withRec = await withSpec(headRev().program, next);
     const env = await snapshotEnv();
     const revisionId = (history[history.length - 1]?.id ?? 0) + 1;
+    const { deps: _oldStamps, ...rest } = artifact;
     const restamped: Artifact = {
-      ...artifact,
+      ...rest,
       js: compiled.js!,
       source: compiled.source,
       returnType: compiled.returnType,
@@ -3132,27 +3386,147 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       evidence: evidenceOf(gates, undefined, next),
       recertified: [...(artifact.recertified ?? []), { at: deps.now(), revision: revisionId, reason }],
     };
+    // what it calls NOW, as it was just checked with them (absent when it calls nothing)
+    const stamps = stampDeps(withRec, compiled.deps ?? []);
+    if (stamps) restamped.deps = stamps;
     const rev = newRevision(history, {
       kind,
-      title: kind === 'decision' ? `${reason} — re-certified (r${artifact.revision}'s artifact passes)` : `${reason}: committed function re-certified`,
-      detail: `tests hash ${short(h.before)} → ${short(h.testsHash)} · the artifact committed at r${artifact.revision} passed the ${kind === 'decision' ? 'changed' : 'strengthened'} checks; no regeneration`,
+      title: text?.title ?? (kind === 'decision' ? `${reason} — re-certified (r${artifact.revision}'s artifact passes)` : `${reason}: committed function re-certified`),
+      detail:
+        text?.detail ??
+        `tests hash ${short(h.before)} → ${short(h.testsHash)} · the artifact committed at r${artifact.revision} passed the ${kind === 'decision' ? 'changed' : 'strengthened'} checks; no regeneration`,
       fn,
       program: withArtifact(withRec, fn, restamped),
       env,
       at: deps.now(),
     });
     await commitRevision(rev);
-    // still live in the runtime: no restart; redefined only if the recompiled js differs (a stale one is defined again)
-    if (!wasLive || restamped.js !== artifact.js) await runtime?.define(fn, restamped.js, next.budgetMs);
+    // still live in the runtime: no restart; (re)defined only when what should run differs (a stale or out-of-date one
+    // is defined again; a recompiled js or new callees replace the old definition)
+    await syncRuntime();
     info(
-      kind === 'decision'
-        ? `${fn}: ${reason}. The committed function ${reason.startsWith('Removed decision') ? 'passes the spec without it' : 'already satisfies it'}: re-certified at r${rev.id}, nothing regenerated.`
-        : `${fn}: ${reason}. The committed function passes it: re-certified at r${rev.id}, nothing regenerated.`,
+      text
+        ? text.info(rev.id)
+        : kind === 'decision'
+          ? `${fn}: ${reason}. The committed function ${reason.startsWith('Removed decision') ? 'passes the spec without it' : 'already satisfies it'}: re-certified at r${rev.id}, nothing regenerated.`
+          : `${fn}: ${reason}. The committed function passes it: re-certified at r${rev.id}, nothing regenerated.`,
       'accent',
     );
     log({ kind: 'spec-edit', fn, summary: rev.title, detail: { revision: rev.id } });
     enqueueMutation(fn);
     return rev.id;
+  }
+
+  // ───────────────────────── composition: re-check after a callee changed ─────────────────────────
+
+  /**
+   * Must run inside `exclusive`. Re-check `fn`, whose callee changed since it was certified (dependencyStatus
+   * 'changed'): its unchanged body against the callees as they are now, with its own checks. Pass → re-certified in
+   * place (deps restamped, back in the runtime, mutation check re-queued). Fail → nothing is committed, it stays out of
+   * the runtime, the gate panel shows the re-check and the next call regrows it. No model is asked either way.
+   */
+  async function recheckDependency(fn: string): Promise<'recertified' | 'failed' | 'infra' | 'skipped'> {
+    const program = headRev().program;
+    const rec = program.functions[fn];
+    if (!rec || !isLive(rec)) return 'skipped';
+    const st = dependencyStatus(program, fn);
+    if (st.kind !== 'changed') return 'skipped';
+    const changed = st.calls.filter((c) => c.state === 'changed');
+    const names = changed.map((c) => c.name).join(', ');
+    const what = changed.map((c) => `${c.name} changed r${c.certifiedRevision} → r${c.nowRevision}`).join('; ');
+    const reason = `${what}`;
+    const artifact = rec.artifact!;
+    const checked = await checkBody(rec.spec, artifact.body, rec.specHash, rec.testsHash);
+    if (checked.kind === 'load-error') {
+      notice('error', `Could not re-check ${fn} with the new ${names}: the spec's checks do not load (${checked.message}).`);
+      return 'infra';
+    }
+    const { compiled, gates } = checked;
+    const infra = gates.map(infraFailure).find((x) => x !== null);
+    if (infra) {
+      notice('error', `Could not re-check ${fn} with the new ${names} (${infra}); it stays out of date.`);
+      return 'infra';
+    }
+    const failing = gates.find((g) => g.status === 'fail');
+    if (!failing) {
+      await recertify(fn, rec.spec, artifact, compiled, gates, reason, { specHash: rec.specHash, testsHash: rec.testsHash, before: rec.testsHash }, 'recertify', true, {
+        title: `${fn} re-certified: ${what}; the same body passes with ${changed.length === 1 ? 'it' : 'them'}`,
+        detail: `the artifact committed at r${artifact.revision} was re-checked with the new ${names}; no regeneration`,
+        info: (r) => `${fn}: ${what}. The same body passes its checks with the new ${names}: re-certified at r${r}, nothing regenerated.`,
+      });
+      log({ kind: 'note', fn, summary: `re-checked after ${names} changed: re-certified` });
+      return 'recertified';
+    }
+    const accepted = artifact.candidates[artifact.candidates.length - 1];
+    const candidate: Candidate = {
+      id: id('c'),
+      attempt: 1,
+      body: artifact.body,
+      notes: '',
+      source: accepted?.source ?? 'replay',
+      generationMs: 0,
+      gates,
+      verdict: 'rejected',
+      rejectedBy: failing.gate,
+      ...(failing.headline ? { headline: failing.headline } : {}),
+    };
+    const recheckId = id('g');
+    viewChecks = { id: recheckId, tests: rec.spec.tests, properties: rec.spec.properties };
+    set({
+      generation: {
+        id: recheckId,
+        fn,
+        signature: declarationLine(rec.spec),
+        call: `${fn} (committed r${artifact.revision})`,
+        phase: 'failed',
+        attempt: 1,
+        maxAttempts: 1,
+        progress: [],
+        attempts: [{ attempt: 1, status: 'rejected', shown: artifact.body, gates, candidate, ...((compiled.deps ?? []).length > 0 ? { uses: [...compiled.deps] } : {}) }],
+        ungated: false,
+        mode: generator?.mode ?? state.value.mode,
+        kind: 'recheck',
+        recheck: { reason: `${what}: re-checked with the new ${names}`, callees: { names: changed.map((c) => c.name), what } },
+      },
+    });
+    if (state.value.mutation?.fn === fn) setMutation(null);
+    failedRechecks?.add(fn);
+    info(`${fn} is out of date: with the new ${names} it fails its checks (${failing.headline ?? failing.gate}). It does not run; the next call regrows it.`, 'warn');
+    log({ kind: 'gate', fn, summary: `re-check after ${names} changed: ${gateLogSummary(failing, dataInPlay(rec.spec))}`, detail: { gate: failing.gate, recheck: true } });
+    return 'failed';
+  }
+
+  /**
+   * Must run inside `exclusive`. After `changed` got new code: every function that (transitively) calls one of them
+   * and is now out of date is re-checked, callees before callers (a caller sees its callee's outcome).
+   */
+  async function settleDependents(changed: readonly string[]): Promise<void> {
+    for (const fn of transitiveDependents(headRev().program, changed)) {
+      if (dependencyStatus(headRev().program, fn).kind !== 'changed') continue;
+      await recheckDependency(fn);
+    }
+  }
+
+  /** Engine.recheck: the explicit re-check of an out-of-date function (the Repo's button). */
+  function recheck(fn: string): Promise<void> {
+    return exclusive('re-check', async () => {
+      try {
+        const rec = headRev().program.functions[fn];
+        if (!rec) {
+          notice('error', `No function named ${fn}`);
+          return;
+        }
+        const st = dependencyStatus(headRev().program, fn);
+        if (!isLive(rec) || st.kind !== 'changed') {
+          notice('info', `${fn} is not out of date because of a function it calls; nothing to re-check.`);
+          return;
+        }
+        const r = await recheckDependency(fn);
+        if (r === 'recertified') await settleDependents([fn]);
+      } catch (e) {
+        notice('error', `Re-checking ${fn} failed: ${errorText(e)}`);
+      }
+    });
   }
 
   // ───────────────────────── decisions: spec gaps the user rules on ─────────────────────────
@@ -3233,8 +3607,21 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       if (!rec) return { ok: false, error: `No function named ${fn}` };
       const probe = deps.transpile(`test("probe", () => {\n  eq((${text}), { __undefinedProbe: true });\n});`);
       if (probe.error) return { ok: false, error: `not an expression: ${probe.error}` };
-      const js = isLive(rec) ? rec.artifact!.js : `function ${fn}() { throw new Error(${JSON.stringify(`${fn} is not committed yet`)}); }`;
-      const results = await deps.execGates({ name: fn, js, testsJs: probe.js, propertiesJs: '', budgetMs: rec.spec.budgetMs, seed: 0, phases: ['tests'], probe: true });
+      // a function whose callees are not the ones it was certified with is probed like an uncommitted one: it would
+      // otherwise run a combination nothing certified
+      const live = isLive(rec) && isRunnable(headRev().program, fn);
+      const js = live ? rec.artifact!.js : `function ${fn}() { throw new Error(${JSON.stringify(`${fn} is not committed yet`)}); }`;
+      const results = await deps.execGates({
+        name: fn,
+        js,
+        testsJs: probe.js,
+        propertiesJs: '',
+        budgetMs: rec.spec.budgetMs,
+        seed: 0,
+        phases: ['tests'],
+        probe: true,
+        ...(live ? execDeps(headRev().program, directDeps(rec)) : {}),
+      });
       const mentionsFn = new RegExp(`(^|[^\\w$.])${fn.replace(/\$/g, '\\$')}\\s*\\(`).test(text);
       const inv = results.find((r) => r.gate === 'invariants' && r.status === 'fail');
       if (inv) return { ok: false, error: `it is not allowed in test code: ${inv.headline ?? inv.summary}` };
@@ -3762,7 +4149,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
             const after = program.functions[spec.name]!;
             // An artifact that becomes live again under the loaded text is recompiled from its body, never trusted.
             if (after.artifact && isLive(after) && !(before && isLive(before) && before.artifact === after.artifact)) {
-              const c = await deps.compile(after.spec, after.artifact.body).catch(() => null);
+              const c = await compileWith(after.spec, after.artifact.body, callableFor(after.spec, program)).catch(() => null);
               program =
                 c && c.gate.status !== 'fail' && c.js !== null
                   ? withArtifact(program, spec.name, { ...after.artifact, js: c.js, returnType: c.returnType, source: c.source })
@@ -3773,10 +4160,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
           for (const [h, enc] of Object.entries(r.content)) addContent(h, enc);
           // rows first, then the revision that refers to them
           await deps.store.saveDatasets?.({ ...referencedContent(), ...r.content });
-          const fnsBefore = jsFunctions(base);
-          const fnsAfter = jsFunctions(program);
-          for (const name of Object.keys(fnsBefore)) if (!(name in fnsAfter)) await runtime!.undefine(name);
-          for (const [name, f] of Object.entries(fnsAfter)) if (fnsBefore[name]?.js !== f.js) await runtime!.define(name, f.js, f.budgetMs);
+          await syncRuntime(program);
           for (const ref of changedRefs) await runtime!.bindDataset(ref.name, ref.hash, decodeRows(r.content[ref.hash]!), ref.typeName);
           const env = await snapshotEnv();
           const parts = [
@@ -3870,6 +4254,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         await persistFlags();
         content.clear();
         await deps.store.saveDatasets?.({});
+        liveFns = new Map();
         await runtime?.reset({}, {}, {});
         loaded = [];
         loadedReplay = null;
@@ -3946,6 +4331,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     decide,
     removeDecision,
     previewExpectation,
+    recheck,
     previewRecording,
     loadRecording,
     dismissRecordingBanner,

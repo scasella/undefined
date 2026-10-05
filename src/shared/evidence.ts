@@ -73,14 +73,33 @@ export function describeMutation(r: MutationReport | undefined): string {
   return sentence(describeReport(r));
 }
 
-export function describeEvidence(ev: Evidence): string {
+/**
+ * `calls`: the other generated functions it calls (Artifact.deps names). With none the line is exactly as before; with
+ * some it says the checks and replays ran through them and that only its own code was mutated.
+ */
+export function describeEvidence(ev: Evidence, calls: readonly string[] = []): string {
   return [
     ev.compiled ? 'Compiled.' : 'Did not compile.',
     describeTests(ev.unitTests, ev.pinnedTests, ev.decisions ?? 0),
     describeProperties(ev.properties, ev.decisionProperties ?? 0),
     describeSampledCalls(ev.sampledCalls),
+    ...(calls.length > 0 ? [describeCalls(calls, mutantsRan(ev.mutation))] : []),
     describeMutation(ev.mutation),
   ].join(' ');
+}
+
+/** Whether any mutant actually ran: only then can the evidence line say what was (and was not) mutated. */
+export function mutantsRan(r: MutationReport | undefined): boolean {
+  return !!r && r.total > 0;
+}
+
+/**
+ * "Checked together with slugify, which it calls; only its own code was mutated." The mutation clause only once
+ * mutants ran: before that (or when the check was skipped) nothing was mutated, so it would be a false claim.
+ */
+export function describeCalls(calls: readonly string[], mutated = true): string {
+  const list = calls.length === 1 ? calls[0]! : `${calls.slice(0, -1).join(', ')} and ${calls[calls.length - 1]}`;
+  return mutated ? `Checked together with ${list}, which it calls; only its own code was mutated.` : `Checked together with ${list}, which it calls.`;
 }
 
 /** True when the mutation check itself failed (load error, spec error, infrastructure). */

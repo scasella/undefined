@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import type { AttemptStatus, EngineState } from '../../types';
-import { codeAttempt, committedChip, compileMarks, latestCommitted, signatureOf } from '../select';
+import { codeAttempt, committedChip, compileMarks, latestCommitted, signatureOf, usesOf } from '../select';
 import { selection } from '../uiState';
 import { CodeView } from './CodeView';
 import { PanelHead } from './common';
@@ -55,6 +55,25 @@ function CodePanel({ genId, head, children, bodyClass, streaming = false, lines 
   );
 }
 
+/**
+ * The quiet line under a draft that calls other generated functions ("uses slugify"): the names the compile gate
+ * resolved to them, never a guess from the text.
+ */
+export function UsesLine({ names }: { names?: readonly string[] }) {
+  if (!names || names.length === 0) return null;
+  return (
+    <p class="uses-line" title={`Calls ${names.length === 1 ? 'another function' : 'other functions'} generated in this program. The checks ran through ${names.length === 1 ? 'it' : 'them'} as certified.`}>
+      uses{' '}
+      {names.map((n, i) => (
+        <span key={n}>
+          {i > 0 && ', '}
+          <code>{n}</code>
+        </span>
+      ))}
+    </p>
+  );
+}
+
 const lineCount = (body: string): number => (body ? body.replace(/\n$/, '').split('\n').length + 2 : 0);
 
 export function CodePane({ state }: { state: EngineState }) {
@@ -65,7 +84,14 @@ export function CodePane({ state }: { state: EngineState }) {
     const { attempt, holdover } = shown;
     const committed = attempt.status === 'accepted' && gen.phase === 'committed';
     const streaming = !holdover && (attempt.status === 'typing' || attempt.status === 'generating');
-    const word = attempt.candidate?.declined ? 'Declined' : gen.kind === 'recheck' ? 'Fails the added check' : STATUS_TEXT[attempt.status];
+    const callees = gen.recheck?.callees;
+    const word = attempt.candidate?.declined
+      ? 'Declined'
+      : gen.kind === 'recheck'
+        ? callees
+          ? `Fails with the new ${callees.names.join(', ')}`
+          : 'Fails the added check'
+        : STATUS_TEXT[attempt.status];
     return (
       <CodePanel
         genId={gen.id}
@@ -91,6 +117,7 @@ export function CodePane({ state }: { state: EngineState }) {
           marks={attempt.status === 'rejected' ? compileMarks(attempt.gates) : undefined}
           placeholder={attempt.status === 'generating' || attempt.status === 'typing' ? 'waiting for the model…' : attempt.status === 'aborted' ? 'no draft arrived (the model could not be asked)' : ''}
         />
+        <UsesLine names={attempt.uses} />
         {attempt.candidate?.notes && (
           <p class="model-notes">
             <span class="label">Model's note</span> <span class="model-notes-text">{attempt.candidate.notes}</span>
@@ -118,7 +145,7 @@ export function CodePane({ state }: { state: EngineState }) {
       </section>
     );
   }
-  const chip = committedChip(rec)!;
+  const chip = committedChip(rec, state.program)!;
   return (
     <CodePanel
       genId={null}
@@ -133,6 +160,7 @@ export function CodePane({ state }: { state: EngineState }) {
       }
     >
       <CodeView signature={signatureOf(rec.spec, rec.artifact.returnType)} body={rec.artifact.body} />
+      <UsesLine names={usesOf(rec)} />
     </CodePanel>
   );
 }

@@ -21,7 +21,7 @@ import type { DecideFields, Diagnostic, GateId, GateResult, Json, Outcome as Cal
 import { firstDifference, formatDifference } from '../shared/diff';
 import { callString, show } from '../shared/show';
 import { encodeReport } from '../shared/serialize';
-import { deepFreeze, evalMasked, InvariantViolation, takeViolations } from './mask';
+import { deepFreeze, evalMasked, InvariantViolation, pendingViolationCount, takeViolations } from './mask';
 import {
   applyAttribution,
   invariantFailure,
@@ -68,6 +68,13 @@ export interface ExecGateInput {
   waived?: WaivedCheck[];
   /** The "type your own" probe: every eq() failure also carries its raw values, encoded (actualValue/expectedValue). */
   probe?: boolean;
+  /**
+   * Other generated functions the candidate calls (composition, docs/COMPOSE-DESIGN.md §A5): the transitive closure,
+   * callees first, each with its CERTIFIED js and its own direct dependencies. They are linked once, in this realm and
+   * under the same mask, so purity, determinism and the per-call budget are judged over the whole call tree. They are
+   * never instrumented (no enter/leave, no sampling) and never mutated. ABSENT when the candidate calls nothing.
+   */
+  deps?: Array<{ name: string; js: string; deps: string[] }>;
 }
 
 export interface PinnedCase {
@@ -117,6 +124,8 @@ interface Violation {
   what: string;
   call?: string;
   phase: ExecPhase;
+  /** The linked dependency that was running when the trap fired (innermost), when it was not the candidate itself. */
+  inside?: string;
 }
 
 interface Failure {
@@ -182,17 +191,22 @@ export function executeGates(input: ExecGateInput, hooks: ExecHooks): GateResult
   const samples: unknown[][] = [];
   const sampleKeys = new Set<string>();
 
+  /** Innermost linked dependency during which a trap fired (shared blame: the message names both functions). */
+  let blame: string | null = null;
   const record = (what: string, call?: string): void => {
-    if (!violation) violation = { what, call, phase };
+    if (!violation) violation = { what, call, phase, ...(blame !== null ? { inside: blame } : {}) };
+    blame = null;
   };
   const collectViolations = (call?: string): void => {
     const v = takeViolations();
     if (v.length > 0) record(v[0], call);
+    blame = null;
   };
   const violationResults = (): GateResult[] => {
     const v = violation!;
     const diag: Diagnostic = { kind: 'invariant', invariant: 'pure', message: pureMessage(v.what), phase: v.phase };
     if (v.call) diag.call = v.call;
+    if (v.inside) diag.detail = `inside ${v.inside}, called by ${name}`;
     const ms = now() - phaseStart;
     return applyAttribution(results, v.phase, invariantFailure(diag, ms), ms);
   };
@@ -202,11 +216,14 @@ export function executeGates(input: ExecGateInput, hooks: ExecHooks): GateResult
     hooks.phase(p);
   };
 
-  // (a) evaluate the candidate once, masked
+  // (a) evaluate the candidate once, masked (with its linked dependencies, when it has any)
   hooks.phase('tests');
   let candidate: Fn;
   try {
-    candidate = evalMasked<Fn>(input.js, name);
+    const bindings = linkDeps(input.deps, (dep) => {
+      if (blame === null) blame = dep;
+    });
+    candidate = bindings ? evalMasked<Fn>(input.js, name, bindings) : evalMasked<Fn>(input.js, name);
     if (typeof candidate !== 'function') throw new TypeError(`${name} is not a function`);
   } catch (e) {
     collectViolations();
@@ -638,6 +655,36 @@ export function executeGates(input: ExecGateInput, hooks: ExecHooks): GateResult
     if (!input.probe || !isAssertionFailure(e) || !e.actualIsValue) return {};
     return { actualValue: encodeCapped(e.actual) ?? { $t: 'unserializable', show: e.actualShown }, expectedValue: encodeCapped(e.expected) ?? null };
   }
+}
+
+/**
+ * Evaluate the dependencies (callees first) under the mask, each bound to the ones it calls, and return them by name
+ * for the candidate; undefined when there are none (then the candidate is evaluated exactly as before composition).
+ * Each is wrapped only to notice that a trap fired while it was running (`onViolation(name)`, innermost first); the
+ * wrapper never catches, retags or instruments anything.
+ */
+function linkDeps(deps: ExecGateInput['deps'], onViolation: (dep: string) => void): Record<string, Fn> | undefined {
+  if (!deps || deps.length === 0) return undefined;
+  const linked: Record<string, Fn> = {};
+  for (const d of deps) {
+    const own: Record<string, Fn> = {};
+    for (const n of d.deps) {
+      if (!linked[n]) throw new Error(`dependency ${d.name} calls ${n}, which was not linked before it`);
+      own[n] = linked[n]!;
+    }
+    const raw = Object.keys(own).length > 0 ? evalMasked<Fn>(d.js, d.name, own) : evalMasked<Fn>(d.js, d.name);
+    if (typeof raw !== 'function') throw new TypeError(`${d.name} is not a function`);
+    const depName = d.name;
+    linked[depName] = function (this: unknown, ...args: unknown[]): unknown {
+      const before = pendingViolationCount();
+      try {
+        return raw.apply(undefined, args);
+      } finally {
+        if (pendingViolationCount() > before) onViolation(depName);
+      }
+    };
+  }
+  return linked;
 }
 
 /** Encoded value, or undefined when it would be lossy or too large to keep on a stored diagnostic. */

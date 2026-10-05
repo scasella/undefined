@@ -7,13 +7,21 @@
  */
 import type * as TS from 'typescript';
 import type { Diagnostic, FunctionSpec, GateResult } from '../types';
-import { buildSource } from './source';
+import type { OtherFunction, Unavailable } from '../compose/graph';
+import { buildSource, typeDeclsText } from './source';
+import { splitStatements, type SplitResult } from '../shared/replSplit';
 
 type TsModule = typeof TS;
 
 const LIB_DIR = '/node_modules/typescript/lib';
 const ROOT_LIB = 'lib.es2022.d.ts';
 const CANDIDATE_FILE = '/candidate.ts';
+/**
+ * Ambient declarations of the other functions a body may call (composition, docs/COMPOSE-DESIGN.md §A2). A second root
+ * file, a script (so its names are global), never part of `/candidate.ts`: the candidate's source, its line numbers and
+ * its emitted JS are the same whether or not other functions exist. Absent from the program when there are none.
+ */
+const OTHERS_FILE = '/others.d.ts';
 
 // Lazy loaders only; nothing is fetched until a loader is called. Narrowed to the es*/decorators family (the
 // closure of lib.es2022.d.ts) so the build does not emit unused multi-MB chunks for lib.dom / lib.webworker.
@@ -85,6 +93,26 @@ function loadToolchain(): Promise<Toolchain> {
   return loading;
 }
 
+let tsOnly: Promise<TsModule> | null = null;
+
+/** The `typescript` module alone (no lib .d.ts texts): enough to parse. */
+function loadTs(): Promise<TsModule> {
+  if (toolchain) return Promise.resolve(toolchain.ts);
+  tsOnly ??= import('typescript').then((mod) => ((mod as { default?: TsModule }).default ?? mod) as TsModule);
+  tsOnly.catch(() => {
+    tsOnly = null;
+  });
+  return tsOnly;
+}
+
+/**
+ * Split a REPL line into statement units with the TypeScript parser (parse only; docs/COMPOSE-DESIGN.md §B2). Only
+ * lines `needsSplit` routes here (or that the runtime found to be statements) pay for loading the parser.
+ */
+export async function splitReplLine(line: string): Promise<SplitResult> {
+  return splitStatements(await loadTs(), line);
+}
+
 /** Preload the compiler and libs (and parse the libs) so the first real compile is fast. */
 export async function warmUp(): Promise<void> {
   await compileCandidate({
@@ -100,13 +128,14 @@ export async function warmUp(): Promise<void> {
   }, 'return 0;');
 }
 
-function createHost(tc: Toolchain, source: string, outputs: Map<string, string>): TS.CompilerHost {
+function createHost(tc: Toolchain, source: string, outputs: Map<string, string>, others?: string): TS.CompilerHost {
   const { ts, libText, libFiles } = tc;
   const libName = (fileName: string): string | null =>
     fileName.startsWith(`${LIB_DIR}/`) ? fileName.slice(LIB_DIR.length + 1) : null;
   return {
     getSourceFile(fileName, languageVersion) {
       if (fileName === CANDIDATE_FILE) return ts.createSourceFile(fileName, source, languageVersion, true);
+      if (fileName === OTHERS_FILE && others !== undefined) return ts.createSourceFile(fileName, others, languageVersion, true);
       const lib = libName(fileName);
       const text = lib === null ? undefined : libText.get(lib);
       if (text === undefined) return undefined;
@@ -124,8 +153,9 @@ function createHost(tc: Toolchain, source: string, outputs: Map<string, string>)
     getCanonicalFileName: (f) => f,
     useCaseSensitiveFileNames: () => true,
     getNewLine: () => '\n',
-    fileExists: (f) => f === CANDIDATE_FILE || (libName(f) !== null && libText.has(libName(f)!)),
-    readFile: (f) => (f === CANDIDATE_FILE ? source : (libName(f) !== null ? libText.get(libName(f)!) : undefined)),
+    fileExists: (f) => f === CANDIDATE_FILE || (f === OTHERS_FILE && others !== undefined) || (libName(f) !== null && libText.has(libName(f)!)),
+    readFile: (f) =>
+      f === CANDIDATE_FILE ? source : f === OTHERS_FILE ? others : libName(f) !== null ? libText.get(libName(f)!) : undefined,
     directoryExists: (d) => d === '/' || d === LIB_DIR || LIB_DIR.startsWith(`${d}/`),
     getDirectories: () => [],
   };
@@ -139,12 +169,89 @@ export interface CompileOutput {
   source: string;
   /** Declared return type, or the checker-inferred one when spec.returns is null ('' if it could not be determined). */
   returnType: string;
+  /**
+   * Other generated functions the body refers to (calls, or uses as a value: `titles.map(slugify)`), sorted; [] when
+   * none. Found with the type checker, so a local `const slugify = …` inside the body does not count.
+   */
+  deps: string[];
+  /** Set only when other functions were offered: which were declared, and which were dropped and why. */
+  ambient?: { visible: string[]; dropped: Unavailable[] };
+}
+
+/** What else the body may call (compose/graph.ts othersFor). Both absent or empty = exactly the compile of HEAD. */
+export interface CompileContext {
+  others?: readonly OtherFunction[];
+  unavailable?: readonly Unavailable[];
 }
 
 /** Harness-level diagnostics (not from tsc). Code 0 marks them. */
 const HARNESS_CODE = 0;
 
-export async function compileCandidate(spec: FunctionSpec, body: string): Promise<CompileOutput> {
+/** The ambient file for `others`: their type declarations once each, then one `declare function` line each. */
+export function ambientText(others: readonly OtherFunction[]): string {
+  const lines = ['// Other generated functions this body may call (declarations only).'];
+  const seen = new Set<string>();
+  for (const o of others) {
+    for (const t of o.types) {
+      if (seen.has(t.text)) continue;
+      seen.add(t.text);
+      lines.push(t.text);
+    }
+  }
+  for (const o of others) lines.push(`declare ${o.decl};`);
+  return lines.join('\n') + '\n';
+}
+
+const ambientCache = new Map<string, { accepted: OtherFunction[]; dropped: Unavailable[] }>();
+
+/**
+ * Compile the ambient declarations alone and drop every function whose declaration (or types) does not compile, or
+ * whose name is already a standard global (it would merge with it instead of being declared). Without this an error in
+ * the ambient file would be reported on body line 1 of the candidate. Cached per distinct ambient text.
+ */
+function validateAmbient(tc: Toolchain, others: readonly OtherFunction[], callerTypes: string): { accepted: OtherFunction[]; dropped: Unavailable[] } {
+  const key = `${callerTypes}\u0000${ambientText(others)}`;
+  const hit = ambientCache.get(key);
+  if (hit) return hit;
+  const { ts } = tc;
+  let accepted = [...others];
+  const dropped: Unavailable[] = [];
+  for (let round = 0; round <= others.length && accepted.length > 0; round++) {
+    // the caller's own type declarations come first: an ambient signature may use them (they are shared, not repeated)
+    const text = `${callerTypes === '' ? '' : `${callerTypes}\n`}${ambientText(accepted)}`;
+    const host = createHost(tc, '', new Map(), text);
+    // skipLibCheck would skip this very file (a .d.ts): check it, but not the default libs
+    const program = ts.createProgram([OTHERS_FILE], { ...tc.options, skipLibCheck: false, skipDefaultLibCheck: true }, host);
+    const file = program.getSourceFile(OTHERS_FILE)!;
+    const bad = new Set<string>();
+    const diags = [...program.getSyntacticDiagnostics(file), ...program.getSemanticDiagnostics(file)].filter((d) => d.category === ts.DiagnosticCategory.Error);
+    for (const d of diags) {
+      const line = d.start === undefined ? '' : text.split('\n')[file.getLineAndCharacterOfPosition(d.start).line] ?? '';
+      const owner = accepted.find((o) => line === `declare ${o.decl};` || o.types.some((t) => t.text.split('\n').includes(line)));
+      if (owner) bad.add(owner.name);
+      else accepted.forEach((o) => bad.add(o.name)); // cannot tell whose: declare none of them
+    }
+    if (bad.size === 0) {
+      const checker = program.getTypeChecker();
+      for (const st of file.statements) {
+        if (!ts.isFunctionDeclaration(st) || !st.name) continue;
+        const sym = checker.getSymbolAtLocation(st.name);
+        if ((sym?.declarations ?? []).some((x) => x.getSourceFile().fileName !== OTHERS_FILE)) bad.add(st.name.text);
+      }
+      for (const n of bad) dropped.push({ name: n, why: `${n} is also the name of a standard global, so it cannot be called by name here` });
+      accepted = accepted.filter((o) => !bad.has(o.name));
+      break;
+    }
+    for (const n of bad) dropped.push({ name: n, why: `${n}'s declaration does not compile on its own (its signature or types use something not declared)` });
+    accepted = accepted.filter((o) => !bad.has(o.name));
+  }
+  const out = { accepted, dropped: dropped.sort((a, b) => a.name.localeCompare(b.name)) };
+  if (ambientCache.size > 200) ambientCache.clear();
+  ambientCache.set(key, out);
+  return out;
+}
+
+export async function compileCandidate(spec: FunctionSpec, body: string, ctx: CompileContext = {}): Promise<CompileOutput> {
   const t0 = now();
   const tc = await loadToolchain();
   const { ts } = tc;
@@ -152,9 +259,14 @@ export async function compileCandidate(spec: FunctionSpec, body: string): Promis
   const bodyLines = source.split('\n').slice(bodyStartLine - 1, -2);
   const lastBodyLine = Math.max(1, trimmedLineCount(bodyLines));
 
+  const offered = ctx.others ?? [];
+  const ambient = offered.length > 0 ? validateAmbient(tc, offered, typeDeclsText(spec)) : null;
+  const visible = ambient?.accepted ?? [];
+  const othersText = visible.length > 0 ? ambientText(visible) : undefined;
   const outputs = new Map<string, string>();
-  const host = createHost(tc, source, outputs);
-  const program = ts.createProgram([CANDIDATE_FILE], tc.options, host, tc.oldProgram);
+  const host = createHost(tc, source, outputs, othersText);
+  const roots = othersText !== undefined ? [CANDIDATE_FILE, OTHERS_FILE] : [CANDIDATE_FILE];
+  const program = ts.createProgram(roots, tc.options, host, tc.oldProgram);
   tc.oldProgram = program;
   const file = program.getSourceFile(CANDIDATE_FILE)!;
 
@@ -208,6 +320,21 @@ export async function compileCandidate(spec: FunctionSpec, body: string): Promis
   const tscDiagnostics = [...ts.getPreEmitDiagnostics(program)].sort(
     (a, b) => Number(!syntactic.has(key(a))) - Number(!syntactic.has(key(b))),
   );
+  // A body that calls a program function it may not call: say why (cycle, out of date, types clash…) before tsc's
+  // "Cannot find name". Only names tsc could not resolve, so a local `const slugify = …` is never flagged.
+  const blocked = new Map<string, string>();
+  for (const u of [...(ctx.unavailable ?? []), ...(ambient?.dropped ?? [])]) if (!blocked.has(u.name)) blocked.set(u.name, u.why);
+  if (blocked.size > 0) {
+    const said = new Set<string>();
+    for (const d of tscDiagnostics) {
+      if (d.file !== file || d.start === undefined || (d.code !== 2304 && d.code !== 2552)) continue;
+      const name = file.text.slice(d.start, d.start + (d.length ?? 0));
+      const why = blocked.get(name);
+      if (!why || said.has(name) || inDecls(d.start)) continue;
+      said.add(name);
+      add(HARNESS_CODE, `${spec.name} cannot call ${name}: ${why}.`, d.start, d.length, 'error');
+    }
+  }
   for (const d of tscDiagnostics) {
     if (d.category !== ts.DiagnosticCategory.Error && d.category !== ts.DiagnosticCategory.Warning) continue;
     const category = d.category === ts.DiagnosticCategory.Error ? 'error' : 'warning';
@@ -232,6 +359,8 @@ export async function compileCandidate(spec: FunctionSpec, body: string): Promis
     }
   }
 
+  const deps = visible.length > 0 && fn && ts.isFunctionDeclaration(fn) && fn.body ? dependenciesOf(ts, program, fn.body, visible) : [];
+
   const errors = diagnostics.filter((d) => d.category === 'error');
   let js: string | null = null;
   if (errors.length === 0) {
@@ -254,7 +383,35 @@ export async function compileCandidate(spec: FunctionSpec, body: string): Promis
     counts: { passed: ok ? 1 : 0, total: 1 },
   };
   if (first) gate.headline = `Rejected: line ${first.line}: ${first.message.split('\n')[0]}`;
-  return { gate, js, source, returnType };
+  const out: CompileOutput = { gate, js, source, returnType, deps };
+  if (ambient) out.ambient = { visible: visible.map((o) => o.name), dropped: ambient.dropped };
+  return out;
+}
+
+/**
+ * Names of the other functions `body` refers to: every identifier the checker resolves to a declaration in the ambient
+ * file (a `declare function`, or one of a function's types, which counts as depending on the function that declares
+ * it). Calls, values (`titles.map(slugify)`), shorthand properties (`{ slugify }`) and `typeof slugify` all count;
+ * strings, comments, property names and locally shadowed names do not. Sorted.
+ */
+function dependenciesOf(ts: TsModule, program: TS.Program, body: TS.Node, visible: readonly OtherFunction[]): string[] {
+  const checker = program.getTypeChecker();
+  const typeOwner = new Map<string, string>();
+  for (const o of visible) for (const t of o.types) if (!typeOwner.has(t.name)) typeOwner.set(t.name, o.name);
+  const out = new Set<string>();
+  const visit = (n: TS.Node): void => {
+    if (ts.isIdentifier(n)) {
+      const sym = ts.isShorthandPropertyAssignment(n.parent) && n.parent.name === n ? checker.getShorthandAssignmentValueSymbol(n.parent) : checker.getSymbolAtLocation(n);
+      for (const d of sym?.declarations ?? []) {
+        if (d.getSourceFile().fileName !== OTHERS_FILE) continue;
+        if (ts.isFunctionDeclaration(d) && d.name) out.add(d.name.text);
+        else if ((ts.isTypeAliasDeclaration(d) || ts.isInterfaceDeclaration(d)) && typeOwner.has(d.name.text)) out.add(typeOwner.get(d.name.text)!);
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(body);
+  return [...out].sort();
 }
 
 /**

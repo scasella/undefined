@@ -3,6 +3,7 @@
  * Programs and Revisions are treated as immutable values throughout the app.
  */
 import { hashesFor } from '../shared/hash';
+import { directDeps, inRuntime } from '../compose/graph';
 import type { Artifact, Candidate, DatasetRef, Decision, FunctionRecord, FunctionSpec, Hash, Pin, Program, Revision } from '../types';
 
 export function emptyProgram(): Program {
@@ -23,11 +24,17 @@ export function isLive(rec: FunctionRecord): boolean {
   return rec.artifact !== null && !isStale(rec);
 }
 
-/** Only live artifacts run: a stale artifact is shown in the repo view but never executed. */
-export function jsFunctions(p: Program): Record<string, { js: string; budgetMs: number }> {
-  const out: Record<string, { js: string; budgetMs: number }> = {};
+/**
+ * What the live runtime holds: live artifacts only (a stale artifact is shown in the repo view but never executed),
+ * minus any whose dependency changed since certification (compose/graph.ts inRuntime: it would run against code it was
+ * not certified with). `deps` (the functions it calls, late-bound in the worker) is present only when non-empty.
+ */
+export function jsFunctions(p: Program): Record<string, { js: string; budgetMs: number; deps?: string[] }> {
+  const out: Record<string, { js: string; budgetMs: number; deps?: string[] }> = {};
   for (const [name, rec] of Object.entries(p.functions)) {
-    if (isLive(rec)) out[name] = { js: rec.artifact!.js, budgetMs: rec.spec.budgetMs };
+    if (!isLive(rec) || !inRuntime(p, name)) continue;
+    const deps = directDeps(rec);
+    out[name] = deps.length > 0 ? { js: rec.artifact!.js, budgetMs: rec.spec.budgetMs, deps } : { js: rec.artifact!.js, budgetMs: rec.spec.budgetMs };
   }
   return out;
 }

@@ -17,8 +17,14 @@
  *
  * NOT reproduced: the Invariants gate (purity by frozen-argument replay, the per-call time budget) and the sandbox
  * itself. The README says so.
+ *
+ * Composition (docs/COMPOSE-DESIGN.md §A7): a function that calls other generated functions is ejected WITH its
+ * closure, one `<name>.ts` + `<name>.test.ts` per function, each `.ts` importing the functions it calls from their
+ * own files, so every function's checks run against the real ones it calls. `provenance.json` becomes version 2 with
+ * the graph. A single function with no callees ejects byte-identically to before.
  */
-import type { DatasetRef, Decision, FunctionRecord, Hash, Json, Pin, Revision, WaivedCheck } from '../types';
+import type { DatasetRef, Decision, FunctionRecord, Hash, Json, Pin, Program, Revision, WaivedCheck } from '../types';
+import { closureHash, dependencyLine, dependencyStatus, topoOrder } from '../compose/graph';
 import { describeEvidence } from '../shared/evidence';
 import { decisionsOf, decisionSummary, waivedBy } from '../decide/decisions';
 import { gateSeed } from '../shared/hash';
@@ -34,8 +40,8 @@ export interface EjectFile {
 
 export interface EjectInput {
   /**
-   * The function to eject FIRST, then (later) the functions it depends on. Only a single function is supported
-   * today; the list shape is so a closure can be passed in without changing callers.
+   * The function to eject FIRST, then every function it calls, directly or not (ejectClosure builds this list from a
+   * program). Each callee must be the implementation its caller was certified against.
    */
   functions: FunctionRecord[];
   /** Encoded dataset rows by hash (Image.datasets): needed only for pins with dataset arguments. */
@@ -70,19 +76,75 @@ export function ejectBlocker(rec: FunctionRecord | undefined): string | null {
   return null;
 }
 
-export function ejectFiles(input: EjectInput): EjectResult {
-  const [root, ...rest] = input.functions;
+/** `fn` first, then every function it calls (recorded deps, any depth), callees before callers. [] when no `fn`. */
+export function ejectClosure(program: Program, fn: string): FunctionRecord[] {
+  const root = program.functions[fn];
+  if (!root) return [];
+  const rest = topoOrder(program, [fn]).filter((n) => n !== fn);
+  return [root, ...rest.flatMap((n) => (program.functions[n] ? [program.functions[n]!] : []))];
+}
+
+/**
+ * Why `fn` cannot be ejected from `program` (with what it calls), or null: it and every function it calls must be
+ * certified, up to date, and be exactly what their callers were certified against.
+ */
+export function ejectBlockerIn(program: Program, fn: string): string | null {
+  const own = ejectBlocker(program.functions[fn]);
+  if (own) return own;
+  for (const n of topoOrder(program, [fn])) {
+    if (n !== fn) {
+      const b = ejectBlocker(program.functions[n]);
+      if (b) return `${n}, which ${fn} calls, cannot be ejected (${b})`;
+    }
+    const st = dependencyStatus(program, n);
+    if (st.kind === 'changed' || st.kind === 'waiting') {
+      const line = dependencyLine(program, n) ?? 'a function it calls changed';
+      return n === fn ? line.replace(/\.$/, '') : `${n}, which ${fn} calls, is not current: ${line.replace(/\.$/, '')}`;
+    }
+  }
+  return null;
+}
+
+/** The checked closure: every callee present once, each the implementation its caller was certified against. */
+function checkedClosure(functions: readonly FunctionRecord[]): FunctionRecord[] {
+  const [root] = functions;
   if (!root) throw new Error('eject: no function given');
-  if (rest.length > 0) throw new Error('eject: only a single function can be ejected for now');
-  const blocker = ejectBlocker(root);
-  if (blocker) throw new Error(`eject: cannot eject ${root.spec.name}: ${blocker}`);
-  const name = root.spec.name;
-  const files: EjectFile[] = [
-    { path: `${name}.ts`, text: functionFile(root) },
-    { path: `${name}.test.ts`, text: testFile(root, input.datasets ?? {}) },
-    { path: 'provenance.json', text: `${JSON.stringify(provenance(root, input), null, 2)}\n` },
-    { path: 'README.md', text: readme(root, input.versions ?? DEFAULT_VERSIONS) },
-  ];
+  const byName = new Map<string, FunctionRecord>();
+  for (const r of functions) {
+    if (byName.has(r.spec.name)) throw new Error(`eject: ${r.spec.name} is listed twice`);
+    byName.set(r.spec.name, r);
+  }
+  for (const r of functions) {
+    const blocker = ejectBlocker(r);
+    if (blocker) throw new Error(`eject: cannot eject ${r.spec.name}: ${blocker}`);
+  }
+  const program: Program = { functions: Object.fromEntries(byName) };
+  const reached = new Set(topoOrder(program, [root.spec.name]));
+  for (const r of functions) {
+    for (const [callee, stamp] of Object.entries(r.artifact!.deps ?? {})) {
+      const c = byName.get(callee);
+      if (!c) throw new Error(`eject: ${r.spec.name} calls ${callee}, which is not included`);
+      if (closureHash(c.artifact!) !== stamp.hash) throw new Error(`eject: ${r.spec.name} was certified against a different ${callee} (r${stamp.revision})`);
+    }
+    if (!reached.has(r.spec.name)) throw new Error(`eject: ${r.spec.name} is not called by ${root.spec.name}`);
+  }
+  return [root, ...topoOrder(program, [root.spec.name]).filter((n) => n !== root.spec.name).map((n) => byName.get(n)!)];
+}
+
+export function ejectFiles(input: EjectInput): EjectResult {
+  const [root, ...rest] = checkedClosure(input.functions);
+  const name = root!.spec.name;
+  const datasets = input.datasets ?? {};
+  const all = [root!, ...rest];
+  const files: EjectFile[] = all.flatMap((r) => [
+    { path: `${r.spec.name}.ts`, text: functionFile(r, all) },
+    { path: `${r.spec.name}.test.ts`, text: testFile(r, datasets) },
+  ]);
+  const prov = rest.length === 0 ? provenance(root!, input) : closureProvenance(all, input);
+  files.push(
+    { path: 'provenance.json', text: `${JSON.stringify(prov, null, 2)}\n` },
+    { path: 'README.md', text: rest.length === 0 ? readme(root!, input.versions ?? DEFAULT_VERSIONS) : closureReadme(all, input.versions ?? DEFAULT_VERSIONS) },
+  );
   return { name, folder: `${name}-eject`, files };
 }
 
@@ -146,7 +208,30 @@ function wrapText(text: string, width = 110): string[] {
   return out;
 }
 
-export function functionFile(rec: FunctionRecord): string {
+/**
+ * `import { slugify } from './slugify';` for each function `rec` calls, and `import type` for a type it uses that only
+ * a callee declares (they shared the compile gate's ambient declarations). '' when it calls nothing.
+ */
+function calleeImports(rec: FunctionRecord, closure: readonly FunctionRecord[]): string {
+  const callees = Object.keys(rec.artifact!.deps ?? {}).sort();
+  if (callees.length === 0) return '';
+  const own = new Set(declaredNames(rec.spec.typeDecls ?? '').map((d) => d.name));
+  const text = `${rec.spec.params.map((p) => p.type).join(' ')} ${rec.spec.returns ?? rec.artifact!.returnType} ${rec.artifact!.body}`;
+  const lines: string[] = [];
+  for (const c of callees) {
+    const callee = closure.find((r) => r.spec.name === c);
+    const types = callee
+      ? declaredNames(callee.spec.typeDecls ?? '')
+          .filter((d) => !own.has(d.name) && new RegExp(`(?<![\\w$])${d.name.replace(/\$/g, '\\$')}(?![\\w$])`).test(text))
+          .map((d) => (d.typeOnly ? `type ${d.name}` : d.name))
+      : [];
+    for (const t of types) own.add(t.replace(/^type /, ''));
+    lines.push(`import { ${[c, ...types].join(', ')} } from './${c}';`);
+  }
+  return `${lines.join('\n')}\n\n`;
+}
+
+export function functionFile(rec: FunctionRecord, closure: readonly FunctionRecord[] = [rec]): string {
   const { spec } = rec;
   const a = rec.artifact!;
   const params = spec.params.map((p) => `${p.name}: ${p.type}`).join(', ');
@@ -161,7 +246,7 @@ export function functionFile(rec: FunctionRecord): string {
   ]);
   const decls = exportedDecls(spec.typeDecls ?? '');
   const body = a.body.replace(/\r\n?/g, '\n').replace(/\s+$/, '');
-  return `${decls ? `${decls}\n\n` : ''}${header}\nexport function ${spec.name}(${params})${ret === null ? '' : `: ${ret}`} {\n${body}\n}\n`;
+  return `${calleeImports(rec, closure)}${decls ? `${decls}\n\n` : ''}${header}\nexport function ${spec.name}(${params})${ret === null ? '' : `: ${ret}`} {\n${body}\n}\n`;
 }
 
 // ───────────────────────── <name>.test.ts ─────────────────────────
@@ -566,7 +651,7 @@ export function provenance(rec: FunctionRecord, input: Pick<EjectInput, 'revisio
       origin: spec.origin,
       ...(spec.exampleId ? { exampleId: spec.exampleId } : {}),
     },
-    evidenceLine: a.evidence ? describeEvidence(a.evidence) : null,
+    evidenceLine: a.evidence ? describeEvidence(a.evidence, Object.keys(a.deps ?? {}).sort()) : null,
     evidence: a.evidence ?? null,
     mutation: a.evidence?.mutation ?? null,
     recertified: a.recertified ?? [],
@@ -598,6 +683,41 @@ export function provenance(rec: FunctionRecord, input: Pick<EjectInput, 'revisio
       ...(c.prompt !== undefined ? { prompt: c.prompt } : {}),
     })),
   };
+}
+
+/** provenance.json of a closure: version 2, each function's own provenance, and the graph (Artifact.deps). */
+export function closureProvenance(all: readonly FunctionRecord[], input: Pick<EjectInput, 'revisions' | 'datasetRefs' | 'now'>): Record<string, unknown> {
+  const root = all[0]!;
+  return {
+    format: 'undefined-eject',
+    version: 2,
+    root: root.spec.name,
+    ejectedAt: new Date(input.now).toISOString(),
+    note: 'Provenance, not reproducibility: the same prompt may produce a different body next time. Each function was certified against exactly the versions of the functions it calls that are in this folder (graph: their implementation hash and commit revision).',
+    graph: Object.fromEntries(all.map((r) => [r.spec.name, r.artifact!.deps ?? {}])),
+    functions: Object.fromEntries(all.map((r) => [r.spec.name, provenance(r, input)])),
+  };
+}
+
+/** README.md of a closure. */
+export function closureReadme(all: readonly FunctionRecord[], v: { vitest: string; fastCheck: string; typescript: string }): string {
+  const root = all[0]!;
+  const name = root.spec.name;
+  const others = all.slice(1).map((r) => r.spec.name);
+  const list = all
+    .map((r) => {
+      const calls = Object.keys(r.artifact!.deps ?? {}).sort();
+      return `- \`${r.spec.name}.ts\` (certified at r${r.artifact!.revision}${calls.length ? `; calls ${calls.map((c) => `\`${c}\``).join(', ')}` : ''}) and \`${r.spec.name}.test.ts\``;
+    })
+    .join('\n');
+  return `# ${name}
+
+\`${name}\` calls other functions that were generated and certified in the same program (${others.map((o) => `\`${o}\``).join(', ')}), so they are ejected with it. Each \`.ts\` file imports the functions it calls from their own files, and each \`.test.ts\` holds that function's own unit tests, pinned results and properties, run against the real functions it calls:
+
+${list}
+
+All were written by a model via Codex and accepted by Undefined's checks; \`provenance.json\` records, per function, the spec and tests hashes, the model, the candidate history and what was checked, plus the graph of which version of each callee every function was certified against. To run the tests, copy the folder into a project and run \`npm install -D vitest@${v.vitest} fast-check@${v.fastCheck} typescript@${v.typescript}\` and then \`npx vitest run\`. Properties use Undefined's fixed seeds, so a failure reproduces. The Invariants gate is not reproduced here: in the app every call was also replayed on frozen arguments (purity, over the whole call tree) and held to its per-call time limit (a caller's limit covers the functions it calls). A passing run means the code passes these checks, not that it is correct where the checks are silent.
+`;
 }
 
 // ───────────────────────── README.md ─────────────────────────

@@ -1,8 +1,10 @@
+import { Fragment } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Artifact, DatasetRef, Engine, EngineState, ExampleInfo, FunctionRecord, FunctionSpec, GenerationView } from '../../types';
 import { datasetLine, expectedSummary, formatBytes, pinDatasets } from '../data';
 import { isValidFnName, paramsText, parseParams, sentenceCase, shortHash } from '../format';
-import { draftOf, functionStatus, functionStatusText, newSpecPrefill, signatureOf, specPatch } from '../select';
+import { changedText, draftOf, functionStatus, functionStatusText, newSpecPrefill, signatureOf, specPatch, usesOf, type FunctionStatus } from '../select';
+import { dependencyLine, directDependents } from '../../compose/graph';
 import { focusFn } from '../uiState';
 import { CodeView } from './CodeView';
 import { GeneratedBadge, StatusIcon } from './common';
@@ -140,7 +142,7 @@ function SpecEditor({ rec, engine, busy }: { rec: FunctionRecord; engine: Engine
   );
 }
 
-function ArtifactView({ a, spec, stale, state, engine }: { a: Artifact; spec: FunctionSpec; stale: boolean; state: EngineState; engine: Engine }) {
+function ArtifactView({ a, spec, stale, offline = false, state, engine }: { a: Artifact; spec: FunctionSpec; stale: boolean; offline?: boolean; state: EngineState; engine: Engine }) {
   const rejected = a.candidates.filter((c) => c.verdict === 'rejected').length;
   return (
     <div class={`artifact${stale ? ' is-stale' : ''}`}>
@@ -171,7 +173,7 @@ function ArtifactView({ a, spec, stale, state, engine }: { a: Artifact; spec: Fu
           {a.candidates.length} ({rejected} rejected)
         </dd>
       </dl>
-      <ArtifactEvidence a={a} fn={spec.name} stale={stale} state={state} engine={engine} />
+      <ArtifactEvidence a={a} fn={spec.name} stale={stale || offline} state={state} engine={engine} />
       <p class="eject-row">
         <EjectButton state={state} engine={engine} fn={spec.name} />
       </p>
@@ -374,6 +376,93 @@ function Datasets({ datasets, engine, busy }: { datasets: DatasetRef[]; engine: 
   );
 }
 
+/** A function name in the dependency lines (plain code: its card is on the same page, by name). */
+function FnLink({ name }: { name: string }) {
+  return <code class="fn-ref">{name}</code>;
+}
+
+function joinNodes(names: readonly string[]) {
+  return names.map((n, i) => (
+    <Fragment key={n}>
+      {i > 0 && (i === names.length - 1 ? ' and ' : ', ')}
+      <FnLink name={n} />
+    </Fragment>
+  ));
+}
+
+/**
+ * What this function calls and what calls it (composition, docs/COMPOSE-DESIGN.md §A4), and, when a function it calls
+ * changed or has no runnable code, why it does not count as certified and what happens next. Nothing when it neither
+ * calls nor is called by another generated function.
+ */
+function Dependencies({ rec, status, state, engine, busy }: { rec: FunctionRecord; status: FunctionStatus; state: EngineState; engine: Engine; busy: boolean }) {
+  const fn = rec.spec.name;
+  const uses = usesOf(rec);
+  const usedBy = directDependents(state.program, fn);
+  if (uses.length === 0 && usedBy.length === 0) return null;
+  const stamps = rec.artifact?.deps ?? {};
+  // a dependent of a function that has no runnable code waits for it
+  const ownDown = status.kind === 'stale' || status.kind === 'none';
+  const g = state.generation;
+  const failedRecheck = g?.kind === 'recheck' && g.fn === fn && !!g.recheck?.callees;
+  return (
+    <section class="deps" aria-label={`Functions ${fn} uses and is used by`} data-dep-status={status.kind}>
+      {uses.length > 0 && (
+        <p class="deps-line">
+          <span class="deps-label">Uses</span>{' '}
+          {uses.map((n, i) => (
+            <span key={n}>
+              {i > 0 && ', '}
+              <FnLink name={n} /> <span class="muted small">r{stamps[n]!.revision}</span>
+            </span>
+          ))}
+        </p>
+      )}
+      {usedBy.length > 0 && (
+        <p class="deps-line">
+          <span class="deps-label">Used by</span> {joinNodes(usedBy)}
+          {ownDown && <span class="muted small"> · {usedBy.length === 1 ? 'it waits' : 'they wait'} until {fn} has code again</span>}
+        </p>
+      )}
+      {status.kind === 'changed' && (
+        <div class="dep-note dep-changed" role="note">
+          <p>
+            <strong>Out of date:</strong> {changedText(status.changed)}; {fn} was certified against{' '}
+            {status.changed.map((c) => `${c.name} r${c.from}`).join(', ')}. It does not run until it is re-checked.
+          </p>
+          {failedRecheck ? (
+            <p class="muted small">
+              It was already re-checked with the new {status.changed.map((c) => c.name).join(', ')} and failed its checks (Checks shows why), so the next call writes {fn} again.
+            </p>
+          ) : (
+            <p class="muted small">Re-checking runs this same code and its own checks with the new {status.changed.map((c) => c.name).join(', ')}. No model is asked; if it fails, the next call writes {fn} again.</p>
+          )}
+          <p class="dep-actions">
+            <button
+              type="button"
+              class="btn btn-xs dep-recheck"
+              disabled={busy}
+              onClick={(e) => {
+                const button = e.currentTarget;
+                // keep the keyboard here: when it passes, this note (and the button) is gone, so land on the card's
+                // heading, not on <body> or the console input
+                void engine.recheck(fn).then(() => focusLater(() => (button.isConnected ? button : document.getElementById(`fn-${fn}`))));
+              }}
+            >
+              Re-check {fn}
+            </button>
+          </p>
+        </div>
+      )}
+      {status.kind === 'waiting' && (
+        <div class="dep-note dep-waiting" role="note">
+          <p>{dependencyLine(state.program, fn)}</p>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function FunctionCard({
   rec,
   engine,
@@ -387,7 +476,7 @@ function FunctionCard({
   busy: boolean;
   state: EngineState;
 }) {
-  const status = functionStatus(rec);
+  const status = functionStatus(rec, state.program);
   const spec = rec.spec;
   const [open, setOpen] = useState(true);
   const cardRef = useRef<HTMLElement>(null);
@@ -447,8 +536,9 @@ function FunctionCard({
           <PinnedTests rec={rec} engine={engine} busy={busy} />
         </div>
         <div>
+          <Dependencies rec={rec} status={status} state={state} engine={engine} busy={busy} />
           {rec.artifact ? (
-            <ArtifactView a={rec.artifact} spec={spec} stale={status.kind === 'stale'} state={state} engine={engine} />
+            <ArtifactView a={rec.artifact} spec={spec} stale={status.kind === 'stale'} offline={status.kind === 'changed'} state={state} engine={engine} />
           ) : (
             <p class="empty">No code yet: the model writes it on the first call.</p>
           )}

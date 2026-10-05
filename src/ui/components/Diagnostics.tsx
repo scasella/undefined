@@ -43,7 +43,7 @@ export function DiagnosticFacts({ d, headline }: { d: Diagnostic; headline?: str
       return (
         <dl class="facts">
           <Fact k="where" v={`line ${d.line}, column ${d.col}`} />
-          <Fact k="error" v={`TS${d.code}`} />
+          {d.code !== 0 && <Fact k="error" v={`TS${d.code}`} />}
         </dl>
       );
     case 'test':

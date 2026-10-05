@@ -328,13 +328,34 @@ snapshotIntrinsics();
 /**
  * Evaluate strict-mode `js` (which must declare a function called `exportName`) with all masked names shadowed,
  * and return that function. Recursion works because the declaration name is in scope inside the function.
+ *
+ * `bindings` (composition, docs/COMPOSE-DESIGN.md §A5): other generated functions the code may call, by name. They are
+ * appended as extra parameters of the same factory, so they are in scope exactly like the masked names. Absent (or
+ * empty) = exactly the factory used before composition existed. A binding can never be a masked name (the engine
+ * never grows one); that is asserted.
  */
-export function evalMasked<T = (...args: never[]) => unknown>(js: string, exportName: string): T {
+export function evalMasked<T = (...args: never[]) => unknown>(js: string, exportName: string, bindings?: Record<string, unknown>): T {
   if (!/^[A-Za-z_$][\w$]*$/.test(exportName)) throw new Error(`invalid function name: ${exportName}`);
   const { names, values } = build();
+  const extra = bindings ? Object.keys(bindings) : [];
+  if (extra.length === 0) {
+    // eslint-disable-next-line no-new-func
+    const factory = new Function(...names, `"use strict";\n${js}\n;return ${exportName};`);
+    return factory(...values) as T;
+  }
+  for (const b of extra) {
+    if (!/^[A-Za-z_$][\w$]*$/.test(b)) throw new Error(`invalid binding name: ${b}`);
+    if (names.includes(b) || b === 'eval' || b === 'arguments') throw new Error(`a generated function cannot be bound as ${b}: that name is masked`);
+    if (b === exportName) throw new Error(`${b} cannot be bound inside itself`);
+  }
   // eslint-disable-next-line no-new-func
-  const factory = new Function(...names, `"use strict";\n${js}\n;return ${exportName};`);
-  return factory(...values) as T;
+  const factory = new Function(...names, ...extra, `"use strict";\n${js}\n;return ${exportName};`);
+  return factory(...values, ...extra.map((b) => bindings![b])) as T;
+}
+
+/** Violations recorded and not yet taken (lets a caller see whether one happened during a nested call). */
+export function pendingViolationCount(): number {
+  return recorded.length;
 }
 
 /**

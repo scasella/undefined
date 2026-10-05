@@ -11,6 +11,7 @@ import type {
   SpecPatch,
 } from '../types';
 import { stripRejected } from './format';
+import { dependencyStatus } from '../compose/graph';
 
 export function failingGate(gates: GateResult[]): GateResult | undefined {
   return gates.find((g) => g.status === 'fail');
@@ -109,9 +110,17 @@ export function chipText(a: AttemptView): string {
 export type FunctionStatus =
   | { kind: 'certified'; revision: number }
   | { kind: 'stale'; what: 'spec' | 'tests' | 'spec and tests' }
+  /** Composition: a function it calls has different code now; it does not run until it is re-checked. */
+  | { kind: 'changed'; revision: number; changed: Array<{ name: string; from: number; to: number }> }
+  /** Composition: a function it calls (directly or further down) has no runnable code; reaching it grows that one. */
+  | { kind: 'waiting'; revision: number; waitingFor: string[] }
   | { kind: 'none' };
 
-export function functionStatus(rec: FunctionRecord): FunctionStatus {
+/**
+ * A function's status. With `program`, a certified function is also judged through the functions it calls
+ * (compose/graph.ts dependencyStatus): 'changed' or 'waiting' instead of 'certified'. Without it, own hashes only.
+ */
+export function functionStatus(rec: FunctionRecord, program?: Program): FunctionStatus {
   const a = rec.artifact;
   if (!a) return { kind: 'none' };
   const specChanged = a.specHash !== rec.specHash;
@@ -119,17 +128,41 @@ export function functionStatus(rec: FunctionRecord): FunctionStatus {
   if (specChanged && testsChanged) return { kind: 'stale', what: 'spec and tests' };
   if (specChanged) return { kind: 'stale', what: 'spec' };
   if (testsChanged) return { kind: 'stale', what: 'tests' };
+  if (program && program.functions[rec.spec.name] === rec) {
+    const st = dependencyStatus(program, rec.spec.name);
+    if (st.kind === 'changed') {
+      const changed = st.calls.filter((c) => c.state === 'changed').map((c) => ({ name: c.name, from: c.certifiedRevision, to: c.nowRevision ?? c.certifiedRevision }));
+      return { kind: 'changed', revision: a.revision, changed };
+    }
+    if (st.kind === 'waiting') return { kind: 'waiting', revision: a.revision, waitingFor: st.waitingFor };
+  }
   return { kind: 'certified', revision: a.revision };
 }
 
-/** The Draft pane's chip for the last committed function: never "Certified" once its spec or tests changed. */
-export function committedChip(rec: FunctionRecord): { label: string; cls: string; title: string } | null {
-  const s = functionStatus(rec);
+/** "slugify changed in r7" / "slugify and trim changed in r7 and r8". */
+export function changedText(changed: ReadonlyArray<{ name: string; to: number }>): string {
+  const names = changed.map((c) => c.name);
+  const revs = [...new Set(changed.map((c) => `r${c.to}`))];
+  return `${andList(names)} changed in ${andList(revs)}`;
+}
+
+function andList(xs: readonly string[]): string {
+  return xs.length <= 1 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`;
+}
+
+/** The Draft pane's chip for the last committed function: never "Certified" once its spec, tests or a callee changed. */
+export function committedChip(rec: FunctionRecord, program?: Program): { label: string; cls: string; title: string } | null {
+  const s = functionStatus(rec, program);
   if (s.kind === 'none') return null;
   const rev = rec.artifact!.revision;
-  return s.kind === 'stale'
-    ? { label: `Out of date (r${rev})`, cls: 'fs-stale', title: `Accepted at r${rev}; its ${s.what} changed since, so it is written again on its next call.` }
-    : { label: `Certified r${rev}`, cls: 'st-accepted', title: 'Written by the model, accepted by the checks. Read-only.' };
+  if (s.kind === 'stale') return { label: `Out of date (r${rev})`, cls: 'fs-stale', title: `Accepted at r${rev}; its ${s.what} changed since, so it is written again on its next call.` };
+  if (s.kind === 'changed') {
+    return { label: `Out of date (r${rev})`, cls: 'fs-changed', title: `Accepted at r${rev}; ${changedText(s.changed)} since, so it does not run until it is re-checked.` };
+  }
+  if (s.kind === 'waiting') {
+    return { label: `Waiting (r${rev})`, cls: 'fs-waiting', title: `Accepted at r${rev}; ${andList(s.waitingFor)} has no runnable code, so the next call that reaches it grows it first.` };
+  }
+  return { label: `Certified r${rev}`, cls: 'st-accepted', title: 'Written by the model, accepted by the checks. Read-only.' };
 }
 
 export function functionStatusText(s: FunctionStatus): string {
@@ -138,9 +171,18 @@ export function functionStatusText(s: FunctionStatus): string {
       return `certified r${s.revision}`;
     case 'stale':
       return `invalid: ${s.what} changed — regenerates on next call`;
+    case 'changed':
+      return `out of date: ${changedText(s.changed)}`;
+    case 'waiting':
+      return `waiting for ${andList(s.waitingFor)}`;
     case 'none':
       return 'no code yet — written on the first call';
   }
+}
+
+/** The functions `fn`'s committed code calls, sorted ([] when none). */
+export function usesOf(rec: FunctionRecord | undefined): string[] {
+  return Object.keys(rec?.artifact?.deps ?? {}).sort();
 }
 
 /** `function median(numbers: number[]): number` — return type from the spec, else the recorded inferred one. */

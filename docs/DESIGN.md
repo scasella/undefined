@@ -158,7 +158,7 @@ export class Runtime {
       Name lookup goes through a Proxy `with` scope: committed functions, REPL variables, standard globals. A name in
       call position that is not defined throws an internal UndefinedCall → EvalOutcome 'undefined-call' (args already evaluated).
       Reading an undefined non-call identifier → {kind:'error', errorName:'ReferenceError'}. */
-  evaluate(input: string): Promise<EvalOutcome>;
+  evaluate(input: string, opts?: { mode?: 'expr' | 'stmt' }): Promise<EvalOutcome>; // one unit: an expression/binding, or (stmt) one statement run for its effect
   /** Encoded env (encodeValue per var). */
   snapshotEnv(): Promise<Record<string, Json>>;
   /** Shown values for the UI. */
@@ -168,7 +168,7 @@ export class Runtime {
   dispose(): void;
 }
 ```
-The worker is long-lived. A call overrunning `callBudgetMs` (or the spec's `budgetMs`, passed per function via `define(name, js, budgetMs?)`) hard-terminates the worker; `Runtime` rebuilds it from its own record of functions + last good env and returns `{kind:'timeout'}`. Committed functions run with the same masked globals as in the gate. When a committed function throws, the thrown error is tagged with the function name and the call string and returned as `{kind:'fault'}`. Re-evaluation after growth is the engine's job; side effects before the undefined call run twice (document it; do not hide it).
+The worker is long-lived. A call overrunning `callBudgetMs` (or the spec's `budgetMs`, passed per function via `define(name, js, budgetMs?, deps?)`; only the outermost call of a line is timed, so a caller's budget covers its callees) hard-terminates the worker; `Runtime` rebuilds it from its own record of functions + last good env and returns `{kind:'timeout'}`. Committed functions run with the same masked globals as in the gate. When a committed function throws, the thrown error is tagged with the function name and the call string and returned as `{kind:'fault'}`. Re-evaluation after growth is the engine's job: it splits a line into statement units (`shared/replSplit.ts`; a one-expression or one-binding line is sent whole, exactly as before), sends one `evaluate` per unit (`{ mode: 'stmt' }` for `if`/`for`/blocks…), and after a grow re-runs only the unit that made the undefined call. Side effects earlier in that same statement run twice; earlier statements never do (document it; do not hide it).
 
 ### `core/program.ts` (pure)
 ```ts

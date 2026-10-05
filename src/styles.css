@@ -427,6 +427,32 @@ select {
   font-weight: 700;
   color: var(--warn);
 }
+/* composition: a function it calls changed (does not run until re-checked) / has no runnable code (waits for it) */
+.fs-changed,
+.fs-waiting {
+  white-space: normal;
+  height: auto;
+  min-height: 22px;
+  padding: 2px 8px;
+  line-height: 1.3;
+}
+.fs-changed {
+  background: var(--warn-wash);
+  color: var(--ink);
+}
+.fs-changed::before {
+  content: '!';
+  font-weight: 700;
+  color: var(--warn);
+}
+.fs-waiting {
+  background: var(--inset);
+  color: var(--ink-2);
+}
+.fs-waiting::before {
+  content: '…';
+  color: var(--muted);
+}
 .fs-none {
   color: var(--muted);
 }
@@ -3790,6 +3816,62 @@ html:has(dialog[open]) {
 .panel,
 .headline {
   scroll-margin-top: 12px;
+}
+
+/* ── Composition: what a function uses and what uses it (src/ui/components/Repo.tsx Dependencies) ──
+   Quiet facts by default; a warn-washed note only when a function it calls changed or has no code. */
+.deps {
+  margin: 0 0 var(--s4);
+  font-size: var(--t-meta);
+}
+.deps-line {
+  margin: 0 0 var(--s1);
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+.deps-label {
+  display: inline-block;
+  min-width: 5.5em;
+  font-size: var(--t-sm);
+  font-weight: 500;
+  color: var(--muted);
+}
+.fn-ref {
+  font-family: var(--font-code);
+  font-size: var(--t-sm);
+  color: var(--ink);
+}
+.dep-note {
+  margin: var(--s2) 0 0;
+  padding: var(--s2) 12px;
+  border-left: 3px solid var(--warn);
+  border-radius: var(--radius);
+  background: var(--warn-wash);
+  max-width: 72ch;
+}
+.dep-note p {
+  margin: 0 0 var(--s1);
+}
+.dep-note p:last-child {
+  margin-bottom: 0;
+}
+.dep-waiting {
+  border-left-color: var(--edge);
+  background: var(--inset);
+}
+.dep-actions {
+  margin-top: var(--s2) !important;
+}
+/* the Draft's quiet "uses slugify" line under a draft that calls other generated functions */
+.uses-line {
+  margin: 0;
+  padding: 0 var(--s4) var(--s2);
+  font-size: var(--t-sm);
+  color: var(--muted);
+}
+.uses-line code {
+  font-family: var(--font-code);
+  color: var(--ink-2);
 }
 
 /* ── Eject (src/ui/components/Eject.tsx) ── */

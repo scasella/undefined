@@ -33,6 +33,7 @@ import { suggestProperties } from '../../suggest/suggest';
 import { appendProperty } from '../../suggest/apply';
 import { addedCheckReason } from '../../shared/evidence';
 import { DECIDE_SCENARIOS } from './decideFixtures';
+import { COMPOSE_SCENARIOS } from './composeFixtures';
 
 export const T0 = Date.UTC(2026, 9, 4, 9, 0, 0);
 const h = (seed: string): string => seed.repeat(64).slice(0, 64);
@@ -824,6 +825,8 @@ export const SCENARIOS: Record<string, () => EngineState> = {
   'recheck-failed': recheckFailedState,
   // the Decide flow (src/ui/dev/decideFixtures.ts)
   ...DECIDE_SCENARIOS,
+  // composition and multi-statement lines (src/ui/dev/composeFixtures.ts)
+  ...COMPOSE_SCENARIOS,
 
   cached: () => {
     const s = committedState();
@@ -1197,6 +1200,9 @@ export const SCENARIO_UI: Record<
   'committed-evidence': { tab: 'repo' },
   'decide-median-recertified': { tab: 'repo' },
   'decision-applied': { tab: 'repo' },
+  'dependent-stale': { tab: 'repo' },
+  'cycle-rejected': { tab: 'repo' },
+  'composed-committed': { tab: 'repo' },
   'decide-open': { decide: { attempt: 1, choice: 'tests', reason: 'NaN propagates through our averages' } },
   'decide-custom': { decide: { attempt: 1, choice: 'custom', expr: '-1' } },
   'recheck-failed': {

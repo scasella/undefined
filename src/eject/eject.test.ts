@@ -143,7 +143,7 @@ describe('ejectFiles', () => {
     expect(ejectBlocker({ ...rec, artifact: null })).toBe('nothing is committed yet');
     expect(ejectBlocker({ ...rec, testsHash: 'changed' })).toMatch(/out of date/);
     expect(() => ejectFiles({ functions: [], now: NOW })).toThrow(/no function/);
-    expect(() => ejectFiles({ functions: [rec, rec], now: NOW })).toThrow(/single function/);
+    expect(() => ejectFiles({ functions: [rec, rec], now: NOW })).toThrow(/listed twice/);
     expect(() => ejectFiles({ functions: [{ ...rec, specHash: 'x' }], now: NOW })).toThrow(/out of date/);
   });
 

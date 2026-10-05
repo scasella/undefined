@@ -19,6 +19,18 @@ Everything you can do in the app, in more detail than the [README](../README.md)
   One click rolls back; rollbacks are themselves revisions, so history is never rewritten.
 - **Hot reload.** Accepted functions are swapped into the running sandbox worker without a restart and without touching
   your REPL variables.
+- **Several statements on one line**, separated by `;`, with destructuring (`const {a, b} = pair(1); a + b`). The result
+  is the last statement's value. After a function grows, only the statement that called it runs again, and the console
+  says so (*Re-ran statement 3 of 4 from its start; statements 1–2 were not run again.*); a retry after a fault resumes
+  at the statement that faulted, and an error names its statement (*(statement 2 of 3)*). The input stays one line.
+- **Functions that call each other.** A generated function may call another one already certified in the program
+  (never in a cycle). The Draft says so quietly under the code (*uses slugify*, from what the compiler resolved, not a
+  guess). Each Repo card lists **Uses** (with the revision it was certified against) and **Used by**. When a function it
+  uses gets new code, or a function further down the chain does, the card says *Out of date: slugify changed in r5* and offers **Re-check**, which runs the same
+  code and its own checks with the new callee, no model asked; if that fails, Checks shows the failing check under *A
+  function it calls changed after it was committed*, and the next call writes it again. When a function it uses has no
+  code (its spec changed), the card says *Waiting for slugify*, and the next call that reaches it grows it first. A draft
+  that would call a function in a cycle is rejected by Compile (*would call itself in a cycle*).
 - **Structured recovery.** If a committed function throws, the REPL offers restarts: retry with the error fed back to the
   model, roll back, or edit the spec. Never a crash.
 - **Export / import** your whole program (revisions, specs, artifacts, provenance) as one JSON file. Importing replaces
@@ -122,7 +134,12 @@ its evidence. It downloads `<name>-eject.zip`, a `<name>-eject/` folder with fou
 - **`README.md`**: how to run the tests. It says that the Invariants gate (purity and the per-call time limit) is not
   reproduced outside the app.
 
-Eject is disabled while the function is out of date (its spec or checks changed after it was certified). `npm run check:eject`
+A function that calls other generated functions is ejected with them, and the button says so (*Eject uniqueSlugs and
+2 functions it uses*): one `<name>.ts` and `<name>.test.ts` per function, each `.ts` importing the functions it calls, and a `provenance.json` (version 2) with the graph of which
+version of each callee every function was certified against.
+
+Eject is disabled while the function is out of date (its spec or checks changed after it was certified, or a function it
+calls changed or has no runnable code). `npm run check:eject`
 ejects every shipped recording into a fresh project and runs vitest and strict `tsc` on it.
 
 ## Local session log

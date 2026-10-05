@@ -39,6 +39,8 @@ async function enterAndCheck(p, id, want, label) {
     await p.waitForFunction(() => /Accepted · saved as r\d+/.test(document.body.innerText), null, { timeout: 120000 });
     committedAt = Date.now() - t0;
   } catch { /* reported below */ }
+  // a spec-less commit renders its table and pin row just after the headline: give it a moment (it raced once)
+  if (want.noRejection) await p.waitForFunction((t) => !!document.querySelector('table') && document.body.innerText.includes(t), want.text, { timeout: 10000 }).catch(() => {});
   const text = await p.evaluate(() => document.body.innerText);
   const ok = /Accepted · saved as r\d+/.test(text) && text.includes(want.text) && (want.noRejection ? !/rejected by/i.test(text) && (await p.locator('table').count()) > 0 : /rejected by/i.test(text) && text.toLowerCase().includes(want.gate.toLowerCase()));
   console.log(ok ? 'PASS' : 'FAIL', label, ok ? '' : text.slice(0, 400));
@@ -110,6 +112,37 @@ try {
       check(await p.waitForSelector('[data-decide="removed"]', { timeout: 60000 }).then(() => true, () => false), 'removing the decision brings median back', '');
     } catch (e) {
       check(false, 'decide flow', e.message.split('\n')[0]);
+    }
+  }
+
+  // Multi-statement lines in replay mode (docs/COMPOSE-DESIGN.md §B2), on a fresh load: the grow of median happens in
+  // statement 3 of 4; after it commits only that statement runs again (n stays 1), and the last value is shown. Then a
+  // destructuring line that calls the committed median twice. Composition itself (one generated function calling
+  // another) cannot replay from the shipped recordings: none of their candidates calls another function, and their
+  // specs may not change. It is covered by src/core/engine.compose.test.ts and the composition fixtures.
+  {
+    const p = b.page;
+    const check = (ok, label, extra = '') => {
+      console.log(ok ? 'PASS' : 'FAIL', label, ok ? '' : extra);
+      if (!ok) failed++;
+    };
+    const waitText = (re, timeout = 60000) => p.waitForFunction((src) => new RegExp(src).test(document.body.innerText), re.source, { timeout }).then(() => true, () => false);
+    const envHas = (s) => p.evaluate((t) => [...document.querySelectorAll('.env-var')].some((e) => e.textContent.replace(/\s+/g, ' ').trim() === t), s);
+    try {
+      await fresh(p, srv.url);
+      await p.fill('#repl-input', 'n = 0; xs = [3, 1, 4, 2]; n = n + 1; m = median(xs)');
+      await p.locator('#repl-input').press('Enter');
+      const committed = await waitText(/Accepted · saved as r\d+/, 120000);
+      const rerun = await waitText(/Re-ran statement 4 of 4 from its start; statements 1–3 were not run again\./, 10000);
+      await p.waitForFunction(() => [...document.querySelectorAll('.r-output .value')].some((e) => e.textContent === '2.5'), null, { timeout: 10000 }).catch(() => {});
+      const value = await p.evaluate(() => [...document.querySelectorAll('.r-output .value')].map((e) => e.textContent));
+      check(committed && rerun && value.includes('2.5') && (await envHas('n = 1')) && (await envHas('m = 2.5')), 'multi-statement line: median grows in statement 4 of 4; earlier statements ran once (n = 1)', JSON.stringify({ committed, rerun, value }));
+      await p.fill('#repl-input', 'const [lo, hi] = [median([5, 5, 1]), median(xs)]; lo + hi');
+      await p.locator('#repl-input').press('Enter');
+      const sum = await p.waitForFunction(() => [...document.querySelectorAll('.r-output .value')].some((e) => e.textContent === '7.5'), null, { timeout: 30000 }).then(() => true, () => false);
+      check(sum && (await envHas('lo = 5')) && (await envHas('hi = 2.5')), 'destructuring line calls the committed median twice: 7.5, lo = 5, hi = 2.5', (await p.evaluate(() => document.body.innerText)).slice(0, 600));
+    } catch (e) {
+      check(false, 'multi-statement flow', e.message.split('\n')[0]);
     }
   }
 } finally {

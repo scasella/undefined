@@ -11,6 +11,11 @@
  * median is also ejected once more with a WAIVING decision (docs/DECIDE-DESIGN.md §6.4): the user ruled that
  * median([]) throws, which replaces the reference property on the empty list, and the committed body is the example's
  * throws-on-empty body. The ejected test file must apply the same waiver as the app (and pass).
+ *
+ * Composition (docs/COMPOSE-DESIGN.md §A7): a TEST-ONLY fixture (not a shipped example; no spec in src/examples
+ * changes) certifies slugify (its example spec and first good body) and then `slugifyAll`, whose body calls slugify,
+ * through the real compile gate (slugify declared as another function) and the real gate executor (slugify linked),
+ * then ejects slugifyAll WITH slugify. Both test files must pass in the fresh project, each against the real code.
  */
 import { describe, expect, it } from 'vitest';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -21,11 +26,12 @@ import { evidenceFrom } from '../src/sandbox/gateRunner';
 import { gateSeed, hashesFor } from '../src/shared/hash';
 import { decodeValue, encodeValue } from '../src/shared/serialize';
 import { listTestNames } from '../src/shared/specInfo';
-import { ejectFiles, ejectZip } from '../src/eject/eject';
+import { ejectClosure, ejectFiles, ejectZip } from '../src/eject/eject';
+import { othersFor, stampDeps } from '../src/compose/graph';
 import { buildDecision, effectiveChecks } from '../src/decide/decisions';
 import { EXAMPLES } from '../src/examples';
 import { unzipStore } from '../src/eject/zip';
-import type { Artifact, Candidate, Decision, FunctionRecord, FunctionSpec, Pin, Recording, RecordedSession } from '../src/types';
+import type { Artifact, Candidate, Decision, FunctionRecord, FunctionSpec, Pin, Program, Recording, RecordedSession } from '../src/types';
 
 const ROOT = join(import.meta.dirname, '..');
 const OUT = join(ROOT, '.tmp', 'eject-check', 'out');
@@ -195,6 +201,93 @@ const DECIDED: Record<string, Decided> = {
   },
 };
 
+/** The composed fixture's caller (test-only). */
+const SLUGIFY_ALL: FunctionSpec = {
+  name: 'slugifyAll',
+  params: [{ name: 'titles', type: 'string[]' }],
+  returns: 'string[]',
+  doc: 'Slugs for a list of titles, in order.',
+  tests: String.raw`test('each title', () => {
+  eq(slugifyAll(['Hello World', 'Crème Brûlée']), ['hello-world', 'creme-brulee']);
+});
+
+test('empty list', () => {
+  eq(slugifyAll([]), []);
+});`,
+  properties: String.raw`property('one slug per title', [fc.array(fc.string({ maxLength: 12 }), { maxLength: 8 })], (titles) => slugifyAll(titles).length === titles.length);`,
+  budgetMs: 1000,
+  maxAttempts: 3,
+  origin: 'user',
+};
+
+/** Certify `body` for `spec` in `program` as the engine would (callable functions declared and linked); returns its record. */
+async function certify(program: Program, spec: FunctionSpec, body: string, revision: number, at: number): Promise<FunctionRecord> {
+  const hashes = await hashesFor(spec);
+  const callable = othersFor(program, spec);
+  const compiled = callable.others.length > 0 ? await compileCandidate(spec, body, { others: callable.others }) : await compileCandidate(spec, body);
+  expect(compiled.gate.status, `${spec.name}: compiles`).toBe('pass');
+  const eff = effectiveChecks(spec);
+  const deps = compiled.deps.map((n) => ({ name: n, js: program.functions[n]!.artifact!.js, deps: [] as string[] }));
+  const gates = executeGates(
+    {
+      name: spec.name,
+      js: compiled.js!,
+      testsJs: userJs(eff.tests),
+      propertiesJs: userJs(eff.properties),
+      budgetMs: spec.budgetMs,
+      seed: gateSeed(hashes.specHash, hashes.testsHash),
+      ...(deps.length > 0 ? { deps } : {}),
+    },
+    { phase: () => {}, enter: () => {}, leave: () => {} },
+  );
+  expect(gates.find((g) => g.status === 'fail')?.headline, `${spec.name}: passes the gates`).toBeUndefined();
+  const artifact: Artifact = {
+    body,
+    source: compiled.source,
+    js: compiled.js!,
+    returnType: compiled.returnType,
+    ...hashes,
+    model: 'fixture (hand-written body)',
+    codexVersion: '',
+    committedAt: at,
+    candidates: [{ id: `${spec.name}-1`, attempt: 1, body, notes: 'fixture', source: 'replay', generationMs: 0, gates: [compiled.gate, ...gates], verdict: 'accepted' }],
+    revision,
+    evidence: { compiled: true, ...evidenceFrom(gates) },
+  };
+  const stamps = stampDeps(program, compiled.deps);
+  if (stamps) artifact.deps = stamps;
+  return { spec, ...hashes, artifact };
+}
+
+async function buildComposed(): Promise<void> {
+  const label = 'compose-slugifyAll';
+  const at = Date.UTC(2026, 9, 5, 12);
+  const slug = EXAMPLES.find((e) => e.id === 'slugify')!;
+  const program: Program = { functions: {} };
+  program.functions.slugify = await certify(program, slug.spec!, slug.goodBodies[0]!, 2, at);
+  program.functions.slugifyAll = await certify(program, SLUGIFY_ALL, 'return titles.map(slugify);', 3, at);
+  expect(Object.keys(program.functions.slugifyAll!.artifact!.deps ?? {}), 'slugifyAll records its call of slugify').toEqual(['slugify']);
+  const input = { functions: ejectClosure(program, 'slugifyAll'), now: at, versions };
+  const { files } = ejectFiles(input);
+  expect(files.map((f) => f.path)).toEqual(['slugifyAll.ts', 'slugifyAll.test.ts', 'slugify.ts', 'slugify.test.ts', 'provenance.json', 'README.md']);
+  const zip = ejectZip(input);
+  expect(unzipStore(zip.bytes).map((e) => e.name)).toEqual(files.map((f) => `slugifyAll-eject/${f.path}`));
+  const dir = join(OUT, label);
+  mkdirSync(dir, { recursive: true });
+  for (const f of files) writeFileSync(join(dir, f.path), f.text);
+  writeFileSync(join(OUT, `${label}.zip`), zip.bytes);
+  const specs = [slug.spec!, SLUGIFY_ALL];
+  manifest.push({
+    label,
+    fn: 'slugifyAll (+ slugify)',
+    unitTests: specs.reduce((n, sp) => n + listTestNames(effectiveChecks(sp).tests).length, 0),
+    pinned: 0,
+    properties: specs.reduce((n, sp) => n + listTestNames(effectiveChecks(sp).properties).length, 0),
+    skipped: 0,
+    gates: 'composed',
+  });
+}
+
 describe('eject the shipped recordings', () => {
   rmSync(OUT, { recursive: true, force: true });
   mkdirSync(OUT, { recursive: true });
@@ -207,6 +300,7 @@ describe('eject the shipped recordings', () => {
       if (i === 0 && DECIDED[id]) it(`${label}+decided`, () => build(`${label}+decided`, rec, session, false, DECIDED[id]));
     });
   }
+  it('compose-slugifyAll (a function and the one it calls)', () => buildComposed());
   it('writes the manifest', () => {
     writeFileSync(join(OUT, 'manifest.json'), JSON.stringify({ versions, rows: manifest }, null, 2));
   });

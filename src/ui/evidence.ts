@@ -79,8 +79,16 @@ export function plainMutation(r: MutationReport | undefined): string {
 }
 
 /** The evidence line under an accepted function: facts, no score. */
-export function plainEvidence(ev: Evidence): string {
-  return [ev.compiled ? 'Compiled.' : 'Did not compile.', plainTests(ev.unitTests, ev.pinnedTests, ev.decisions ?? 0), plainRules(ev.properties, ev.decisionProperties ?? 0), plainReplays(ev.sampledCalls), plainMutation(ev.mutation)].join(' ');
+export function plainEvidence(ev: Evidence, calls: readonly string[] = []): string {
+  const base = [ev.compiled ? 'Compiled.' : 'Did not compile.', plainTests(ev.unitTests, ev.pinnedTests, ev.decisions ?? 0), plainRules(ev.properties, ev.decisionProperties ?? 0), plainReplays(ev.sampledCalls)];
+  // composition: the checks ran through the functions it calls; the broken copies (once any ran) were of its own code
+  // only. Before the broken-copy check has run nothing was broken, so the clause is left out.
+  if (calls.length > 0) {
+    const those = calls.length === 1 ? 'that function' : 'those functions';
+    base.push(`It calls ${calls.join(', ')}: every check ran with ${those} as certified${ev.mutation && ev.mutation.total > 0 ? ', and only its own code was broken on purpose' : ''}.`);
+  }
+  base.push(plainMutation(ev.mutation));
+  return base.join(' ');
 }
 
 /** The broken-copy check while it is waiting or running; null when nothing is in flight for `fn`. */

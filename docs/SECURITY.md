@@ -22,6 +22,9 @@ strangers' programs behaved in practice, see [HOSTILE.md](HOSTILE.md).
 - **Test code is also restricted:** `import()` is rejected at transpile time, and the network and global names are trapped.
 - **CPU is bounded** by a watchdog (per-call budget, a 15 s overall cap, then the worker is terminated).
 - **Datasets are read-only** in the REPL, and replayed on frozen copies in the gates.
+- **Generated functions reach each other only by name, through what their certification recorded.** In the gates the
+  callees are evaluated under the same mask in the same worker; in the REPL a dependent holds late-bound stubs that look
+  the callee up when it is called. This adds no new capability: it is the same worker and the same mask.
 
 **What is not guaranteed**
 

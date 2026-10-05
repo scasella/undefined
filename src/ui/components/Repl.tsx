@@ -201,6 +201,10 @@ function Shortcuts() {
           </dt>
           <dd>history</dd>
           <dt>
+            <kbd>;</kbd>
+          </dt>
+          <dd>several statements on one line; after a function grows, only the statement that called it runs again</dd>
+          <dt>
             <kbd>1</kbd>–<kbd>4</kbd>
           </dt>
           <dd>examples</dd>
@@ -346,7 +350,7 @@ export function Repl({ state, engine }: { state: EngineState; engine: Engine }) 
           enterKeyHint="go"
         />
         <span id="repl-hint" class="sr-only">
-          Enter runs the call; the up and down arrows walk the history.
+          Enter runs the line. Several statements can be separated with a semicolon; after a function grows, only the statement that called it runs again. The up and down arrows walk the history.
         </span>
         <Shortcuts />
         <button

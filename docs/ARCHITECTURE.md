@@ -21,13 +21,22 @@ REPL call ──► runtime worker (name lookup is a Proxy scope) ──► name
          pass ─► new revision, hot-swapped into the running program, original call completes
 ```
 
-Every decision shows who made it: which gate, which line or counterexample. A rejected candidate stays visible in the
+A line of several statements runs one statement at a time; after a grow only the statement that made the call runs
+again (earlier statements never re-run), and the console prints which (`engine.ts rerunText`). A committed function's
+status through the functions it calls is derived, never stored (`compose/graph.ts dependencyStatus`: current, changed,
+waiting); the UI reads it through `ui/select.ts functionStatus(rec, program)`, the Repo's **Re-check** calls
+`Engine.recheck(fn)`, the Draft's *uses …* line comes from the compile gate's `CompileOutput.deps` (kept on the
+UI-only `AttemptView.uses`, not persisted), and a re-check after a callee changed carries `GenerationView.recheck.callees`
+so Checks names the callee instead of an added check. Every decision shows who made it: which gate, which line or counterexample. A rejected candidate stays visible in the
 candidate strip, so you can see the toolchain turning work away. If the budget runs out, the call fails cleanly and the
 program is unchanged.
 
 **What the model sees:** the signature, the doc, the *names* of your tests and properties (never their bodies or the
 reference implementation), the time budget per call, the *types* of the triggering call's arguments (never the values),
-and on retries the previous attempt plus structured diagnostics. Every candidate keeps the exact prompt it was generated
+and on retries the previous attempt plus structured diagnostics. When other functions in the program are already
+certified (and calling them would not close a cycle), an OTHER FUNCTIONS section lists their signatures and the first
+sentence of their docs, never their code; with none, the prompt is byte-identical to a program without composition
+(`src/compose/golden.test.ts`). Every candidate keeps the exact prompt it was generated
 from: open *What the model saw* under the candidate (or in the Repo tab's candidate history) to read it, headed by a plain
 summary of what was and was not sent. For replayed sessions that is the prompt stored in the recording (older recordings predate
 the budget line, and the summary says only what their prompt contains). The gates know more than the model; that is the
@@ -70,6 +79,7 @@ src/core/          engine (orchestrator), program/revision model, IndexedDB stor
 src/gates/         strict TypeScript compile gate (lazy-loaded compiler + libs), source wrapper
 src/sandbox/       gate executor + worker + watchdog, REPL runtime worker, purity masking
 src/shared/        prompt builder, value display/serialisation, hashing, type inference
+src/compose/       the dependency graph between generated functions: what a body may call, status, closure
 src/examples/      median, slugify, fibonacci (+ known-good and known-bad candidates used by tests)
 src/share/         loading a shared recording (text, URL, ?recording=);  src/sessionlog/  the opt-in local session log
 src/ui/            Preact UI;  public/recordings/  recorded sessions;  docs/DESIGN.md  module contracts

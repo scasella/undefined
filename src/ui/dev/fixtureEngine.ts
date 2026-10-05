@@ -16,6 +16,7 @@ import { parseRecordingText } from '../../share/source';
 import { suggestProperties } from '../../suggest/suggest';
 import { appendProperty } from '../../suggest/apply';
 import { addedCheckReason } from '../../shared/evidence';
+import { dependencyStatus, stampDeps } from '../../compose/graph';
 import {
   EXAMPLES,
   FIXTURE_PREVIEW,
@@ -489,6 +490,20 @@ export function createFixtureEngine(scenario: string): Engine {
           }
         }
         s.mutation = { fn, phase: 'waiting', done: 0, total: 0 };
+      });
+    },
+    // fixture: an out-of-date function (a callee changed) re-checks and passes: its stamps follow the callees
+    async recheck(fn) {
+      update((s) => {
+        const rec = s.program.functions[fn];
+        if (!rec?.artifact || dependencyStatus(s.program, fn).kind !== 'changed') {
+          s.notice = { tone: 'info', text: `${fn} is not out of date because of a function it calls; nothing to re-check.` };
+          return;
+        }
+        const stamps = stampDeps(s.program, Object.keys(rec.artifact.deps ?? {}));
+        if (stamps) rec.artifact.deps = stamps;
+        pushRevision(s, 'recertify', `${fn} re-certified: the same body passes with the new callees`, { fn });
+        s.repl.push({ kind: 'info', id: eid('if'), text: `${fn}: re-checked with the functions it calls; re-certified.`, tone: 'accent' });
       });
     },
     async removePin(fn, pinId) {

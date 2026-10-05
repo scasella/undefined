@@ -78,10 +78,22 @@ npm run typecheck
 ## Limits and known gaps
 
 - **The sandbox is not a security boundary.** See [docs/SECURITY.md](docs/SECURITY.md) for exactly what it does and does not do.
-- **REPL lines** are one expression or one binding (`x = …`, `const x = …`); no destructuring or multi-statement lines.
-  After a function grows, the original line is re-evaluated, so side effects that happened *before* the undefined call run
-  twice.
-- Generated functions are self-contained: they cannot call other generated functions.
+- **REPL lines** are single lines; separate statements with `;`. Declarations (including destructuring) bind REPL
+  variables like `x = …` does (`const` is not enforced, and `let x;` / `var x;` set `x` to `undefined` even when it
+  already holds a value); `let`/`var` inside a block or loop stay local to it; function and
+  class declarations, `import`/`export`, `return` outside a function and top-level `await` are refused. After a function grows, only the
+  statement that called it runs again, from its start: earlier statements never re-run, but side effects earlier in *that*
+  statement (`(n = n + 1, median(xs))`, the finished iterations of a loop) run twice. Each statement has its own time
+  budget, and a timeout restores the program to before the statement that overran.
+- **Composition is new and measured only once.** A generated function may call another one that is already certified
+  in the same program; the prompt lists those functions only when there are any, so prompts for programs with no other
+  certified function are byte-identical to before. With other functions listed, one morning's measurements showed the
+  examples' rejection rates unchanged and the decline rules holding, except that `hello()` is declined more often
+  (about 4 in 10 instead of 2 in 10); details in [docs/COMPOSE-MEASUREMENTS.md](docs/COMPOSE-MEASUREMENTS.md). No cycles (mutual recursion is refused at compile time), and tests cannot call other generated
+  functions. When a function it calls changes (directly, or anything further down the chain), a dependent is re-checked with the new code before it runs again; if it
+  fails, it does not run and the next call regrows it. A fault or side effect inside a callee is reported for the callee
+  and names its caller: the blame is shared. The Repo shows what each function uses and is used by, and why a dependent
+  is out of date or waiting; ejecting a function ejects the functions it calls with it.
 - A self-recursive function with no declared return type cannot compile (TS7023); the engine allows one extra attempt and
   tells the model.
 - Two tabs share one stored program and do not merge edits: a tab that finds another one open shows *This program is
@@ -96,6 +108,7 @@ npm run typecheck
 - [docs/FEATURES.md](docs/FEATURES.md): everything you can do, Decide, the data scratchpad, pinning, Eject, `?opener=`, the local session log.
 - [docs/EXAMPLES.md](docs/EXAMPLES.md): the four examples, why each first draft is rejected, measured session rates.
 - [docs/EVIDENCE.md](docs/EVIDENCE.md): the confidence line, mutation testing, measured kill rates.
+- [docs/COMPOSE-MEASUREMENTS.md](docs/COMPOSE-MEASUREMENTS.md): functions calling functions, measured live (prompt change, declines, reuse, re-checks).
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how a call is decided, what the model sees, the generation service, source layout.
 - [docs/SECURITY.md](docs/SECURITY.md): the security model, what is enforced and what is not.
 - [docs/REPLAY.md](docs/REPLAY.md): replay mode, re-recording, sharing a session.

@@ -194,3 +194,39 @@ describe('committedChip', () => {
     expect(committedChip({ specHash: 's', testsHash: 't', artifact: null } as never)).toBeNull();
   });
 });
+
+describe('status through the functions a function calls (composition fixtures, real compose/graph.ts)', () => {
+  it('composed-committed: slugifyAll is certified and uses slugify', async () => {
+    const { usesOf } = await import('./select');
+    const s = SCENARIOS['composed-committed']();
+    const all = s.program.functions.slugifyAll!;
+    expect(functionStatus(all, s.program)).toEqual({ kind: 'certified', revision: 3 });
+    expect(usesOf(all)).toEqual(['slugify']);
+    expect(committedChip(all, s.program)).toMatchObject({ label: 'Certified r3', cls: 'st-accepted' });
+  });
+
+  it('dependent-stale: slugify changed, so slugifyAll is out of date (and never "Certified"), with the revision it changed in', () => {
+    const s = SCENARIOS['dependent-stale']();
+    const all = s.program.functions.slugifyAll!;
+    const st = functionStatus(all, s.program);
+    expect(st).toEqual({ kind: 'changed', revision: 3, changed: [{ name: 'slugify', from: 2, to: 5 }] });
+    expect(functionStatusText(st)).toBe('out of date: slugify changed in r5');
+    expect(committedChip(all, s.program)).toMatchObject({ label: 'Out of date (r3)', cls: 'fs-changed' });
+    // without the program, only its own hashes are judged (Decide's callers that do not care about callees)
+    expect(functionStatus(all).kind).toBe('certified');
+  });
+
+  it('cycle-rejected: uniqueSlugs waits for slugifyAll, whose spec changed', () => {
+    const s = SCENARIOS['cycle-rejected']();
+    const st = functionStatus(s.program.functions.uniqueSlugs!, s.program);
+    expect(st).toEqual({ kind: 'waiting', revision: 4, waitingFor: ['slugifyAll'] });
+    expect(functionStatusText(st)).toBe('waiting for slugifyAll');
+    expect(functionStatus(s.program.functions.slugifyAll!, s.program)).toEqual({ kind: 'stale', what: 'spec' });
+  });
+
+  it('changedText lists names and revisions', async () => {
+    const { changedText } = await import('./select');
+    expect(changedText([{ name: 'g', to: 7 }])).toBe('g changed in r7');
+    expect(changedText([{ name: 'a', to: 4 }, { name: 'b', to: 7 }])).toBe('a and b changed in r4 and r7');
+  });
+});

@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import type { DecideChoice, Engine, EngineState, ExpectationPreview, GapQuestion, GapRef, GenerationView } from '../../types';
 import { decisionNote, decisionsOf, decisionSummary, waiverText } from '../../decide/decisions';
 import { shortHash } from '../format';
-import { functionStatus } from '../select';
+import { functionStatus, functionStatusText } from '../select';
 import { decideAnnouncement, decideOpen, decidePrefill, lowerTab, runLiveOpen } from '../uiState';
 import {
   altParts,
@@ -409,11 +409,17 @@ export function RegrowNote({ gen, state, engine }: { gen: GenerationView; state:
   const decision = rec ? decisionsOf(rec.spec).find((x) => x.id === d.id) : undefined;
   const label = decision ? decisionSummary(decision) : d.call;
   if (!decision) {
-    const live = rec && functionStatus(rec).kind === 'certified';
+    const st = rec ? functionStatus(rec, state.program) : null;
+    const live = st?.kind === 'certified';
+    const viaCallee = st?.kind === 'changed' || st?.kind === 'waiting';
     return (
       <p class="decide-banner" data-decide="removed">
         Your decision on <code>{d.call}</code> was removed.{' '}
-        {live ? `${gen.fn} r${rec!.artifact!.revision} is live again.` : `${gen.fn} is written again on its next call.`}
+        {live
+          ? `${gen.fn} r${rec!.artifact!.revision} is live again.`
+          : viaCallee
+            ? `${gen.fn} r${rec!.artifact!.revision} is back, but it is ${functionStatusText(st!)}.`
+            : `${gen.fn} is written again on its next call.`}
       </p>
     );
   }

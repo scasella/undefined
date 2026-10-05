@@ -184,6 +184,20 @@ export interface Artifact {
   evidence?: Evidence;
   /** Times the committed artifact was re-run against a strengthened spec and stayed certified. */
   recertified?: Array<{ at: number; revision: number; reason: string }>;
+  /**
+   * Other generated functions this body calls (docs/COMPOSE-DESIGN.md §A3), each stamped with the implementation it
+   * was certified against: compose/graph.ts closureHash of that function's artifact (its implHash, combined with its own
+   * stamps when it calls others) and the revision it was committed in.
+   * Direct dependencies only (the closure is derived). ABSENT when the body calls no other function, so an artifact
+   * of a program without dependencies is byte-identical to one written before composition existed.
+   */
+  deps?: Record<string, DepStamp>;
+}
+
+/** What a dependent was certified against: the callee's closureHash (source + return type + its own stamps) and its commit revision. */
+export interface DepStamp {
+  hash: Hash;
+  revision: number;
 }
 
 export interface Evidence {
@@ -250,8 +264,11 @@ export interface Revision {
 /** The exportable/importable whole-program file. */
 export interface Image {
   format: 'undefined-image';
-  /** 2 only when some revision holds decisions (older builds reject it instead of silently dropping them); else 1. */
-  version: 1 | 2;
+  /**
+   * 3 when some artifact calls another generated function (Artifact.deps: an older build could not link it); else 2
+   * when some revision holds decisions (older builds reject it instead of silently dropping them); else 1.
+   */
+  version: 1 | 2 | 3;
   exportedAt: string;
   head: number;
   revisions: Revision[];
@@ -560,6 +577,11 @@ export type EvalOutcome =
       /** The evaluated argument values, encoded with shared/serialize.ts, so the gates can replay the real call. */
       args: Json[];
       call: string;
+      /**
+       * Set when the call came from inside a committed function (a dependency with no runnable code: the dependent is
+       * "waiting" for it). `call` is still the dependency's own call with its real arguments.
+       */
+      calledBy?: string;
     }
   | {
       /** A committed function threw. */
@@ -569,8 +591,19 @@ export type EvalOutcome =
       errorName: string;
       message: string;
       stack?: string;
+      /** Set when `fn` was called by another committed function (blame is shared; the message names both). */
+      calledBy?: string;
     }
-  | { kind: 'error'; errorName: string; message: string }
+  | {
+      kind: 'error';
+      errorName: string;
+      message: string;
+      /**
+       * Set only when the unit did not compile (the runtime's own SyntaxError, raised before any of it ran). Never set
+       * for an error the code threw, whatever its name or message: the engine re-splits a line only on this flag.
+       */
+      parse?: true;
+    }
   /** `lost`: REPL variables that could not be restored after the worker was rebuilt (unserializable values). */
   | { kind: 'timeout'; ms: number; fn?: string; call?: string; lost?: string[] };
 
@@ -590,6 +623,39 @@ export interface CallRecord {
   /** Encoded result; null when it was over the size cap (then the call cannot be pinned). */
   result: Json | null;
 }
+
+// ───────────────────────── composition (UI-facing) ─────────────────────────
+
+/** One direct dependency of a committed function, as the Repo shows it (compose/graph.ts dependencyStatus). */
+export interface DependencyView {
+  name: string;
+  /** Revision of the callee's artifact the dependent was certified against, and its closureHash then. */
+  certifiedRevision: number;
+  certifiedHash: Hash;
+  /** The callee's current artifact (null: no artifact, or it is out of date with its own spec). */
+  nowRevision: number | null;
+  nowHash: Hash | null;
+  /**
+   * 'current': same implementation and runnable; 'changed': a different implementation is certified now; 'missing':
+   * no runnable code (spec edited, never grown, removed); 'waiting': same implementation, but it waits on its own deps.
+   */
+  state: 'current' | 'changed' | 'missing' | 'waiting';
+  /** For 'missing': why, in words (e.g. "its spec changed at r9"). */
+  why?: string;
+}
+
+/**
+ * Derived (never stored) dependency status of a committed, own-live function:
+ * - 'none': it calls no other generated function (or has no live artifact: own staleness says the rest);
+ * - 'current': every callee is runnable and is the implementation it was certified against;
+ * - 'changed': some callee's implementation changed since certification: it is NOT run until it is re-checked;
+ * - 'waiting': some callee (directly or further down) has no runnable code: it runs, and reaching that callee grows it.
+ */
+export type DependencyStatus =
+  | { kind: 'none' }
+  | { kind: 'current'; calls: DependencyView[] }
+  | { kind: 'changed'; calls: DependencyView[] }
+  | { kind: 'waiting'; calls: DependencyView[]; waitingFor: string[] };
 
 // ───────────────────────── engine (UI-facing) ─────────────────────────
 
@@ -644,6 +710,11 @@ export interface AttemptView {
   /** Always 4 entries in GATE_ORDER once gating starts; empty before that. */
   gates: GateResult[];
   candidate?: Candidate;
+  /**
+   * Other generated functions this draft calls, as the compile gate found them (CompileOutput.deps). UI-only (not
+   * persisted with the candidate); absent when it calls none.
+   */
+  uses?: string[];
 }
 
 export interface GenerationView {
@@ -676,7 +747,15 @@ export interface GenerationView {
    * Set when kind is 'recheck'. `decision`: the re-check was of a decision the user made after the commit (the UI
    * says so instead of the added-check line); absent for an added suggested check.
    */
-  recheck?: { reason: string; decision?: { id: string; call: string } };
+  recheck?: {
+    reason: string;
+    decision?: { id: string; call: string };
+    /**
+     * Set when the re-check was because functions it calls changed since it was certified (composition): their names,
+     * and `what` in words ("slugify changed r4 → r7"). The UI says that instead of the added-check line.
+     */
+    callees?: { names: string[]; what: string };
+  };
   /** Set on a grow started because the committed function failed a decision ("re-growing against your decision"). */
   decision?: { id: string; call: string };
 }
@@ -959,6 +1038,13 @@ export interface Engine {
   removeDecision(fn: string, decisionId: string): Promise<void>;
   /** Evaluate a typed expectation in the gate worker (same mask as tests). Never throws. */
   previewExpectation(fn: string, expr: string): Promise<ExpectationPreview>;
+  /**
+   * Re-check a committed function whose dependency changed ("out of date", compose/graph.ts dependencyStatus kind
+   * 'changed'): its unchanged body is compiled and gated against the dependencies as they are now. Pass → re-certified
+   * in place (no model asked); fail → it stays out of date and the gate panel shows why; the next call regrows it.
+   * A function that is not out of date is left alone (a notice says so).
+   */
+  recheck(fn: string): Promise<void>;
   /** Fetch (a user-supplied URL) or parse (dropped/picked text) a recording and say what loading it would do. Never throws. */
   previewRecording(input: { text?: string; url?: string; source?: string }): Promise<RecordingPreview>;
   /**

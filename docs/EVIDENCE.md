@@ -55,6 +55,22 @@ same result" and "The arguments are not modified" are listed as *already checked
 every candidate, so they are never offered. The shipped median, slugify and fibonacci specs already state everything
 the suggester knows, so they get no suggestions. That is expected.
 
+## Functions that call other functions
+
+When the function calls other generated functions, the line adds one sentence after the replays: *It calls slugify:
+every check ran with that function as certified, and only its own code was broken on purpose.* (The last clause appears
+only once broken copies have actually run; before that the sentence ends at "as certified".) Its tests, properties and
+Invariants replays ran through the callees' certified code (a side effect inside a callee rejects the caller, and the
+message names both); the mutation check mutates only the function's own code and links the callees unchanged. The
+evidence of a dependent says nothing new about its callees: each has its own line. Ejecting it writes a `provenance.json`
+of version 2: each function's version-1 provenance under `functions`, plus `graph`, which callee implementation (hash and
+revision) every function was certified against.
+
+Measured live on 2026-10-05 ([COMPOSE-MEASUREMENTS.md](COMPOSE-MEASUREMENTS.md)): with `slugify` certified, spec-less
+`slugifyAll` and `uniqueSlugs` called it in 16 of 16 sessions; with `median` certified, `medianOfMedians` called it in
+5 of 8 and reimplemented it in 3. A spec change and a Decide ruling on a callee each re-certified the dependent in place
+after one live regrow of the callee. The decline calibration with other functions listed is in the same file.
+
 ## Decisions in the evidence
 
 A ruling made with **Decide** ([FEATURES.md](FEATURES.md#decide-spec-gaps-become-questions)) is a generated unit test

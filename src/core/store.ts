@@ -387,7 +387,7 @@ export function clearAll(): Promise<void> {
  * silently dropping the decisions (its validator keeps known fields only) and showing stale artifacts as live.
  */
 export function toImage(revisions: Revision[], head: number, datasets?: Record<string, Json>): Image {
-  const version = imageHasDecisions(revisions) ? 2 : 1;
+  const version = imageHasDeps(revisions) ? 3 : imageHasDecisions(revisions) ? 2 : 1;
   const image: Image = { format: 'undefined-image', version, exportedAt: new Date().toISOString(), head, revisions };
   if (datasets && Object.keys(datasets).length > 0) image.datasets = datasets;
   return image;
@@ -584,6 +584,14 @@ export function readDecisions(v: unknown, path: string): Decision[] {
   }
 }
 
+/**
+ * Whether any artifact calls another generated function (Artifact.deps): such an image is written as version 3, so an
+ * older build refuses it rather than loading composed functions it cannot link.
+ */
+export function imageHasDeps(revisions: readonly Revision[]): boolean {
+  return revisions.some((r) => Object.values(r.program.functions).some((f) => f.artifact?.deps !== undefined));
+}
+
 /** Whether any revision holds a decision (or is one): such an image is written as version 2. */
 export function imageHasDecisions(revisions: readonly Revision[]): boolean {
   return revisions.some((r) => r.kind === 'decision' || Object.values(r.program.functions).some((f) => (f.spec.decisions?.length ?? 0) > 0));
@@ -689,7 +697,25 @@ function vArtifact(v: unknown, path: string): Artifact | null {
     revision: int(o, 'revision', path, 1),
     ...(o.evidence === undefined ? {} : { evidence: vJsonObject(o.evidence, `${path}.evidence`) as unknown as Evidence }),
     ...(o.recertified === undefined ? {} : { recertified: vJsonArray(o.recertified, `${path}.recertified`) as unknown as NonNullable<Artifact['recertified']> }),
+    ...(o.deps === undefined ? {} : { deps: vDeps(o.deps, `${path}.deps`) }),
   };
+}
+
+/** Artifact.deps: identifier keys, each a 64-hex closureHash and a positive integer revision; never empty. */
+function vDeps(v: unknown, path: string): NonNullable<Artifact['deps']> {
+  const o = obj(v, path);
+  const out: NonNullable<Artifact['deps']> = {};
+  const names = Object.keys(o);
+  if (names.length === 0) bad(path, 'must not be empty (absent when the function calls nothing)');
+  for (const name of names) {
+    const p = key(path, name);
+    if (!/^[A-Za-z_$][\w$]*$/.test(name)) bad(p, 'must be a function name');
+    const d = obj(o[name], p);
+    const hash = str(d, 'hash', p);
+    if (!/^[0-9a-f]{64}$/.test(hash)) bad(`${p}.hash`, 'must be a sha256 hash');
+    Object.defineProperty(out, name, { value: { hash, revision: int(d, 'revision', p, 1) }, enumerable: true, writable: true, configurable: true });
+  }
+  return out;
 }
 
 function vJsonObject(v: unknown, path: string): Obj {
@@ -785,7 +811,7 @@ export function validateImage(raw: unknown): { ok: true; image: Image } | { ok: 
   try {
     const o = obj(raw, 'image');
     if (o.format !== 'undefined-image') bad('format', 'must be "undefined-image"');
-    if (o.version !== 1 && o.version !== 2) bad('version', 'must be 1 or 2');
+    if (o.version !== 1 && o.version !== 2 && o.version !== 3) bad('version', 'must be 1, 2 or 3');
     const version = o.version;
     const exportedAt = str(o, 'exportedAt', 'image');
     const head = int(o, 'head', 'image', 1);
@@ -802,6 +828,7 @@ export function validateImage(raw: unknown): { ok: true; image: Image } | { ok: 
     });
     if (!seen.has(head)) bad('head', `must be the id of a revision (got ${head})`);
     if (version === 1 && imageHasDecisions(revisions)) bad('version', 'must be 2: the image holds decisions (a version 2 field)');
+    if (version !== 3 && imageHasDeps(revisions)) bad('version', 'must be 3: a function in the image calls another (a version 3 field)');
     const image: Image = { format: 'undefined-image', version, exportedAt, head, revisions };
     if (o.datasets !== undefined) {
       const ds = obj(o.datasets, 'datasets');

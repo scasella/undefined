@@ -49,6 +49,11 @@ Agreeing rulings re-certified in place; disagreeing ones (median `throws` or `0`
 candidate. The one miss was an agreeing `slugify("Straße")` ruling, which could not settle the other three
 special-letter assertions. Protocol, tables and every session are in [DECIDE-MEASUREMENTS.md](DECIDE-MEASUREMENTS.md).
 
+**With another example already committed** (so the prompt lists it under OTHER FUNCTIONS), the rates did not move:
+measured 2026-10-05 over 8 sessions per pair, `median` 8/8 → 8/8, `slugify` 8/8 → 7/8, `fibonacci` 8/8 → 8/8 and
+`topCustomersByRevenue` 8/8 first time, each on the same gate as alone and within one session of a same-day isolated
+control; no candidate called the unrelated function. See [COMPOSE-MEASUREMENTS.md](COMPOSE-MEASUREMENTS.md).
+
 ## Re-measuring
 
 `TUNE_N=8 TUNE_EX=median,slugify,fibonacci npx vitest run -c scripts/vitest.tune.config.ts` re-measures the rejection
