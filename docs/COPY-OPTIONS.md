@@ -22,6 +22,15 @@ Tone: concrete and procedural; overlaps the console's "Press Enter" hint and nam
 
 Tone: the sharpest of the three; addresses the reader directly and makes a claim about trust that a skeptic will test, which is the point.
 
+## D: the data-first opening (live mode only; not an alternative to A–C)
+
+> Bring your own data. Call a function on it that doesn't exist; a model writes it and your checks decide whether it stays.
+
+Shown instead of the default only when the first screen leads with the user's own data: live mode (the local service
+answers, even degraded), an untouched browser, no `?opener=`, and the user has not chosen "Start with examples"
+(`state.start === 'data'`, see `firstScreen` in `apps/site/src/core/engine.ts`). The public replay site never shows it.
+Tone: an invitation, then the same inversion as A in one sentence; it points at the drop card right under it.
+
 ## How to swap
 
 In `apps/site/src/ui/components/Argument.tsx`, change
@@ -30,7 +39,8 @@ In `apps/site/src/ui/components/Argument.tsx`, change
 export const ARGUMENT: readonly [string, string] = COPY.A;
 ```
 
-to `COPY.B` or `COPY.C`. All three drafts live in `COPY` in that file; edit wording there and keep this page in step.
+to `COPY.B` or `COPY.C`. The drafts live in `COPY` in that file (D is the data-first line, chosen by
+`state.start`, not by `ARGUMENT`); edit wording there and keep this page in step.
 `apps/site/src/ui/components/Argument.test.ts` checks every draft (two sentences, no jargon the screenshot script flags).
 Changing the copy does not touch any example spec or prompt, so `apps/site/public/recordings/*` stay valid; re-run
 `node apps/site/scripts/capture.mjs` if the GIF and video should show the new line.

@@ -8,8 +8,11 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Engine, EngineState, RecordingPreview } from '@scasella/undefined-engine/types';
 import {
   classifyDroppedText,
+  DROP_SUBTEXT,
   DROP_TEXT,
+  dropRoute,
   droppedFileProblem,
+  multiDropProblem,
   functionLine,
   IMAGE_FILENAME,
   importFileLine,
@@ -29,6 +32,8 @@ import {
   sessionLogCountText,
   shareLinkFor,
 } from '../share';
+import { openDataFile } from './DataStart';
+import { dataFileProblem } from '../data';
 import { CONFIGURED_SHARE_ENDPOINT, endpointHost, uploadRecording } from '../../share/upload';
 import { copyText, downloadText, loadRecordingOpen, pendingImport, pendingRecording, sessionLogOpen, shareOpen, showNotice } from '../uiState';
 
@@ -467,7 +472,10 @@ export function DropOverlay({ engine }: { engine: Engine }) {
       setShown(false);
       if (!hasFiles(e) || anyDialogOpen()) return;
       e.preventDefault();
-      const file = e.dataTransfer?.files?.[0];
+      const files = e.dataTransfer?.files;
+      const many = multiDropProblem(files?.length ?? 0);
+      if (many) return showNotice('error', many);
+      const file = files?.[0];
       if (file) void handleDroppedFile(engine, file);
     };
     window.addEventListener('dragenter', enter);
@@ -486,15 +494,19 @@ export function DropOverlay({ engine }: { engine: Engine }) {
     <div class="drop-overlay" aria-hidden="true">
       <div class="drop-overlay-box">
         <p class="mono">{DROP_TEXT}</p>
-        <p class="small muted">a .json recording or an exported program image (both ask before anything changes)</p>
+        <p class="small muted">{DROP_SUBTEXT}</p>
       </div>
     </div>
   );
 }
 
 async function handleDroppedFile(engine: Engine, file: File): Promise<void> {
-  const bad = droppedFileProblem(file);
-  if (bad) return showNotice('error', bad);
+  // one classifier for the whole page: data opens the data drawer pre-filled; recordings and images keep their path
+  const route = dropRoute(file);
+  if (route.route === 'refuse') return showNotice('error', route.error);
+  if (route.route === 'data') return openDataFile(file, engine.state.value);
+  // past the data read cap it cannot be either: the drawer says why (the data size limit), not "a recording is smaller"
+  if (dataFileProblem(file)) return openDataFile(file, engine.state.value);
   let text: string;
   try {
     text = await file.text();
@@ -502,6 +514,10 @@ async function handleDroppedFile(engine: Engine, file: File): Promise<void> {
     return showNotice('error', `Could not read ${file.name}: ${(e as Error).message}`);
   }
   const what = classifyDroppedText(text, file.name);
+  if (what.kind === 'data') return openDataFile(file, engine.state.value);
+  // a recording or image keeps its own size check (classified first, so a large JSON array is not told it is one)
+  const bad = droppedFileProblem(file);
+  if (bad) return showNotice('error', bad);
   if (what.kind === 'image') {
     // the program image path, exactly as Image → Import: checked, then confirmed before anything is replaced
     await previewImport(engine, text, file.name);

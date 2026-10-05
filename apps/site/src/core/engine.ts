@@ -126,6 +126,7 @@ import { parseCsv } from '../data/csv';
 import { parseJsonData } from '../data/json';
 import { coerceCsvRows } from '../data/infer';
 import { buildDataset, canonicalJson, DATASET_LIMITS, utf8Length, validateVariableName } from '../data/dataset';
+import { suggestCalls } from '../data/suggest';
 import { CORS_HINT, fetchRecording, parseRecordingText, recordingParamFromLocation, seedFromRecording, type FetchResult } from '../share/source';
 import { openerFromSearch } from './opener';
 import { createSessionLog, SESSION_LOG_FLAG, type SessionLog, type SessionLogEntry } from '../sessionlog/log';
@@ -628,6 +629,7 @@ export async function datasetPreview(input: { text: string; filename?: string; n
       sampleText: sample.text,
       sendDescription: describeSend(ref, shared),
       table: { ...table, total: ref.rowCount },
+      suggestions: suggestCalls({ name: ref.name, columns: ref.columns, rows: b.rows }),
     };
   } catch (e) {
     return { ok: false, error: `Could not read the data: ${errorText(e)}` };
@@ -856,6 +858,18 @@ interface PreparedRecording {
   preview: Extract<RecordingPreview, { ok: true }>;
 }
 
+/**
+ * What the first screen leads with. Live mode ('degraded' is live) in a browser whose program is untouched, with no
+ * `?opener=`, leads with the user's own data unless they chose examples; a choice made with the "Start with…" controls
+ * is remembered (flags.start) and wins. Replay mode (the public site) always keeps the example-first opening, and a
+ * returning user (anything stored beyond the seed) sees the examples layout with their stored state.
+ */
+export function firstScreen(x: { mode: 'live' | 'replay'; untouched: boolean; opener: boolean; chosen?: 'examples' | 'data' }): 'examples' | 'data' {
+  if (x.mode !== 'live' || x.opener) return 'examples';
+  if (x.chosen) return x.chosen;
+  return x.untouched ? 'data' : 'examples';
+}
+
 // ───────────────────────── engine ─────────────────────────
 
 export type EngineHandle = Engine & {
@@ -885,6 +899,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     generation: null,
     env: {},
     hints: { opener: true, takeaway: false },
+    start: 'examples',
     datasets: [],
     send: { samples: true, sampleRows: SAMPLE_ROWS },
     busy: false,
@@ -1387,10 +1402,16 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       if (myEpoch !== epoch) return;
       ex = examples.find((e) => e.id === openerId) ?? ex;
     }
+    // What the first screen leads with (state.start): decided here, before the first paint, with the mode known.
+    const untouched =
+      !persisted || (flags.start === undefined && history.length === 1 && head === 1 && Object.keys(history[0].program.datasets ?? {}).length === 0 && Object.keys(liveEnv).length === 0);
+    const start = firstScreen({ mode: state.value.mode, untouched, opener: openerId !== null, chosen: flags.start });
     const remembered = persisted ? deps.inputMemory.load() : null;
     set({
-      replInput: remembered ?? ex?.call ?? '',
+      // data-first opens empty; a returning browser that chose it gets its last line back, as the examples layout does
+      replInput: start === 'data' ? (flags.start === 'data' ? (remembered ?? '') : '') : (remembered ?? ex?.call ?? ''),
       hints: { opener: !flags.openerDismissed, takeaway: flags.takeawayShown },
+      start,
       ready: true,
     });
 
@@ -1912,6 +1933,20 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
       errorEntry('GenerationFailed', err.message, [RESTART.retryGrow, RESTART.dismiss], growCtx);
       return { kind: 'failed' };
     }
+    // Replay mode, a call on the user's own data: nothing was recorded for it, so say so before anything is asked (no
+    // attempt card) and point at live mode and at the recorded orders example (the same flow).
+    const dataNames = (req.dataArgs ?? []).map((d) => d.name);
+    const needsLiveData = (): GenerateError => ({
+      code: 'no_recording',
+      message: `This page replays recorded drafts; none exists for ${fn} on your data. Writing it needs live mode.`,
+      fix: [...RUN_LIVE_FIX],
+    });
+    if (mode === 'replay' && dataNames.length > 0 && canTell && !(gen as ReplayGenerator).has(fn, specHash, testsHash, fallbackTestsHash)) {
+      const err = needsLiveData();
+      setGen({ phase: 'failed', error: err, needsLive: { reason: 'data', datasets: dataNames } });
+      errorEntry('GenerationFailed', err.message, [RESTART.retryGrow, RESTART.dismiss], growCtx);
+      return { kind: 'failed' };
+    }
 
     while (charged < maxAttempts) {
       const index = candidates.length; // 0-based: also the GenerateRequest.attempt (replay indexes by it)
@@ -1958,6 +1993,10 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         let err: GenerateError =
           e instanceof GenerationFailure ? { ...e.info } : { code: 'codex_failed', message: `Generation failed: ${errorText(e)}` };
         if (err.code === 'no_recording' && mode === 'replay' && decided.length > 0) err = needsLive();
+        else if (err.code === 'no_recording' && mode === 'replay' && dataNames.length > 0 && index === 0) {
+          err = needsLiveData();
+          setGen({ needsLive: { reason: 'data', datasets: dataNames } });
+        }
         const problemFix = state.value.service.problem?.fix;
         if (!err.fix && problemFix && state.value.mode === 'live') err.fix = problemFix;
         setAttempt(index, { status: 'aborted' });
@@ -2765,6 +2804,18 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         notice('error', `Removing the data failed: ${errorText(e)}`);
       }
     });
+  }
+
+  function setStart(start: 'examples' | 'data'): void {
+    flags = { ...flags, start };
+    const input = state.value.replInput.trim();
+    const exampleCalls = new Set(examples.map((e) => e.call));
+    let replInput = state.value.replInput;
+    // fill the console only when the user has nothing of their own there
+    if (start === 'examples' && input === '' && !state.value.busy) replInput = initialExample()?.call ?? '';
+    if (start === 'data' && exampleCalls.has(input) && !state.value.busy) replInput = '';
+    set({ start, replInput });
+    void persistFlags();
   }
 
   function setSendSamples(on: boolean): void {
@@ -4141,7 +4192,13 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         history = [r1];
         head = 1;
         // the privacy choice (sample rows or the type only) survives a reset; nothing else does
-        flags = { takeawayShown: false, openerDismissed: false, ...(flags.sendSamples !== undefined ? { sendSamples: flags.sendSamples } : {}) };
+        // as does the first-screen preference
+        flags = {
+          takeawayShown: false,
+          openerDismissed: false,
+          ...(flags.sendSamples !== undefined ? { sendSamples: flags.sendSamples } : {}),
+          ...(flags.start !== undefined ? { start: flags.start } : {}),
+        };
         await deps.store.appendRevision(r1, 1);
         await persistFlags();
         content.clear();
@@ -4153,9 +4210,11 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
         publishHistory();
         const { loadedRecording: _lr, recordingOffer: _ro, ...kept } = state.value;
         state.value = kept;
+        const start = firstScreen({ mode: state.value.mode, untouched: true, opener: false, chosen: flags.start });
         set({
           repl: [],
-          replInput: initialExample()?.call ?? '',
+          start,
+          replInput: start === 'data' ? '' : (initialExample()?.call ?? ''),
           generation: null,
           env: {},
           busy: busyCount > 0,
@@ -4215,6 +4274,7 @@ export function createEngine(overrides: Partial<EngineDeps> = {}): EngineHandle 
     loadDataset,
     removeDataset,
     setSendSamples,
+    setStart,
     pinResult,
     removePin,
     runMutation: runMutationPublic,

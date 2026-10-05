@@ -11,7 +11,7 @@ import { decidedReason, removedDecisionReason } from '@scasella/undefined-engine
 import { specWithDecisions } from '@scasella/undefined-engine/program';
 import { encodeValue } from '@scasella/undefined-engine/shared/serialize';
 import { buildData, datasetPreview, PINNED_INFO } from '../../core/engine';
-import { addedChecks, dataDrawerOpen, decideOpen, decidePrefill, lowerTab, pendingRecording, selection, sessionLogOpen, shareOpen } from '../uiState';
+import { addedChecks, dataDrawerOpen, dataFilename, dataName, dataSuggestions, dataText, decideOpen, decidePrefill, lowerTab, pendingRecording, selection, sessionLogOpen, shareOpen } from '../uiState';
 import { parseRecordingText } from '../../share/source';
 import { suggestProperties } from '@scasella/undefined-engine/suggest/suggest';
 import { appendProperty } from '@scasella/undefined-engine/suggest/apply';
@@ -54,6 +54,12 @@ export function createFixtureEngine(scenario: string): Engine {
   const state = signal<EngineState>(make());
   let epoch = 0; // bumped by reset so a running script stops
   const ui = SCENARIO_UI[scenario];
+  if (ui?.draft) {
+    dataText.value = ui.draft.text;
+    dataFilename.value = ui.draft.filename;
+    dataName.value = ui.draft.name;
+  }
+  if (ui?.suggestions) dataSuggestions.value = ui.suggestions();
   if (ui?.drawer) dataDrawerOpen.value = true;
   if (ui?.tab) lowerTab.value = ui.tab;
   if (ui?.added) addedChecks.value = ui.added();
@@ -455,6 +461,13 @@ export function createFixtureEngine(scenario: string): Engine {
     },
     setSendSamples(on) {
       update((s) => void (s.send = { ...s.send, samples: on }));
+    },
+    setStart(start) {
+      update((s) => {
+        s.start = start;
+        if (start === 'examples' && s.replInput.trim() === '') s.replInput = EXAMPLES[0]?.call ?? '';
+        if (start === 'data' && EXAMPLES.some((e) => e.call === s.replInput.trim())) s.replInput = '';
+      });
     },
     async pinResult(entryId) {
       update((s) => {

@@ -88,15 +88,39 @@ ignored, and resetting the program seeds `median` again. Share links strip it. [
 
 ## Data scratchpad
 
-Open **Session → Data…** in the header to paste or drop CSV, TSV, JSON or JSON Lines (`.csv .tsv .json .jsonl .txt`). The file is
-read in your browser, parsed, and its columns typed (numbers, booleans; empty cells become `null`). The preview shows the
-row count, each column's type, the declared `type Row = {…}` and the first 20 rows. **Load** binds the rows to a REPL
-variable (`rows` by default) as a revision. Rows are stored once, by content hash, in IndexedDB and in exported images,
-and come back with rollback like any other variable. Limits: 20,000 rows and 1 MB.
+**Live mode opens on your data.** When the local service answers (`npm run dev`; a service that is running but cannot
+use Codex counts, and its fix is shown on the card), a browser with nothing stored beyond the seed and no `?opener=`
+leads with a drop card (*Drop a CSV or JSON file, or paste data*, with **Choose a file…** and **Paste data…**), the
+examples under it as *or try an example*, the line *Bring your own data. Call a function on it that doesn't exist; a
+model writes it and your checks decide whether it stays.* and an empty console. **Start with examples** (on the card, or
+**Session → Start with examples**) switches to the example-first opening and is remembered in this browser; **Session →
+Start with your data** switches back. A returning browser (anything loaded, run or committed) opens on the examples
+layout with its stored state. The public page (replay mode) always keeps the example-first opening.
 
-Then call a function that does not exist on it, e.g. `topCustomersByRevenue(rows)`. The parameter is typed `Row[]`, the
+Otherwise, click **Use your data…** next to the examples (it opens a file picker), **Paste data…**, or **Session → Data…**, or drop
+a file anywhere on the page: CSV, TSV, JSON or JSON Lines (`.csv .tsv .json .jsonl .ndjson .txt`). A dropped `.json` is a
+recording or a program image when its `format` says so, and data when it holds rows (an array, or `{ "x": [ … ] }`). Every
+way in opens the same data drawer with the file in it; the drawer is the one preview and the one place that says what
+leaves your browser. The file is read in your browser, parsed, and its columns typed (numbers, booleans; empty cells become
+`null`; dates stay strings). The preview shows the row count, each column's type, the declared `type SalesRow = {…}` and
+the first 20 rows. A spreadsheet or other binary file is refused with *export it as CSV*; CSV that parses into one column
+asks whether the delimiter is something else. Nothing is stored until **Load**, which binds the rows to a REPL variable
+named after the file (`sales.csv` → `sales`, `2024-q3.csv` → `data2024Q3`, pasted text → `data`; editable in the drawer;
+never `rows`, which the orders example uses, and never a name already taken) as a revision. Rows are stored once, by
+content hash, in IndexedDB and in exported images, and come back with rollback like any other variable. Limits: 20,000
+rows and 1 MB.
+
+After **Load**, two or three calls to try appear under the examples, worked out from the column types with no model
+asked, each named for what it returns: `countByStatus(sales)`, `totalAmountByRegion(sales)`, `top5CustomersByAmount(sales)`,
+`averageAmount(sales)`, `orderDateRange(sales)`. Clicking one types it into the console; Enter runs it. (Live smoke on three CSVs: 24 of 24 chip calls were written, committed and correct on the first candidate; see [BYO-DATA-MEASUREMENTS.md](BYO-DATA-MEASUREMENTS.md).) Or call any
+function that does not exist on it, e.g. `topCustomersByRevenue(rows)`. The parameter is typed `Row[]`, the
 type declaration is compiled in front of the function, and the gates replay the call on the real rows, frozen, so a
 candidate that sorts `rows` in place is rejected.
+
+On the public page (replay mode) your data loads, previews and works with functions that already exist, but nothing was
+recorded for a new function on it: the call says *This page replays recorded drafts; none exists for countByStatus on your
+data. Writing it needs live mode.* before any attempt, with **How to run live** and **Try the orders example** (the same
+flow, recorded).
 
 **What is sent to Codex, and when.** Nothing is sent when you paste, preview or load. When a call that uses a dataset
 grows (or regrows) a function in live mode, that prompt contains the variable name, the row count, the `type Row = {…}`

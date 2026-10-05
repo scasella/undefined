@@ -25,4 +25,12 @@ describe('the argument above the fold', () => {
     const text = vnode.props.children.map((c) => (typeof c === 'string' ? c : c.props.children)).join('');
     expect(text).toBe(`${ARGUMENT[0]} ${ARGUMENT[1]}`);
   });
+
+  it('renders draft D only when the first screen leads with data', () => {
+    type P = VNode<{ children: (VNode<{ children: string }> | string)[] }>;
+    const text = (v: P) => v.props.children.map((c) => (typeof c === 'string' ? c : c.props.children)).join('');
+    expect(text(Argument({ start: 'data' }) as P)).toBe(`${COPY.D[0]} ${COPY.D[1]}`);
+    expect(text(Argument({ start: 'examples' }) as P)).toBe(`${ARGUMENT[0]} ${ARGUMENT[1]}`);
+    expect(ARGUMENT).not.toBe(COPY.D);
+  });
 });

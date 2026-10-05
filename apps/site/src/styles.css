@@ -682,7 +682,7 @@ main:focus {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--s2) var(--s5);
+  gap: var(--s2) var(--s4);
   padding: var(--s2) 0;
   min-height: 48px;
   min-width: 0;
@@ -722,6 +722,213 @@ main:focus {
 .example:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* the user's own data: a quiet way in beside the examples (secondary; the examples keep the opening) */
+.data-start {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  flex: none;
+}
+.data-start .btn {
+  color: var(--ink-2);
+  /* a little narrower than a stock .btn so the examples keep one row down to a 1024px window (the opening must not move) */
+  padding-inline: 8px;
+}
+/* the data-first opening (live mode, a fresh browser): the drop card leads, the examples follow */
+.data-first {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s2) var(--s5);
+  margin: var(--s4) 0 var(--s2);
+  padding: var(--s4) var(--s5);
+  background: var(--sheet);
+  border: 1.5px dashed var(--edge);
+  border-radius: var(--radius);
+  min-width: 0;
+}
+.data-first-title {
+  grid-column: 1;
+  margin: 0;
+  font: 600 var(--t-lg) / var(--lh-snug) var(--font-ui);
+  color: var(--ink);
+}
+.data-first-note {
+  grid-column: 1;
+  margin: 0;
+  font-size: var(--t-sm);
+  color: var(--muted);
+}
+.data-first-actions {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.data-first-problem {
+  grid-column: 1 / -1;
+  padding: var(--s2) var(--s4);
+  border-left: 3px solid var(--warn);
+  background: var(--warn-wash);
+  min-width: 0;
+}
+/* the fix commands wrap here rather than scroll: nothing in the card is clipped on a phone */
+.data-first-problem .copyblock code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.data-first-problem p {
+  margin: 0 0 var(--s2);
+}
+.data-first-problem p:last-child {
+  margin-bottom: 0;
+}
+.data-first-switch {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: var(--t-sm);
+  color: var(--muted);
+}
+.data-first-switch .linkish {
+  font-size: var(--t-sm);
+  color: var(--muted);
+}
+/* once something is typed or loaded, the card recedes (the chips or Run lead) */
+.data-first.is-quiet {
+  padding-top: var(--s2);
+  padding-bottom: var(--s2);
+  border-style: solid;
+  border-color: var(--rule);
+  background: transparent;
+}
+.data-first.is-quiet .data-first-title {
+  font-size: var(--t-md);
+}
+.df-touch {
+  display: none;
+}
+@media (max-width: 640px), (pointer: coarse) {
+  .df-pointer {
+    display: none;
+  }
+  .df-touch {
+    display: inline;
+  }
+}
+.subhead-or {
+  justify-content: flex-start;
+  gap: var(--s2) var(--s4);
+}
+.or-label {
+  flex: none;
+  font-size: var(--t-sm);
+  color: var(--muted);
+}
+
+/* after a Load: calls to try on the new dataset (not .example: keys 1–4 load examples) */
+.suggest-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  padding: 0 0 var(--s2);
+  min-width: 0;
+}
+.suggest-label {
+  font-size: var(--t-sm);
+  color: var(--muted);
+}
+.suggest-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 3px 12px;
+  background: transparent;
+  border: 1px solid var(--edge);
+  border-radius: 15px;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background-color var(--t-hover) ease-out, transform var(--t-hover) ease-out;
+}
+.suggest-chip:hover:not(:disabled) {
+  background: var(--inset);
+}
+.suggest-chip:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.suggest-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.replay-data-note {
+  margin: 0 0 var(--s2);
+  color: var(--ink-2);
+}
+.headline-needs-live .form-actions {
+  margin-top: var(--s2);
+  flex-wrap: wrap;
+}
+.headline-needs-live .btn .muted {
+  font-weight: 400;
+}
+.headline-needs-live .btn-primary .muted {
+  color: inherit;
+}
+@media (max-width: 640px) {
+  .subhead {
+    flex-wrap: wrap;
+  }
+  /* phone: the two buttons, full width, no drag copy */
+  .data-start {
+    width: 100%;
+    padding: 0 var(--s4);
+  }
+  .data-start .btn {
+    flex: 1 1 0;
+    min-height: 44px;
+  }
+  .suggest-row {
+    padding: 0 var(--s4) var(--s2);
+  }
+  /* phone: one column, full-width buttons, no drag copy */
+  .data-first {
+    grid-template-columns: minmax(0, 1fr);
+    margin: var(--s4) var(--s4) var(--s2);
+    padding: var(--s4);
+  }
+  .data-first-actions {
+    grid-column: 1;
+    grid-row: auto;
+  }
+  .data-first-actions .btn {
+    flex: 1 1 0;
+    min-height: 44px;
+  }
+  .data-first-problem {
+    padding: var(--s2) var(--s3);
+  }
+  .or-label {
+    padding: 0 var(--s4);
+  }
+  .suggest-label {
+    width: 100%;
+  }
+  .suggest-chip {
+    min-height: 44px;
+    border-radius: 22px;
+    max-width: 100%;
+  }
+  .suggest-chip .example-call {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .headline-needs-live .form-actions .btn {
+    white-space: normal;
+    text-align: left;
+  }
 }
 
 .banner {
@@ -3287,6 +3494,21 @@ input[type='checkbox'] {
   font-size: clamp(22px, 0.8vw + 14px, 28px);
   max-width: 34ch;
   margin: var(--s2) 0 var(--s4);
+}
+.opener.opener-quiet {
+  font-family: var(--font-ui);
+  font-size: var(--t-md);
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: var(--lh-body);
+  color: var(--muted);
+  max-width: none;
+  margin: 0 0 var(--s2);
+}
+.opener.opener-quiet em {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--ink-2);
 }
 .opener-fn {
   font-family: var(--font-code);

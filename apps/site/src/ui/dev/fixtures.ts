@@ -27,6 +27,10 @@ import { ORDERS_GOOD, ordersCallSpec } from '../../examples/orders';
 import { bundledOrders } from '../../data/orders';
 import { inferDataset } from '../../data/infer';
 import { sampleForModel } from '../../data/sample';
+import { suggestCalls } from '../../data/suggest';
+import { coerceCsvRows } from '../../data/infer';
+import { parseCsv } from '../../data/csv';
+import type { DataSuggestion } from '@scasella/undefined-engine/types';
 import { tablePreview } from '../../sandbox/replCore';
 import { encodeValue } from '@scasella/undefined-engine/shared/serialize';
 import { suggestProperties } from '@scasella/undefined-engine/suggest/suggest';
@@ -398,6 +402,7 @@ export function baseState(): EngineState {
     generation: null,
     env: {},
     hints: { opener: true, takeaway: false },
+    start: 'examples',
     datasets: [],
     send: { samples: true, sampleRows: 3 },
     busy: false,
@@ -793,6 +798,51 @@ function recheckFailedState(): EngineState {
 
 // ───────── scenarios ─────────
 
+/** A small, fictional sales export as a user would drop it (deterministic; the drop and suggestion fixtures). */
+export const SALES_FILENAME = 'sales-q3.csv';
+export const SALES_CSV = (() => {
+  const customers = ['Kettlewhistle Farms', 'Brambleskate Ltd', 'Nimbus Pickle Works', 'Puddlesworth Inc', 'Wibbleton Hardware', 'Thistlewhump Bakery'];
+  const regions = ['north', 'south', 'east', 'west'];
+  const statuses = ['paid', 'paid', 'paid', 'refunded', 'pending'];
+  let x = 7;
+  const next = () => (x = (x * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const lines = ['orderId,orderDate,customer,region,status,amount'];
+  for (let i = 0; i < 48; i++) {
+    const day = String(1 + Math.floor(next() * 28)).padStart(2, '0');
+    const month = String(7 + Math.floor(i / 16)).padStart(2, '0');
+    const amount = (Math.round(next() * 90000) / 100 + 10).toFixed(2);
+    lines.push(`${5001 + i},2024-${month}-${day},${customers[Math.floor(next() * customers.length)]},${regions[Math.floor(next() * regions.length)]},${statuses[Math.floor(next() * statuses.length)]},${amount}`);
+  }
+  return lines.join('\n') + '\n';
+})();
+const SALES_ROWS = coerceCsvRows(parseCsv(SALES_CSV).rows).rows;
+const SALES_INFERRED = inferDataset(SALES_ROWS, { typeName: 'SalesQ3Row' });
+export const SALES_REF: DatasetRef = {
+  name: 'salesQ3',
+  hash: h('5a'),
+  typeName: 'SalesQ3Row',
+  typeDecl: SALES_INFERRED.typeDecl,
+  rowCount: SALES_ROWS.length,
+  columns: SALES_INFERRED.columns,
+  source: 'file',
+  filename: SALES_FILENAME,
+  bytes: 3_412,
+};
+export const SALES_SUGGESTIONS: DataSuggestion[] = suggestCalls({ name: 'salesQ3', columns: SALES_INFERRED.columns, rows: SALES_ROWS });
+
+function salesBoundState(): EngineState {
+  const s = baseState();
+  s.hints.opener = false;
+  s.replInput = '';
+  s.datasets = [SALES_REF];
+  s.program.datasets = { salesQ3: SALES_REF };
+  s.env = { salesQ3: `[… ${SALES_REF.rowCount} rows]` };
+  s.revisions = [R1, revRow({ id: 2, kind: 'dataset', title: `Loaded dataset salesQ3: ${SALES_REF.rowCount} rows × ${SALES_REF.columns.length} columns` }, 2, 0)];
+  s.headRevision = 2;
+  s.repl = [{ kind: 'info', id: eid('if'), text: `\`salesQ3\` is bound: \`${SALES_REF.typeDecl}\` (${SALES_REF.rowCount} rows)`, tone: 'muted' }];
+  return s;
+}
+
 export const SCENARIOS: Record<string, () => EngineState> = {
   opening: baseState,
 
@@ -1089,6 +1139,73 @@ export const SCENARIOS: Record<string, () => EngineState> = {
     return s;
   },
 
+  // live mode, a fresh browser: the first screen leads with the user's own data (examples under it, console empty)
+  'live-first-screen': () => {
+    const s = baseState();
+    s.start = 'data';
+    s.replInput = '';
+    return s;
+  },
+
+  // the same, with the local service running but Codex unusable: the fix is on the primary card
+  'live-first-screen-degraded': () => {
+    const s = baseState();
+    s.start = 'data';
+    s.replInput = '';
+    s.service = {
+      state: 'degraded',
+      model: 'gpt-6-luna',
+      effort: 'medium',
+      problem: {
+        code: 'codex_missing',
+        message: 'Codex CLI was not found on PATH. The local service is running, but it cannot generate code.',
+        fix: ['npm install -g @openai/codex@latest', 'codex login'],
+      },
+    };
+    return s;
+  },
+
+  // a CSV file dropped on the page: the drawer opens pre-filled (name from the file), preview and what leaves the browser
+  'drop-preview': () => baseState(),
+
+  // after Load: the dataset is bound and three calls to try on it sit under the examples
+  'suggest-chips': salesBoundState,
+
+  // replay mode: a suggested call on the user's data has no recorded draft, so no model is asked and no attempt made
+  'replay-needs-live-data': () => {
+    const s = salesBoundState();
+    s.mode = 'replay';
+    s.service = { state: 'down' };
+    const call = SALES_SUGGESTIONS[0]?.call ?? 'countByStatus(salesQ3)';
+    const fn = call.slice(0, call.indexOf('('));
+    const message = `This page replays recorded drafts; none exists for ${fn} on your data. Writing it needs live mode.`;
+    s.repl = [
+      ...s.repl,
+      { kind: 'input', id: eid('in'), text: call },
+      { kind: 'error', id: eid('er'), name: 'GenerationFailed', message, restarts: [
+        { id: 'retry', label: 'Retry', description: 'Run the grow loop again with a fresh budget.' },
+        { id: 'dismiss', label: 'Dismiss', description: 'Leave the program as it is.' },
+      ] },
+    ];
+    const spec = specFromCallLike(fn, ['SalesQ3Row[]']);
+    s.generation = {
+      id: 'g-data',
+      fn,
+      signature: declarationLine(spec),
+      call,
+      phase: 'failed',
+      attempt: 1,
+      maxAttempts: 3,
+      progress: [],
+      attempts: [],
+      ungated: true,
+      mode: 'replay',
+      error: { code: 'no_recording', message, fix: ['git clone <repo> undefined && cd undefined', 'npm install', 'npm run dev'] },
+      needsLive: { reason: 'data', datasets: ['salesQ3'] },
+    };
+    return s;
+  },
+
   'replay-banner': () => {
     const s = baseState();
     s.mode = 'replay';
@@ -1188,11 +1305,18 @@ export const SCENARIO_UI: Record<
     share?: boolean;
     sessionLog?: boolean;
     pending?: () => { input: { text?: string; url?: string; source: string }; preview: RecordingPreview };
+    /** The data drawer's draft (as a dropped file leaves it). */
+    draft?: { text: string; filename?: string; name: string };
+    /** Suggested calls shown after a Load. */
+    suggestions?: () => { dataset: string; list: DataSuggestion[] };
     /** Open the Decide block on this attempt's rejection, with a choice already made. */
     decide?: { attempt: number; choice?: string; expr?: string; throws?: boolean; reason?: string };
   }
 > = {
   'data-drawer-open': { drawer: true },
+  'drop-preview': { drawer: true, draft: { text: SALES_CSV, filename: SALES_FILENAME, name: 'salesQ3' } },
+  'suggest-chips': { suggestions: () => ({ dataset: 'salesQ3', list: SALES_SUGGESTIONS }) },
+  'replay-needs-live-data': { suggestions: () => ({ dataset: 'salesQ3', list: SALES_SUGGESTIONS }) },
   'share-dialog': { share: true },
   'session-log': { sessionLog: true },
   'load-recording': { pending: () => ({ input: { text: '{}', source: FIXTURE_PREVIEW.source }, preview: FIXTURE_PREVIEW }) },

@@ -73,6 +73,14 @@ const FIXTURES = {
   'cycle-rejected': { fixture: 'cycle-rejected', element: '.headline-fail' },
   'repo-cycle': { fixture: 'cycle-rejected', element: '.lower', scrollTo: '.deps' },
   'repl-multi': { fixture: 'repl-multi', element: '.panel-repl' },
+  // the user's own data (src/ui/components/DataStart.tsx): a dropped file previewed, the calls suggested after Load,
+  // and replay mode's honest answer for a call on that data
+  'drop-preview': { fixture: 'drop-preview', element: '.drawer' },
+  'suggest-chips': { fixture: 'suggest-chips', element: '.stage' },
+  'replay-needs-live-data': { fixture: 'replay-needs-live-data', element: '.panel-gates' },
+  // live mode in a fresh browser: the drop card leads, examples under it (and the same with Codex unusable: the fix)
+  'live-first-screen': { fixture: 'live-first-screen', element: '.stage' },
+  'live-first-screen-degraded': { fixture: 'live-first-screen-degraded', element: '.stage' },
   'image-menu': { fixture: 'committed', prep: async (page) => { await page.locator('.menu summary').click(); await page.waitForTimeout(300); } },
 };
 

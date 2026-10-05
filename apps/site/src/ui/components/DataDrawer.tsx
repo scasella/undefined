@@ -4,13 +4,15 @@
  */
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { DatasetPreview, Engine, EngineState } from '@scasella/undefined-engine/types';
-import { DATA_FILE_ACCEPT, dataFileProblem, datasetLine, formatBytes, formatCount, sendCopy, variableName } from '../data';
-import { dataDrawerOpen } from '../uiState';
+import { DATA_FILE_ACCEPT, datasetLine, datasetNameFromFile, delimiterHint, formatBytes, formatCount, sendCopy, variableName } from '../data';
+import { dataDrawerOpen, dataFilename, dataName, dataProblem, dataSuggestions, dataText, runLiveOpen } from '../uiState';
 import { DataTable } from './DataTable';
+import { multiDropProblem } from '../share';
+import { openDataFile, takenNames } from './DataStart';
 
 const PREVIEW_DEBOUNCE_MS = 250;
 
-function Preview({ preview }: { preview: DatasetPreview }) {
+function Preview({ preview, hint }: { preview: DatasetPreview; hint: string | null }) {
   if (!preview.ok) {
     return (
       <p class="form-error" role="alert">
@@ -35,8 +37,9 @@ function Preview({ preview }: { preview: DatasetPreview }) {
         <code>{preview.typeDecl}</code>
       </pre>
       <DataTable table={preview.table} label={`First rows of ${preview.name}`} compact />
-      {preview.warnings.length > 0 && (
+      {(preview.warnings.length > 0 || hint) && (
         <ul class="data-warnings" aria-label="Warnings">
+          {hint && <li>{hint}</li>}
           {preview.warnings.map((w, i) => (
             <li key={i}>{w}</li>
           ))}
@@ -76,11 +79,19 @@ export function DataDrawer({ state, engine }: { state: EngineState; engine: Engi
   const open = dataDrawerOpen.value;
   const ref = useRef<HTMLDialogElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const [text, setText] = useState('');
-  const [filename, setFilename] = useState<string | undefined>(undefined);
-  const [name, setName] = useState('rows');
+  // the draft lives in uiState so a drop anywhere (or the first screen's buttons) opens this drawer pre-filled
+  const text = dataText.value;
+  const filename = dataFilename.value;
+  const name = dataName.value;
+  const problem = dataProblem.value;
+  const setText = (v: string) => (dataText.value = v);
+  const setFilename = (v: string | undefined) => (dataFilename.value = v);
+  const setName = (v: string) => (dataName.value = v);
+  const setProblem = (v: string | null) => (dataProblem.value = v);
+  // the name used when the field is left empty: from the file, or a free default; never `rows`
+  const fallbackName = datasetNameFromFile(filename, takenNames(state));
+  const varName = variableName(name, fallbackName);
   const [preview, setPreview] = useState<DatasetPreview | null>(null);
-  const [problem, setProblem] = useState<string | null>(null);
   const [loaded, setLoaded] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -89,7 +100,11 @@ export function DataDrawer({ state, engine }: { state: EngineState; engine: Engi
   useEffect(() => {
     const d = ref.current;
     if (!d) return;
-    if (open && !d.open) d.showModal();
+    if (open && !d.open) {
+      d.showModal();
+      // opened to paste (no draft yet): the cursor goes where the data goes, not to the close button
+      if (dataText.value === '' && !dataProblem.value) d.querySelector<HTMLTextAreaElement>('#data-text')?.focus();
+    }
     if (!open && d.open) d.close();
   }, [open]);
 
@@ -101,27 +116,16 @@ export function DataDrawer({ state, engine }: { state: EngineState; engine: Engi
       return;
     }
     const t = setTimeout(() => {
-      void engine.previewDataset({ text, name: variableName(name), ...(filename ? { filename } : {}) }).then((p) => {
+      void engine.previewDataset({ text, name: varName, ...(filename ? { filename } : {}) }).then((p) => {
         if (seq.current === my) setPreview(p);
       });
     }, PREVIEW_DEBOUNCE_MS);
     return () => clearTimeout(t);
-  }, [text, name, filename, state.send.samples]);
+  }, [text, varName, filename, state.send.samples]);
 
   const readFile = async (file: File) => {
-    const bad = dataFileProblem(file);
-    if (bad) {
-      setProblem(bad);
-      return;
-    }
-    setProblem(null);
     setLoaded(null);
-    try {
-      setText(await file.text());
-      setFilename(file.name);
-    } catch (e) {
-      setProblem(`Could not read ${file.name}: ${(e as Error).message}`);
-    }
+    await openDataFile(file, state);
   };
 
   const load = async () => {
@@ -129,15 +133,32 @@ export function DataDrawer({ state, engine }: { state: EngineState; engine: Engi
     const before = state.headRevision;
     setLoading(true);
     setProblem(null);
-    await engine.loadDataset({ text, name: variableName(name), ...(filename ? { filename, source: 'file' as const } : { source: 'paste' as const }) });
+    const bound = varName;
+    const suggestions = preview.suggestions ?? [];
+    await engine.loadDataset({ text, name: bound, ...(filename ? { filename, source: 'file' as const } : { source: 'paste' as const }) });
     setLoading(false);
     const after = engine.state.value;
     const last = after.revisions[after.revisions.length - 1];
     if (after.headRevision > before && last?.kind === 'dataset') {
-      setLoaded(`${variableName(name)} is bound (r${after.headRevision}). Call a function on it in the console.`);
       setText('');
       setFilename(undefined);
+      setName('');
       setPreview(null);
+      dataSuggestions.value = { dataset: bound, list: suggestions };
+      if (suggestions.length > 0) {
+        // the suggested calls sit under the examples: close the drawer and put the reader on the first one
+        close();
+        // (the chips render a frame or two later, and closing the dialog restores focus first: retry until it holds)
+        let tries = 0;
+        const focusChip = () => {
+          const chip = document.querySelector<HTMLButtonElement>('.suggest-chip');
+          chip?.focus();
+          if ((!chip || document.activeElement !== chip) && ++tries < 10) requestAnimationFrame(focusChip);
+        };
+        requestAnimationFrame(focusChip);
+      } else {
+        setLoaded(`${bound} is bound (r${after.headRevision}). Call a function on it in the console.`);
+      }
     } else if (after.notice?.tone === 'error') {
       setProblem(after.notice.text);
     }
@@ -155,8 +176,17 @@ export function DataDrawer({ state, engine }: { state: EngineState; engine: Engi
       </header>
       <p class="muted small drawer-intro">
         Paste CSV, TSV, JSON or JSON Lines, or drop a file. It is parsed here in your browser and bound to a console variable;
-        then call a function on it, e.g. <code class="tick">topCustomersByRevenue({variableName(name)})</code>.
+        then call a function on it, e.g. <code class="tick">{preview?.ok && preview.suggestions?.[0] ? preview.suggestions[0].call : `countByStatus(${varName})`}</code>.
       </p>
+      {state.mode === 'replay' && (
+        <p class="small replay-data-note">
+          This page replays recorded drafts, so writing a new function for your data needs live mode. The preview, the
+          checks and functions that already exist run here.{' '}
+          <button type="button" class="btn btn-ghost btn-xs" onClick={() => (runLiveOpen.value = true)}>
+            How to run live
+          </button>
+        </p>
+      )}
 
       {state.datasets.length > 0 && (
         <section class="bound" aria-labelledby="bound-title">
@@ -185,7 +215,10 @@ export function DataDrawer({ state, engine }: { state: EngineState; engine: Engi
         onDrop={(e) => {
           e.preventDefault();
           setDragging(false);
-          const f = e.dataTransfer?.files?.[0];
+          const files = e.dataTransfer?.files;
+          const many = multiDropProblem(files?.length ?? 0);
+          if (many) return setProblem(many);
+          const f = files?.[0];
           if (f) void readFile(f);
         }}
       >
@@ -202,11 +235,13 @@ export function DataDrawer({ state, engine }: { state: EngineState; engine: Engi
           onInput={(e) => {
             setText(e.currentTarget.value);
             setFilename(undefined);
+            setProblem(null);
             setLoaded(null);
           }}
         />
         <p class="drop-hint muted small">
-          Drop a .csv, .tsv, .json or .jsonl file here, or{' '}
+          <span class="df-pointer">Drop a .csv, .tsv, .json or .jsonl file here, or </span>
+          <span class="df-touch">A .csv, .tsv, .json or .jsonl file: </span>
           <button type="button" class="btn btn-ghost btn-xs" onClick={() => fileRef.current?.click()}>
             choose a file…
           </button>
@@ -227,18 +262,22 @@ export function DataDrawer({ state, engine }: { state: EngineState; engine: Engi
 
       <label class="data-name">
         Variable name
-        <input class="mono" value={name} spellcheck={false} autocomplete="off" onInput={(e) => setName(e.currentTarget.value)} />
+        <input class="mono" value={name} placeholder={fallbackName} spellcheck={false} autocomplete="off" onInput={(e) => setName(e.currentTarget.value)} />
       </label>
 
       <section class="data-preview" aria-live="polite" aria-label="Preview">
-        {preview ? <Preview preview={preview} /> : <p class="muted small">The preview appears here as you paste.</p>}
+        {preview ? (
+          <Preview preview={preview} hint={preview.ok ? delimiterHint(text, preview.columns.length) : null} />
+        ) : (
+          <p class="muted small">The preview appears here as you paste.</p>
+        )}
       </section>
 
       <SendBox state={state} engine={engine} preview={preview} />
 
       <div class="form-actions">
         <button type="button" class="btn btn-primary" disabled={!preview?.ok || loading || state.busy} onClick={() => void load()}>
-          {loading ? 'Loading…' : `Load as ${variableName(name)}`}
+          {loading ? 'Loading…' : `Load as ${varName}`}
         </button>
         {loaded && <span class="ok-line small">{loaded}</span>}
       </div>

@@ -46,7 +46,7 @@ import type {
 export interface Persisted {
   image: Image;
   /** `sendSamples` (absent = never chosen: the default applies) is whether sample rows go to Codex in live mode. */
-  flags: { takeawayShown: boolean; openerDismissed: boolean; sendSamples?: boolean };
+  flags: { takeawayShown: boolean; openerDismissed: boolean; sendSamples?: boolean; start?: 'examples' | 'data' };
   liveEnv: Record<string, Json>;
   /** Dataset rows, encoded, content-addressed (also inside `image.datasets`). */
   datasets: Record<string, Json>;
@@ -351,6 +351,7 @@ export function loadStored(): Promise<LoadOutcome> {
           takeawayShown: f.takeawayShown === true,
           openerDismissed: f.openerDismissed === true,
           ...(typeof f.sendSamples === 'boolean' ? { sendSamples: f.sendSamples } : {}),
+          ...(f.start === 'examples' || f.start === 'data' ? { start: f.start } : {}),
         },
         liveEnv: isObject(env) && Object.values(env).every(isJson) ? (env as Record<string, Json>) : {},
         datasets: checked.image.datasets ?? {},

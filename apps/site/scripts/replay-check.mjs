@@ -145,6 +145,62 @@ try {
       check(false, 'multi-statement flow', e.message.split('\n')[0]);
     }
   }
+
+  // Your own data on the public (replay) page: the opening is unchanged (median pre-typed, the COPY.A argument) and
+  // "Use your data…" is there but secondary. A CSV picked through it previews in the drawer, loads under a name from the
+  // file, and offers calls; running one says, before any attempt, that writing it needs live mode.
+  {
+    const p = b.page;
+    const check = (ok, label, extra = '') => {
+      console.log(ok ? 'PASS' : 'FAIL', label, ok ? '' : extra);
+      if (!ok) failed++;
+    };
+    try {
+      await fresh(p, srv.url);
+      await p.waitForFunction((call) => document.querySelector('#repl-input')?.value === call, EXPECT.median.call, { timeout: 30000 }).catch(() => {});
+      const first = await p.evaluate(() => {
+        const btn = document.querySelector('.data-start-file');
+        return {
+          input: document.querySelector('#repl-input')?.value,
+          argument: document.querySelector('.argument')?.textContent ?? '',
+          button: !!btn && btn.tagName === 'BUTTON' && /Use your data/.test(btn.textContent ?? ''),
+          primary: !!btn && (btn.classList.contains('btn-primary') || btn.classList.contains('example')),
+          examples: document.querySelectorAll('button.example').length,
+          start: window.__undefined?.state.value.start ?? null,
+          dataFirst: !!document.querySelector('.data-first'),
+        };
+      });
+      check(
+        first.input === EXPECT.median.call && first.argument.includes('Compilers have always judged code that people wrote.') && first.button && !first.primary && first.examples === 4 && !first.dataFirst && (first.start === null || first.start === 'examples'),
+        'fresh load: median pre-typed, COPY.A, "Use your data…" present and not primary, no data-first card (replay keeps examples)',
+        JSON.stringify(first),
+      );
+      const csv = 'customer,status,amount\nAda,paid,10\nGrace,refunded,22.5\nAda,paid,7\nLinus,pending,3\nGrace,paid,12\n';
+      await p.setInputFiles('.data-start-input', { name: 'sales.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+      await p.waitForSelector('dialog.drawer[open] .data-stats', { timeout: 10000 });
+      const loadBtn = p.locator('dialog.drawer[open] .form-actions .btn-primary');
+      await p.waitForFunction(() => document.querySelector('dialog.drawer[open] .form-actions .btn-primary')?.textContent === 'Load as sales', null, { timeout: 10000 });
+      await loadBtn.click();
+      await p.waitForSelector('.suggest-chip', { timeout: 10000 });
+      const chip = await p.evaluate(() => ({ text: document.querySelector('.suggest-chip')?.textContent, example: document.querySelector('.suggest-chip')?.classList.contains('example') }));
+      check(chip.text === 'countByStatus(sales)' && !chip.example, 'a CSV through the file input loads as sales and suggests countByStatus(sales)', JSON.stringify(chip));
+      await p.locator('.suggest-chip').first().click();
+      await p.locator('#repl-input').press('Enter');
+      const said = await p.waitForSelector('[data-needs-live="data"]', { timeout: 30000 }).then(() => true, () => false);
+      const out = await p.evaluate(() => ({
+        text: document.querySelector('[data-needs-live="data"]')?.textContent ?? '',
+        cards: document.querySelectorAll('.cand[data-attempt]:not(.cand-unused)').length,
+        live: !!document.querySelector('[data-needs-live="data"] .btn-primary'),
+      }));
+      check(
+        said && out.text.includes('none exists for countByStatus on your data. Writing it needs live mode.') && out.cards === 0 && out.live,
+        'a suggested call on your data in replay mode: the dataset-specific needs-live message, no attempt card',
+        JSON.stringify(out),
+      );
+    } catch (e) {
+      check(false, 'your-own-data flow', e.message.split('\n')[0]);
+    }
+  }
 } finally {
   await b.close();
   srv.stop();

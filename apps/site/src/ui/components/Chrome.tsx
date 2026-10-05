@@ -2,7 +2,7 @@
 import { useEffect, useRef } from 'preact/hooks';
 import type { Engine, EngineState } from '@scasella/undefined-engine/types';
 import { repoUrlFromPages } from '../format';
-import { dataDrawerOpen, dismissedNotice, downloadText, loadRecordingOpen, localNotice, noticeKey, sessionLogOpen, shareOpen, showNotice } from '../uiState';
+import { clearDataDraft, dataDrawerOpen, dismissedNotice, downloadText, loadRecordingOpen, localNotice, noticeKey, sessionLogOpen, shareOpen, showNotice } from '../uiState';
 import { CopyBlock, Ticks } from './common';
 import { calledName } from '../select';
 import { previewImport } from './Share';
@@ -60,7 +60,10 @@ function Menu({ state, engine }: { state: EngineState; engine: Engine }) {
   };
   const reset = () => {
     close();
-    if (confirm('Reset discards every revision and the live state, and reseeds r1. Continue?')) void engine.resetImage();
+    if (confirm('Reset discards every revision and the live state, and reseeds r1. Continue?')) {
+      clearDataDraft();
+      void engine.resetImage();
+    }
   };
   const item = (label: string, onClick: () => void, opts: { disabled?: boolean; title?: string; extra?: string; cls?: string } = {}) => (
     <button
@@ -100,6 +103,10 @@ function Menu({ state, engine }: { state: EngineState; engine: Engine }) {
         {item('Export image', () => void exportImage(), { title: 'Download undefined-image.json: every revision of this program' })}
         {item('Import image…', () => fileRef.current?.click(), { disabled: state.busy })}
         {item('Load recording…', () => (loadRecordingOpen.value = true), { disabled: state.busy })}
+        {state.mode === 'live' &&
+          (state.start === 'data'
+            ? item('Start with examples', () => engine.setStart('examples'), { title: 'Lead with the example calls; remembered in this browser' })
+            : item('Start with your data', () => engine.setStart('data'), { title: 'Lead with the data drop card; remembered in this browser' }))}
         <hr class="menu-sep" role="separator" />
         {item('Session log', () => (sessionLogOpen.value = true), {
           title: 'A log kept in this browser only',

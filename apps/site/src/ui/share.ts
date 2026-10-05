@@ -21,13 +21,35 @@ export const SESSION_LOG_HOLDS =
 export const OTHER_TAB_TEXT = 'This program is open in another tab. Edits in two tabs overwrite each other; close one.';
 export const IMAGE_FILENAME = 'undefined-image.json';
 export const SESSION_LOG_OFF_NOTE = 'Turning it off stops new entries; the entries already kept stay until you clear them.';
-export const DROP_TEXT = 'Drop a recording or an exported program';
+export const DROP_TEXT = 'Drop a recording, a program image, or data (CSV/JSON)';
+/** The overlay's second line. */
+export const DROP_SUBTEXT = 'Recordings and images ask before anything changes; data opens a preview first.';
 
-/** What a dropped .json file is, by its `format` field. Never throws. */
+/** What a dropped .json file is: a recording or image by its `format` field, data when it holds rows. Never throws. */
 export type DroppedKind =
   | { kind: 'recording' }
   | { kind: 'image' }
+  | { kind: 'data' }
   | { kind: 'other'; error: string };
+
+/** Where a file dropped on the page goes, by its name and type, before it is read. */
+export type DropRoute = { route: 'data' } | { route: 'json' } | { route: 'refuse'; error: string };
+
+const DATA_ONLY_EXT = /\.(csv|tsv|jsonl|ndjson|txt)$/i;
+const SHEET_EXT = /\.(xlsx|xlsm|xls|ods|numbers)$/i;
+
+/** CSV/TSV/JSON Lines/text go to the data drawer; .json is read and classified (recording, image or data). */
+export function dropRoute(file: { name: string; type?: string }): DropRoute {
+  if (DATA_ONLY_EXT.test(file.name) || file.type === 'text/csv' || file.type === 'text/tab-separated-values') return { route: 'data' };
+  if (/\.json$/i.test(file.name) || file.type === 'application/json') return { route: 'json' };
+  if (SHEET_EXT.test(file.name)) return { route: 'refuse', error: `${file.name} is a spreadsheet file; export it as CSV.` };
+  return { route: 'refuse', error: `${file.name} is not a recording, a program image or data. ${DROP_TEXT}: .json, .csv, .tsv, .jsonl.` };
+}
+
+/** More than one file dropped at once: refused with a count rather than silently reading the first. null for 0 or 1. */
+export function multiDropProblem(count: number): string | null {
+  return count > 1 ? `${count} files were dropped; drop one file at a time.` : null;
+}
 
 export function classifyDroppedText(text: string, filename = 'the file'): DroppedKind {
   let raw: unknown;
@@ -37,7 +59,10 @@ export function classifyDroppedText(text: string, filename = 'the file'): Droppe
   } catch {
     return { kind: 'other', error: `${filename} is not JSON. Drop a recording (.json saved with "Share this session") or an exported program image.` };
   }
-  const format = raw !== null && typeof raw === 'object' && !Array.isArray(raw) ? (raw as { format?: unknown }).format : undefined;
+  if (Array.isArray(raw)) return { kind: 'data' };
+  const format = raw !== null && typeof raw === 'object' ? (raw as { format?: unknown }).format : undefined;
+  // `{ "orders": [ … ] }`: rows under one key, which the data reader accepts
+  if (format === undefined && raw !== null && typeof raw === 'object' && Object.values(raw).some((v) => Array.isArray(v))) return { kind: 'data' };
   if (format === 'undefined-recording') return { kind: 'recording' };
   if (format === 'undefined-image') return { kind: 'image' };
   if (format === 'undefined-session-log') {
@@ -49,10 +74,18 @@ export function classifyDroppedText(text: string, filename = 'the file'): Droppe
   };
 }
 
+/** A .json that is a recording or a program image, said plainly; null for anything else (data, or not JSON at all). */
+export function recordingNotData(text: string, filename: string): string | null {
+  const k = classifyDroppedText(text, filename).kind;
+  if (k === 'recording') return `${filename} is a recording, not data. Close this panel and drop it on the page to replay it.`;
+  if (k === 'image') return `${filename} is a program image, not data. Close this panel and drop it on the page to import it.`;
+  return null;
+}
+
 /** A dropped/picked file worth reading as a recording or image (by name or type), and small enough. */
 export function droppedFileProblem(file: { name: string; size: number; type?: string }): string | null {
   const jsonish = /\.json$/i.test(file.name) || file.type === 'application/json';
-  if (!jsonish) return `${file.name} is not a .json file. ${DROP_TEXT} (.json).`;
+  if (!jsonish) return `${file.name} is not a .json file. Choose a recording or an exported program image (.json).`;
   if (file.size > 5 * 1024 * 1024) return `${file.name} is larger than 5 MB; a recording or program image is much smaller.`;
   return null;
 }
