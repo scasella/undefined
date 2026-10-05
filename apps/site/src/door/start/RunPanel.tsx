@@ -23,7 +23,20 @@ export function confirmKey(run: { id: number; questionId: string } | null): stri
   return run ? `${run.id}:${run.questionId}` : '';
 }
 
-export function RunPanel({ engine, session, zen = false }: { engine: Engine; session?: Session; zen?: boolean }) {
+export function RunPanel({
+  engine,
+  session,
+  zen = false,
+  part = 'all',
+  onSettled,
+}: {
+  engine: Engine;
+  session?: Session;
+  zen?: boolean;
+  /** Zen's flow shows the run (trace + outcome) and the result (answer + download) on separate panes. */
+  part?: 'all' | 'run' | 'answer';
+  onSettled?: () => void;
+}) {
   const s = session ?? sessionFor(engine);
   const t = s.trace.value;
   const a = s.answer.value;
@@ -41,9 +54,11 @@ export function RunPanel({ engine, session, zen = false }: { engine: Engine; ses
   const lockable = !!a.view && (a.canLock || a.locked || lock.entryId !== null || lock.pin !== null);
   return (
     <div class="fd-run">
-      <CheckTrace lanes={t.lanes} ghost={t.ghost} header={t.header} footer={t.footer} liveText={t.liveText} />
-      <RunStates engine={engine} session={s} />
-      <AnswerCard
+      {part !== 'answer' && (
+        <CheckTrace lanes={t.lanes} ghost={t.ghost} header={t.header} footer={t.footer} liveText={t.liveText} {...(onSettled ? { onSettled } : {})} />
+      )}
+      {part !== 'answer' && <RunStates engine={engine} session={s} />}
+      {part !== 'run' && <AnswerCard
         variant="start"
         view={a.view}
         held={a.held}
@@ -60,8 +75,8 @@ export function RunPanel({ engine, session, zen = false }: { engine: Engine; ses
         checked={a.checked}
         notChecked={a.notChecked}
         {...(zen ? {} : { houseRuleHref: HOUSE_RULE_HREF })}
-      />
-      {a.view && run && (o.kind === 'committed' || o.kind === 'cached') && <Handoff engine={engine} fn={run.fn} runId={run.id} />}
+      />}
+      {part !== 'run' && a.view && run && (o.kind === 'committed' || o.kind === 'cached') && <Handoff engine={engine} fn={run.fn} runId={run.id} />}
     </div>
   );
 }

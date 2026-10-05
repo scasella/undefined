@@ -12,5 +12,19 @@
 }
 .zen__loading { margin: 48px 0; text-align: center; color: var(--fd-ink-2); }
 .zen__foot { max-width: 760px; margin: 0 auto; padding: 16px var(--fd-gutter) 24px; box-sizing: border-box; text-align: center; font-size: 12px; line-height: 18px; color: var(--fd-ink-3); }
-/* the reused ask card sits flush in the column, without the full page's own wrap */
-.zen .fd-ask { margin: 0; }
+
+/* ───────── the flow ───────── */
+.zen__steps { list-style: none; margin: 0; padding: 0; display: flex; gap: 6px; }
+.zen__dot { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 3px solid var(--fd-line-2); color: var(--fd-ink-3); }
+.zen__dot.is-done { border-top-color: var(--fd-indigo-soft); color: var(--fd-ink-2); }
+.zen__dot.is-now { border-top-color: var(--fd-indigo); color: var(--fd-ink); }
+.zen__n { font-size: 11px; line-height: 14px; font-weight: 500; }
+.zen__dl { font-size: 13px; line-height: 16px; font-weight: 500; }
+@media (max-width: 480px) { .zen__dl { display: none; } }
+.zen__pane { display: flex; flex-direction: column; gap: 20px; animation: zen-in 220ms var(--fd-ease) both; }
+@keyframes zen-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .zen__pane { animation: none; } }
+.zen__h { margin: 0; font-size: 28px; line-height: 34px; font-weight: 600; letter-spacing: -0.02em; outline: none; }
+.zen__nav { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.zen__spacer { flex: 1 1 0; }
+.zen__nav .fd-btn[aria-disabled='true'] { opacity: 0.55; cursor: not-allowed; }
