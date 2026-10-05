@@ -36,7 +36,7 @@ reference implementation), the time budget per call, the *types* of the triggeri
 and on retries the previous attempt plus structured diagnostics. When other functions in the program are already
 certified (and calling them would not close a cycle), an OTHER FUNCTIONS section lists their signatures and the first
 sentence of their docs, never their code; with none, the prompt is byte-identical to a program without composition
-(`src/compose/golden.test.ts`). Every candidate keeps the exact prompt it was generated
+(`apps/site/src/compose/golden.test.ts`). Every candidate keeps the exact prompt it was generated
 from: open *What the model saw* under the candidate (or in the Repo tab's candidate history) to read it, headed by a plain
 summary of what was and was not sent. For replayed sessions that is the prompt stored in the recording (older recordings predate
 the budget line, and the summary says only what their prompt contains). The gates know more than the model; that is the
@@ -54,7 +54,7 @@ full candidate history including rejected attempts. Nothing here claims the mode
 
 ## The generation service
 
-A small Vite dev-server middleware (`server/`), absent from the static build: `GET /generate/health`, `POST /generate`
+A small Vite dev-server middleware (`apps/site/server/`), absent from the static build: `GET /generate/health`, `POST /generate`
 (server-sent events). One `codex exec` per request, serialised, in an empty temp directory:
 
 ```
@@ -73,21 +73,50 @@ progress lines above it (session started, turn started, tokens) are real Codex e
 
 ## Layout
 
+An npm workspace (root `package.json`; `npm install`, `npm test`, `npm run typecheck|build|dev|preview|check:*` all run
+from the root and delegate). The site imports the engine as `@scasella/undefined-engine/<module>` (the TypeScript
+source, no build step); the engine never imports the site, and its `tsconfig.json` (`lib: ES2022`, no DOM or Node
+types, host globals listed in `src/env.d.ts`) makes the compiler enforce that it runs in a browser Worker and in Node.
+Only `src/node/` (excluded from that config, checked with Node types) may touch Node APIs. The gate worker's protocol
+code (`sandbox/gateWorkerCore.ts`) is one implementation run by both hosts: the site's Web Worker shell and the Node
+harness (`sandbox/vmHarness.ts`, bundled once with rolldown and evaluated in the `vm` realm).
+
 ```
-server/            Vite middleware: the codex generation service, dev-only recording save
-src/core/          engine (orchestrator), program/revision model, IndexedDB store, generators (live, replay)
-src/gates/         strict TypeScript compile gate (lazy-loaded compiler + libs), source wrapper
-src/sandbox/       gate executor + worker + watchdog, REPL runtime worker, purity masking
-src/shared/        prompt builder, value display/serialisation, hashing, type inference
-src/compose/       the dependency graph between generated functions: what a body may call, status, closure
-src/examples/      median, slugify, fibonacci (+ known-good and known-bad candidates used by tests)
-src/share/         loading a shared recording (text, URL, ?recording=);  src/sessionlog/  the opt-in local session log
-src/ui/            Preact UI;  public/recordings/  recorded sessions;  docs/DESIGN.md  module contracts
-scripts/           tune.tune.ts: samples the real model against the real gates (see below)
+packages/engine/src/
+  types.ts           the shared contract
+  gates/             strict TypeScript compile gate (lazy compiler; lib .d.ts texts come from the host via setLibSource), source wrapper
+  sandbox/           gate executor, Test API, purity masking, the gate runner + watchdog (the host supplies the worker), run nonce
+  shared/            value display/serialisation, hashing, evidence line, spec info, type inference, declaration line
+  program.ts         pure program/revision operations
+  compose/           the dependency graph between generated functions: what a body may call, status, closure
+  mutation/ decide/  the mutation check; spec-gap questions and decisions
+  suggest/ eject/    property suggestions; the Eject zip and provenance
+  spec/validate.ts   the spec / decision / pin validators (shared by the site's image reader and the spec-file reader)
+  certify.ts         the pipeline the site orchestrator and certify() share: spec check, gate input, mutation check, verdicts
+  certifyModule.ts   certify({ source, spec }): every exported function of a TypeScript file, against a spec or vitest file
+  ingest/            per-function splitting of a source file, the undefined-spec file, the vitest + fast-check shim
+  node/              Node only (never imported by the site): the gate host (a worker_thread + node:vm realm with the
+                     same watchdog; NOT a secure sandbox, docs/SECURITY.md), TypeScript libs from disk, certifyFile()
+apps/site/
+  index.html  vite.config.ts  public/recordings/ (recorded sessions)
+  server/            Vite middleware: the codex generation service, dev-only recording save; share/ the optional share Worker
+  src/core/          engine (orchestrator), IndexedDB store, generators (live, replay), REPL line splitting
+  src/gates/libs.ts  the site's lib source for the compile gate (a lazy Vite glob)
+  src/sandbox/       worker spawning (blob: wrapper, CSP), the gate and REPL runtime workers, the site's gate runner (default worker)
+  src/shared/        prompt builder, REPL statement splitter
+  src/examples/      median, slugify, fibonacci, orders (+ known-good and known-bad candidates used by tests)
+  src/share/ src/sessionlog/ src/data/ src/ui/   shared recordings, the opt-in session log, data scratchpad, Preact UI
+  scripts/           checks (replay, csp, eject), recording, screenshots, tune.tune.ts (see below)
+packages/cli/      undefined-certify: args, the certify command over the engine's certify(), human and --json reports,
+                   mutant line mapping, examples/ (pass, rejected, spec gap); dist/ built by scripts/build.mjs
+packages/action/   the GitHub Action (action.yml): PR diff → touched exported functions → the engine's certify() on the
+                   Node host → one marked PR comment via the REST API; fork-safe certify/comment modes; dist/ is the
+                   committed bundle (scripts/build.mjs, checked by check:action-dist)
+docs/DESIGN.md       module contracts; docs/ENGINE.md the engine/CLI/Action API; docs/PACKAGES.md npm names
 ```
 
-Also: `src/eject/` builds the [Eject](FEATURES.md#eject) zip; `server/share/` is the optional share-link Worker
-([SHARE-DEPLOY.md](SHARE-DEPLOY.md)), not part of the dev server or the static site.
+`apps/site/server/share/` is the optional share-link Worker ([SHARE-DEPLOY.md](SHARE-DEPLOY.md)), not part of the dev
+server or the static site.
 
-`TUNE_N=8 TUNE_EX=median,slugify,fibonacci npx vitest run -c scripts/vitest.tune.config.ts` re-measures the rejection
+`TUNE_N=8 TUNE_EX=median,slugify,fibonacci npx vitest run -c apps/site/scripts/vitest.tune.config.ts` re-measures the rejection
 rates in [EXAMPLES.md](EXAMPLES.md) against your own Codex login (results in `.tmp/tune-out.json`).

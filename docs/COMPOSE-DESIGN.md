@@ -1,7 +1,7 @@
 # Phase 3 design: composition and a usable REPL
 
 Status: §A (composition core), §B (REPL) and the UI of §D step 3 are implemented, with the corrections listed in §E,
-§F and §G; the live measurements of §C were taken on 2026-10-05 (new harness `scripts/compose-sessions.mjs`
+§F and §G; the live measurements of §C were taken on 2026-10-05 (new harness `apps/site/scripts/compose-sessions.mjs`
 instead of a `--precommit` flag) and are in [COMPOSE-MEASUREMENTS.md](COMPOSE-MEASUREMENTS.md); they changed the
 guard wording of §A6. Written against HEAD `4efd1ff`. Every claim about current behaviour
 cites the file and function it comes from.
@@ -14,7 +14,7 @@ function exists, not the whole input again.
 
 Hard constraints carried from the project rules: tests / typecheck / build / check:replay / check:csp / check:eject
 stay green; the opening sequence is untouched; no backend or env vars for the static site; the Codex invocation and the
-generation path are unchanged; the shipped examples' specs (`src/examples/*`) are not changed; the shipped recordings
+generation path are unchanged; the shipped examples' specs (`apps/site/src/examples/*`) are not changed; the shipped recordings
 keep replaying; **with zero other committed functions, the prompt bytes equal HEAD** (golden test); no telemetry; the
 sandbox is never called a security boundary.
 
@@ -54,7 +54,7 @@ source  slugify  (goodBodies[0])                 b550e7f831169b6202f816840d91743
 source  fibonacci(goodBodies[0])                 8f3c387ac0ff83abe8814a5ac0316f6ecb85fdfe0bcb2b361b1aa7edf36ad572
 ```
 
-Step 0 of the build order (§D) turns these into `src/compose/golden.test.ts` and adds the retry-history, runtime-fault,
+Step 0 of the build order (§D) turns these into `apps/site/src/compose/golden.test.ts` and adds the retry-history, runtime-fault,
 decisions and ruling variants (captured from the same HEAD build before the prompt module is touched; `prompt.test.ts`
 fixtures at lines 100–196 are the inputs), plus: `buildPrompt({…, others: []})` equals `buildPrompt({…})`, and the
 string `OTHER FUNCTIONS` is absent.
@@ -81,7 +81,7 @@ Self-recursion works because the declaration name is in scope inside the functio
 
 ### A2. Compile gate: what a candidate may call
 
-**The visible set for `f`** (new pure module `src/compose/graph.ts`, `visibleFor(program, fnSpec)`), sorted by name
+**The visible set for `f`** (new pure module `packages/engine/src/compose/graph.ts`, `visibleFor(program, fnSpec)`), sorted by name
 so the prompt is stable:
 
 - every function `g ≠ f` that is **runnable**: own-live (`program.ts isLive`) **and** dependency-current (§A4);
@@ -289,8 +289,8 @@ is faking it). A listed function does not give a meaningless name a meaning: the
   `graph: { slugifyAll: { slugify: { hash, revision } } }` (the recorded `Artifact.deps`).
 - README lists the closure and says each function's checks run against the real ones it calls; the Invariants gate is
   still not reproduced.
-- `scripts/eject-check.mjs` + `scripts/build.eject.ts`: a **test-only composed fixture** (not a shipped example, so no
-  spec in `src/examples/*` changes): `slugify` with its example spec and `goodBodies[0]`, plus a fixture `slugifyAll`
+- `apps/site/scripts/eject-check.mjs` + `apps/site/scripts/build.eject.ts`: a **test-only composed fixture** (not a shipped example, so no
+  spec in `apps/site/src/examples/*` changes): `slugify` with its example spec and `goodBodies[0]`, plus a fixture `slugifyAll`
   spec with tests whose body is `return titles.map(slugify);`, certified through the real compile gate and gate
   executor in `build.eject.ts`, ejected, then `vitest run` + strict `tsc` in the fresh project like every other row.
 
@@ -330,7 +330,7 @@ is faking it). A listed function does not give a meaningless name a meaning: the
 
 ### B2. Design: statements as units, one request per unit, resume at the failing unit
 
-**Splitting (main thread, `src/shared/replSplit.ts`).**
+**Splitting (main thread, `apps/site/src/shared/replSplit.ts`).**
 
 - **Fast path, byte-for-byte today's path**: a cheap scan (strings, template literals, comments, brackets; the same
   kind of scanner as `replCore.ts unclosed`) finds no top-level `;`, and the line does not start with
@@ -406,14 +406,14 @@ an undefined name inside a value is a plain ReferenceError; `MAX_GROWTHS_PER_SUB
 1. **Prompt bytes, zero others** (no live cost): the golden test of §0, failing on any byte change; plus
    `compileCandidate` source/js identical with zero others; `toImage` of a zero-dep program identical (version 1);
    `ExecGateInput` from `runGates` has no `deps` key.
-2. **Prompt change with others present, on the examples** (`scripts/sessions.mjs` gains `--precommit=<id>`: commit that
+2. **Prompt change with others present, on the examples** (`apps/site/scripts/sessions.mjs` gains `--precommit=<id>`: commit that
    example from its shipped recording first, in replay, so it costs nothing; then run the target example live).
    8 full sessions each for `median` after `slugify`, `slugify` after `median`, `fibonacci` after `median`, and
    `topCustomersByRevenue(rows)` after `slugify`. Report first-candidate rejected, committed within 3, and how often
    the candidate references the unrelated function (expected 0), against the EXAMPLES.md table (8/8→8/8, 6/8→7/8,
    6/8→7/8, 8/8 first candidate). A difference larger than 2 of 8 in any column is investigated before shipping and
    reported either way.
-3. **Decline calibration with others present**: `scripts/calibrate.tune.ts` gains `CAL_OTHERS=1`, which passes an
+3. **Decline calibration with others present**: `apps/site/scripts/calibrate.tune.ts` gains `CAL_OTHERS=1`, which passes an
    `others` list built from real certified fixtures — `slugify`, `median`, `formatCurrency`, a seeded
    `rngFromSeed(seed: number): number` and `seededShuffle(xs: number[], seed: number): number[]` — to every prompt.
    Re-run all 48 cases in `CASES` at `CAL_N=3` and compare per group with HOSTILE.md's final run (descriptive names written
@@ -423,7 +423,7 @@ an undefined name inside a value is a plain ReferenceError; `MAX_GROWTHS_PER_SUB
    (must decline NEEDS_SPEC; the failure mode is `map(slugify)`), `now()` with a `formatDate(ms)` listed. Acceptance: no
    group drops by more than one call in N×cases; each tempting case declined in at least 2 of 3. If it fails, the
    guard sentences in §A6 are reworded and re-measured; HONESTY is not touched (zero-others bytes).
-4. **Composition scenarios live** (new `scripts/compose-sessions.mjs`, same driver as `sessions.mjs`), 8 sessions each,
+4. **Composition scenarios live** (new `apps/site/scripts/compose-sessions.mjs`, same driver as `sessions.mjs`), 8 sessions each,
    with `slugify` committed from its recording first:
    - `slugifyAll(["Hello World", "Crème Brûlée"])`, spec-less: rate of bodies that reference `slugify` (from
      `Artifact.deps`) vs reimplement it; committed rate; compile rejections caused by calling it wrongly.
@@ -460,7 +460,7 @@ an undefined name inside a value is a plain ReferenceError; `MAX_GROWTHS_PER_SUB
 **Build order** (each step leaves all six checks green)
 
 0. Golden tests from §0 (prompt bytes for every variant, compile source/js, Image v1 JSON) — before touching anything.
-1. **Composition core**: `src/compose/graph.ts` (implHash, visible set, cycles, depStatus, closure, topological
+1. **Composition core**: `packages/engine/src/compose/graph.ts` (implHash, visible set, cycles, depStatus, closure, topological
    order) with unit tests; types (`Artifact.deps`, `CompileOutput.deps`, `ExecGateInput.deps`, `PromptInput.others`,
    Image v3); `evalMasked` bindings; gate-executor linking + violation attribution; compile ambient file, its own
    validation, checker-based dep extraction, harness messages; prompt section; engine wiring through `closureFor`
@@ -543,7 +543,7 @@ an undefined name inside a value is a plain ReferenceError; `MAX_GROWTHS_PER_SUB
    holds one.
 4. **REPL**: the input stays one `<input>` (no Shift+Enter textarea); `;` sequences and destructuring are accepted; the
    re-run line is `rerunText`. Fixtures: `composed-committed`, `dependent-stale`, `cycle-rejected`, `repl-multi`
-   (`ui/dev/composeFixtures.ts`, shot by `scripts/shots.mjs`). `check:replay` covers a multi-statement line and a
+   (`ui/dev/composeFixtures.ts`, shot by `apps/site/scripts/shots.mjs`). `check:replay` covers a multi-statement line and a
    destructuring line over the shipped median recording; composition cannot replay from the shipped recordings (no
    recorded candidate calls another function, and the examples' specs may not change), so it is covered by
    `core/engine.compose.test.ts` and the fixtures.

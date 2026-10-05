@@ -25,6 +25,16 @@ jobs:
       - run: npm run check:csp
       # every shipped example's committed function, ejected and run in a fresh vitest + fast-check project (~15 s)
       - run: npm run check:eject
+      # the GitHub Action's committed bundle (packages/action/dist) must be what its sources build to
+      - run: npm run check:action-dist
+      # the built CLI as a subprocess on its three example projects (exit codes and --json against the source snapshots)
+      - run: npm run build:cli
+      - run: npm run check:cli
+      # what `npm publish` would ship (nothing is published; the packages stay private until docs/PACKAGES.md is settled)
+      - run: npm pack --dry-run -w packages/cli -w packages/action -w packages/engine
+      # every recorded candidate certified by the built CLI as a subprocess, against the site's browser measurement
+      # (apps/site/src/examples/parity.browser.json; ~15 s); only the killed / killed-by-bound split may differ
+      - run: npm run check:parity -w apps/site
   replay:
     # The static build must work with no backend: serve it and replay every shipped example through the real UI
     # (gates run live in headless Chrome, which the runner image provides).

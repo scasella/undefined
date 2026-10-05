@@ -1,0 +1,7 @@
+{
+  "format": "undefined-spec",
+  "version": 1,
+  "functions": {
+    "double": { "tests": "test('two', () => { eq(double(1), 2); });", "properties": "", "budgetMS": 500 }
+  }
+}

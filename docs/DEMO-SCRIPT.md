@@ -1,7 +1,7 @@
 # A 60-second demo script
 
 A walk-through for presenting Undefined live or in replay. Timings are approximate; replayed sessions follow the
-recordings in `public/recordings/`.
+recordings in `apps/site/public/recordings/`.
 
 1. **0:00** Open the page. One line of copy: *"`median` doesn't exist yet. Press Enter and a model will write it — your
    checks decide if it stays."* The console holds `median([3, 1, 4, 2])`.

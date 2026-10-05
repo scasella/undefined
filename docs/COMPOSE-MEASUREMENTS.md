@@ -37,17 +37,17 @@ calibration case). Read every number below as "what happened that morning", not 
 
 | check | result |
 |---|---|
-| `src/compose/golden.test.ts` (sha256 literals captured at HEAD before Phase 3: prompts of the three examples, a call-origin prompt, a dataset prompt, retry/fault/decision/ruling variants, compiled source and JS, Image v1 JSON, recorded hashes) | 18/18 pass |
-| Differential test (scratch, not committed): HEAD's `src/shared/prompt.ts` (`git show HEAD:…`) against the working tree's `buildPrompt`, over 26 inputs (each example with no history, a retry history and a runtime fault; 17 spec-less calls including `slugifyAll`, `uniqueSlugs`, `medianOfMedians`, `spread` and two dataset calls), each with `others` absent and `others: []` | 52/52 byte-identical |
-| `git diff HEAD -- src/shared/prompt.ts` | additions only: the optional `others` field and `othersSection`, emitted only when the list is non-empty |
-| `public/recordings/*`, `src/examples/*` | unchanged; `check:replay` 19 PASS; not re-recorded |
+| `apps/site/src/compose/golden.test.ts` (sha256 literals captured at HEAD before Phase 3: prompts of the three examples, a call-origin prompt, a dataset prompt, retry/fault/decision/ruling variants, compiled source and JS, Image v1 JSON, recorded hashes) | 18/18 pass |
+| Differential test (scratch, not committed): HEAD's `apps/site/src/shared/prompt.ts` (`git show HEAD:…`) against the working tree's `buildPrompt`, over 26 inputs (each example with no history, a retry history and a runtime fault; 17 spec-less calls including `slugifyAll`, `uniqueSlugs`, `medianOfMedians`, `spread` and two dataset calls), each with `others` absent and `others: []` | 52/52 byte-identical |
+| `git diff HEAD -- apps/site/src/shared/prompt.ts` | additions only: the optional `others` field and `othersSection`, emitted only when the list is non-empty |
+| `apps/site/public/recordings/*`, `apps/site/src/examples/*` | unchanged; `check:replay` 19 PASS; not re-recorded |
 
 The prompt does change when other certified functions exist: one OTHER FUNCTIONS section after FUNCTION (the full
 prompt of a measured session is in the appendix). §2 to §4 measure that change.
 
 ## 2. Decline calibration with other functions listed
 
-Protocol: `scripts/calibrate.tune.ts` (the real prompt builder and the real Codex invocation, 10 calls in parallel),
+Protocol: `apps/site/scripts/calibrate.tune.ts` (the real prompt builder and the real Codex invocation, 10 calls in parallel),
 the 48 spec-less cases of the original calibration. New `CAL_OTHERS=examples` lists the three shipped examples
 (`fibonacci`, `median`, `slugify`, sorted by name as the engine sorts them) in every prompt, built exactly as the engine
 builds them for certified functions (`declarationLine` + first sentence of the doc; a case never lists itself, so the
@@ -105,8 +105,8 @@ function.
 
 ## 3. Shipped examples with another example already committed
 
-Protocol: `node scripts/compose-sessions.mjs 8` (new; same driver as `scripts/sessions.mjs` and
-`scripts/decide-sessions.mjs`: dev server with the live Codex service, the real Worker watchdog, the real 3-attempt
+Protocol: `node apps/site/scripts/compose-sessions.mjs 8` (new; same driver as `apps/site/scripts/sessions.mjs` and
+`apps/site/scripts/decide-sessions.mjs`: dev server with the live Codex service, the real Worker watchdog, the real 3-attempt
 budget, a fresh image per session; one browser, serial). In each session the dependency is first committed from its
 **shipped recording** (the recorded candidates replay; the gates run live; the harness refuses the session unless both
 recorded attempts replayed and the dependency committed under its example spec), then the target example's spec is
@@ -121,7 +121,7 @@ attempts, a call pattern in the body that excludes a local declaration of the sa
 | `fibonacci(90)` (`median`) | 8/8 | Invariants, all `fibonacci(1000000) did not return within 1500 ms` | 8/8 | 0/8 | 6/8 → 7/8 | 8/8 → 7/8 |
 | `topCustomersByRevenue(rows)` (`slugify`) | 0/8 (8/8 accepted first) | none | 8/8 | 0/8 | 8/8 first candidate | 8/8 first candidate |
 
-Same-day control: `node scripts/sessions.mjs 8 median slugify fibonacci orders` (three browsers in parallel, no other
+Same-day control: `node apps/site/scripts/sessions.mjs 8 median slugify fibonacci orders` (three browsers in parallel, no other
 function in the program), 04:39 to 04:48. Its misses: one `median` session whose second attempt was aborted (a service
 abort, not a gate), one `slugify` session that ran out of attempts on `Straße`/`Smørrebrød`/`Łódź`, and one
 `fibonacci` session whose two retries returned `fibonacci(1) = 0n`.
@@ -160,7 +160,7 @@ and 3). Reuse is not checked for: a reimplementation that disagrees with the cer
 
 ## 5. A dependency changes: two cycles driven live
 
-`node scripts/compose-sessions.mjs stale` and `node scripts/compose-sessions.mjs decide` (once each). Between committing
+`node apps/site/scripts/compose-sessions.mjs stale` and `node apps/site/scripts/compose-sessions.mjs decide` (once each). Between committing
 the dependent and changing the dependency the page is reloaded (the image persists): the loaded recording is per page
 load, so the dependency's regrow goes to the live model, and the reload also exercises recompiling a composed artifact
 from the stored image. Repo text below is `functionStatusText` (what the Repo card says).
@@ -186,7 +186,7 @@ from the stored image. Repo text below is `functionStatusText` (what the Repo ca
 
 What these runs did **not** show: a dependent that **fails** its re-check (both dependents passed), and the *Out of date*
 state lasting long enough to be seen in the Repo (the re-check runs immediately after the dependency commits). Those
-paths are covered by unit tests (`src/core/engine.compose.test.ts`), not by a live run. One thing to know when reading
+paths are covered by unit tests (`apps/site/src/core/engine.compose.test.ts`), not by a live run. One thing to know when reading
 the Repo after such a cycle: the chip keeps the artifact's commit revision (*certified r4*) while the REPL line and the
 history say *re-certified at r7*; the re-certification is recorded on the artifact (`recertified`), as Phase 2's in-place
 re-certification already does.
@@ -210,12 +210,12 @@ re-certification already does.
 ## Re-measuring
 
 ```
-CAL_N=6 CAL_OTHERS=examples CAL_OUT=.tmp/cal-ex.json npx vitest run -c scripts/vitest.tune.config.ts scripts/calibrate.tune.ts
-CAL_N=6 CAL_OTHERS=tempting CAL_OUT=.tmp/cal-tempt.json npx vitest run -c scripts/vitest.tune.config.ts scripts/calibrate.tune.ts
-node scripts/compose-sessions.mjs 8                # §3 and §4 (all eight sets); or name sets: 'slugify>median' …
-node scripts/compose-sessions.mjs stale            # §5, spec change
-node scripts/compose-sessions.mjs decide           # §5, ruling (COMPOSE_PORT=… to run beside another dev server)
-node scripts/sessions.mjs 8 median slugify fibonacci orders   # same-day isolated control
+CAL_N=6 CAL_OTHERS=examples CAL_OUT=.tmp/cal-ex.json npx vitest run -c apps/site/scripts/vitest.tune.config.ts apps/site/scripts/calibrate.tune.ts
+CAL_N=6 CAL_OTHERS=tempting CAL_OUT=.tmp/cal-tempt.json npx vitest run -c apps/site/scripts/vitest.tune.config.ts apps/site/scripts/calibrate.tune.ts
+node apps/site/scripts/compose-sessions.mjs 8                # §3 and §4 (all eight sets); or name sets: 'slugify>median' …
+node apps/site/scripts/compose-sessions.mjs stale            # §5, spec change
+node apps/site/scripts/compose-sessions.mjs decide           # §5, ruling (COMPOSE_PORT=… to run beside another dev server)
+node apps/site/scripts/sessions.mjs 8 median slugify fibonacci orders   # same-day isolated control
 ```
 
 ## Appendix

@@ -1,9 +1,9 @@
 # Decide: spec gaps become questions (internal design, Phase 2)
 
-Status: CORE (steps 1-8) and UI (steps 9-12) implemented: src/ui/components/Decide.tsx,
-src/ui/decide.ts, GatePanel/Repo/Evidence/Eject wiring, replay-check Decide block. As built, the replay-mode waiving
+Status: CORE (steps 1-8) and UI (steps 9-12) implemented: apps/site/src/ui/components/Decide.tsx,
+apps/site/src/ui/decide.ts, GatePanel/Repo/Evidence/Eject wiring, replay-check Decide block. As built, the replay-mode waiving
 ruling is warned about before Confirm and then runs (the engine's needs-live path), with Run live / Check / Remove as
-the ways out. The live measurement (§7) was run as `scripts/decide-sessions.mjs`; results are in DECIDE-MEASUREMENTS.md. §10 lists where the code differs from this text and the
+the ways out. The live measurement (§7) was run as `apps/site/scripts/decide-sessions.mjs`; results are in DECIDE-MEASUREMENTS.md. §10 lists where the code differs from this text and the
 two flaws found while building it (fixed in the code and here). Internal: fold into DESIGN.md / FEATURES.md once
 built, then delete.
 Every claim about current behaviour cites the code it was read from.
@@ -24,7 +24,7 @@ and recording is byte-identical to today.
 
 ## 1. Data model
 
-### 1.1 Where a Decision lives: `FunctionSpec.decisions?: Decision[]` (src/types.ts)
+### 1.1 Where a Decision lives: `FunctionSpec.decisions?: Decision[]` (packages/engine/src/types.ts)
 
 ```ts
 export type GapKind = 'empty' | 'non-finite' | 'negative' | 'non-integer' | 'duplicates' | 'non-ascii' | 'symbols' | 'other';
@@ -93,7 +93,7 @@ Every place that today reads `spec.tests` / `spec.properties` to run, list or co
 | `share/source.ts` / `RecordingPreview.functions[].tests` | spec text | effective text |
 | `eject/eject.ts` `testFile` 436 | spec text | decision section + waivers in the prelude (§6.4) |
 
-### 1.3 Hashes (`src/shared/hash.ts`)
+### 1.3 Hashes (`packages/engine/src/shared/hash.ts`)
 
 Follow the `typeDecls` precedent (lines 14-18): append only when non-empty.
 
@@ -111,13 +111,13 @@ export function testsHash(spec: FunctionSpec): Promise<Hash> {
   why the design refuses to widen the return type).
 - Hashed: the stored test text and the waiver tuple, in order. Not hashed: id, kind, call, label, date, reason.
 - Zero decisions (field absent): `JSON.stringify([tests, properties])` exactly as today, so every stored artifact,
-  every image and every `public/recordings/*.json` session hash stays valid. `gateSeed` therefore also stays the same.
+  every image and every `apps/site/public/recordings/*.json` session hash stays valid. `gateSeed` therefore also stays the same.
 - New golden test (the repo has none; replay-check is the only end-to-end proof today): for every session in
-  `public/recordings/*.json`, `hashesFor(session.spec)` equals its stored `specHash`/`testsHash`; for each example,
+  `apps/site/public/recordings/*.json`, `hashesFor(session.spec)` equals its stored `specHash`/`testsHash`; for each example,
   `hashesFor(EXAMPLE.spec)` and `hashesFor({ ...EXAMPLE.spec, decisions: [] })` equal session[0]'s (the length check
   makes `[]` hash like absent; normalisation to absent is still needed for `sameSpec`).
 
-### 1.4 Prompt (`src/shared/prompt.ts`)
+### 1.4 Prompt (`apps/site/src/shared/prompt.ts`)
 
 Test **names** enter the prompt (`checksSection`), so decision test names are written to be read:
 `decided: median([]) throws`, `decided: median([]) returns NaN`, `decided: slugify("Don't Stop") returns "don-t-stop"`.
@@ -268,7 +268,7 @@ They do not reach the model (`formatDiagnostic` prints named fields only) and ar
 
 ### 3.2 Generated unit test (`shared/decisions.ts` `decisionTest(fn, args, ruling)`)
 
-Literal source comes from `eject/literal.ts` `tsLiteral` (moved to `src/shared/literal.ts`; eject re-exports it), which
+Literal source comes from `eject/literal.ts` `tsLiteral` (moved to `packages/engine/src/shared/literal.ts`; eject re-exports it), which
 already writes `NaN`, `-0`, `undefined`, `Infinity`, `1n`, `new Map<…>`, `new Set<…>`, `new Date(…)` and plain objects
 from the encoded form. Equality is `eq` (Object.is for primitives, deep otherwise), so NaN, -0 and undefined compare
 exactly.
@@ -491,14 +491,14 @@ applicable.
 
 Single column already below 1100 px. The radio list is full-width rows (44 px targets), the custom input full-width,
 the facts wrap per line, Decide is a full-width button. The "spec was silent on 1 case · Decide" line wraps under the
-verdict. Checked in `scripts/shots.mjs` at phone width.
+verdict. Checked in `apps/site/scripts/shots.mjs` at phone width.
 
 ## 7. Measurement protocol
 
 Question 1: of first-candidate rejections, what share are spec gaps vs candidate faults. Question 2: for gaps, does
 the ruling flow reach a commit within budget.
 
-`scripts/decide-sessions.mjs [N=8] [sets…]` (built as `scripts/gaps.mjs` was planned here; results in DECIDE-MEASUREMENTS.md), built on `scripts/lib/drive.mjs` like `sessions.mjs` (not `record.mjs`: its
+`apps/site/scripts/decide-sessions.mjs [N=8] [sets…]` (built as `apps/site/scripts/gaps.mjs` was planned here; results in DECIDE-MEASUREMENTS.md), built on `apps/site/scripts/lib/drive.mjs` like `sessions.mjs` (not `record.mjs`: its
 curation keeps only rejected-first sessions, which would bias the rates), dev server, live Codex:
 
 1. Per example, N fresh sessions of the pre-typed call (`openApp`, `engineCall('loadExample')`, `runCall`).
@@ -520,7 +520,7 @@ or special-letter tests (both marked) → gaps; fibonacci 6/8 rejected by the bo
 slugify "don-t-stop") re-grown live. Caveat to print with the numbers: "gap" means "the spec author marked it", not
 ground truth.
 
-UI coverage (replay, no Codex): extend `scripts/replay-check.mjs` after the existing matrix: median: click card #1,
+UI coverage (replay, no Codex): extend `apps/site/scripts/replay-check.mjs` after the existing matrix: median: click card #1,
 open Decide, pick NaN, Decide → "re-certified"; pick throws → re-check fails → the needs-live message. slugify: same
 with "dont-stop" / "don-t-stop". fibonacci: no Decide element. At 375 px: the block is reachable and nothing scrolls
 horizontally.
@@ -566,7 +566,7 @@ UI:
 9. `explain.ts` copy (pure, tested): question, facts, consequence lines, alternative labels.
 10. Decide block in `GatePanel.tsx` `Headline`; the "spec was silent on N cases · Decide" line; re-check line.
 11. Repo "Decisions" list with Remove; status line.
-12. Evidence line; Revisions kind word; mobile pass; `replay-check.mjs` Decide blocks; then `scripts/decide-sessions.mjs` live
+12. Evidence line; Revisions kind word; mobile pass; `replay-check.mjs` Decide blocks; then `apps/site/scripts/decide-sessions.mjs` live
     measurement and the numbers into docs/EXAMPLES.md.
 
 ## 10. As built (CORE): deviations and fixes
@@ -575,7 +575,7 @@ Flaws found in this design while building it (fixed in the code; the text above 
 
 1. **Bundle boundary (§2.2).** Deduplicating alternatives and judging "agrees" with `testApi.ts` `deepEqual` would
    import the sandbox (and fast-check) into the main bundle; the engine already duplicates constants to avoid exactly
-   that. `src/decide/` compares ENCODED outcomes as canonical JSON instead. Consequence: two Maps/Sets with the same
+   that. `packages/engine/src/decide/` compares ENCODED outcomes as canonical JSON instead. Consequence: two Maps/Sets with the same
    entries in a different order compare unequal here, so such a ruling counts as waiving (it never replays); every
    primitive, NaN, -0 and undefined compares exactly.
 2. **Remove after a re-certification (§4.2).** If decision A re-certified the artifact (restamped to A's hashes) and a

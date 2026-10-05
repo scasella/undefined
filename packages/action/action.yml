@@ -1,0 +1,51 @@
+name: Undefined certify
+description: >-
+  Certify the exported TypeScript functions a PR touches (compile, tests, properties, invariants, mutation check) and
+  keep one PR comment up to date. Certifies code from any source; never generates code. Runs the PR's code in a Node
+  worker_thread with a watchdog, which is NOT a secure sandbox (see the README).
+author: Stephen Casella
+branding:
+  icon: check-square
+  color: gray-dark
+inputs:
+  paths:
+    description: >-
+      Globs of source files to consider, repository-relative, separated by newlines or commas; `!glob` excludes.
+      Test, spec and .d.ts files are never certified as sources.
+    default: 'src/**/*.ts'
+  mode:
+    description: >-
+      certify-and-comment (one job, same-repository PRs) | certify (no comment; the untrusted half of the fork-safe
+      setup) | comment (posts a result file from a certify run; runs no PR code).
+    default: certify-and-comment
+  github-token:
+    description: Token for the one GitHub API call that creates or updates the comment.
+    default: ${{ github.token }}
+  budget-ms:
+    description: Per-call time budget in milliseconds for functions whose spec does not set one (default 1000).
+    required: false
+  mutation:
+    description: Run the mutation check on accepted functions.
+    default: 'true'
+  fail-on:
+    description: >-
+      Verdicts that fail the check: `rejection` (always), optionally `could-not-run` too. A spec gap never fails it.
+    default: rejection
+  result-path:
+    description: Where to write the result file (JSON). Default $RUNNER_TEMP/undefined-certify.json.
+    required: false
+  report-file:
+    description: mode comment only. The result file a mode certify run wrote (downloaded as an artifact).
+    required: false
+  working-directory:
+    description: A directory inside the repository to run git in.
+    default: '.'
+  dry-run:
+    description: Print the comment to the log instead of posting it. Nothing is sent anywhere.
+    default: 'false'
+outputs:
+  result-path:
+    description: Path of the result file (the report the comment is rendered from, plus provenance per accepted function).
+runs:
+  using: node24
+  main: dist/index.js

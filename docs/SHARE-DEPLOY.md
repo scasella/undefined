@@ -4,13 +4,13 @@ By default **Share this session** is a manual flow: download the recording, host
 with CORS (a gist works), paste the URL. Nothing is uploaded and no server is involved.
 
 If you run your own copy of the site, you can add a **Create link** button to that dialog. It uploads the recording to a
-small Cloudflare Worker *you* deploy (`server/share/`), which stores it in an R2 bucket under its content hash and
+small Cloudflare Worker *you* deploy (`apps/site/server/share/`), which stores it in an R2 bucket under its content hash and
 serves it back to anyone who opens the link. The public site does not use one unless its owner builds it with
 `VITE_SHARE_ENDPOINT`; without that variable the dialog is the manual flow, unchanged.
 
-What the Worker does (`server/share/worker.ts`):
+What the Worker does (`apps/site/server/share/worker.ts`):
 
-- `POST /` with a recording, at most 2 MB. It is checked with the site's own loader (`src/share/source.ts`, imported
+- `POST /` with a recording, at most 2 MB. It is checked with the site's own loader (`apps/site/src/share/source.ts`, imported
   directly, so the server and the site cannot disagree about what a valid recording is). The validated copy, serialized
   as JSON, is stored under its sha-256 hex digest. The answer is `{"hash": "...", "url": "https://.../<hash>"}`;
   uploading the same recording again gives the same hash and writes nothing.
@@ -22,18 +22,18 @@ What the Worker does (`server/share/worker.ts`):
 
 - A Cloudflare account (the free plan is enough) with R2 enabled. R2 asks for a payment method even on its free tier.
 - Node 20.19+ or 22.12+ and this repository checked out. No scaffolding (`npm create cloudflare`) is needed: the Worker
-  and its `wrangler.toml` are already in `server/share/`. Wrangler runs through `npx` and is not added to the project.
+  and its `wrangler.toml` are already in `apps/site/server/share/`. Wrangler runs through `npx` and is not added to the project.
 
 ## Deploy
 
 ```sh
-cd server/share
+cd apps/site/server/share
 npx wrangler@latest login                                  # opens a browser to authorize Wrangler
 npx wrangler@latest r2 bucket create undefined-recordings  # the name wrangler.toml binds as RECORDINGS
 npx wrangler@latest deploy                                 # prints https://undefined-share.<your-subdomain>.workers.dev
 ```
 
-To use another bucket or Worker name, edit `name` and `bucket_name` in `server/share/wrangler.toml` first. To try it
+To use another bucket or Worker name, edit `name` and `bucket_name` in `apps/site/server/share/wrangler.toml` first. To try it
 locally first, `npx wrangler@latest dev` serves it at `http://localhost:8787` with a local bucket (the dev site accepts
 `http://localhost` endpoints).
 
@@ -54,7 +54,7 @@ curl -sS -X POST --data-binary '{}' "$ENDPOINT/"   # 422 with the loader's reaso
 The endpoint is read at **build** time from `VITE_SHARE_ENDPOINT` (https, or http on localhost; no query string; a
 trailing slash is dropped). An empty or invalid value means no button.
 
-- Locally: `VITE_SHARE_ENDPOINT=https://undefined-share.<you>.workers.dev npm run build`, then serve `dist/`.
+- Locally: `VITE_SHARE_ENDPOINT=https://undefined-share.<you>.workers.dev npm run build`, then serve `apps/site/dist/`.
 - GitHub Pages (`.github/workflows/pages.yml`): in the repository, **Settings → Secrets and variables → Actions →
   Variables → New repository variable**, name `VITE_SHARE_ENDPOINT`, value the Worker URL. Then re-run **Deploy the
   replay site** (Actions tab → *Run workflow*) or push to `main`. Delete the variable and redeploy to turn it off.
@@ -92,7 +92,7 @@ rule for `POST` on the Worker's route, or take the Worker down (`npx wrangler@la
 Objects never expire on their own. To remove one (the hash is the last part of the share link):
 
 ```sh
-cd server/share
+cd apps/site/server/share
 npx wrangler@latest r2 object delete undefined-recordings/<64 hex> --remote
 ```
 

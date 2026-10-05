@@ -1,7 +1,7 @@
 # Copy options: the argument above the fold
 
 Two plain sentences sit under the masthead, above the example chips and the console
-(`src/ui/components/Argument.tsx`, styled by `.argument` in `src/styles.css`). They state the inversion for a
+(`apps/site/src/ui/components/Argument.tsx`, styled by `.argument` in `apps/site/src/styles.css`). They state the inversion for a
 first-time visitor: compilers used to judge human code; now the model writes and the toolchain judges. Version A ships.
 
 ## A (default): the historical inversion, stated flatly
@@ -24,13 +24,13 @@ Tone: the sharpest of the three; addresses the reader directly and makes a claim
 
 ## How to swap
 
-In `src/ui/components/Argument.tsx`, change
+In `apps/site/src/ui/components/Argument.tsx`, change
 
 ```ts
 export const ARGUMENT: readonly [string, string] = COPY.A;
 ```
 
 to `COPY.B` or `COPY.C`. All three drafts live in `COPY` in that file; edit wording there and keep this page in step.
-`src/ui/components/Argument.test.ts` checks every draft (two sentences, no jargon the screenshot script flags).
-Changing the copy does not touch any example spec or prompt, so `public/recordings/*` stay valid; re-run
-`node scripts/capture.mjs` if the GIF and video should show the new line.
+`apps/site/src/ui/components/Argument.test.ts` checks every draft (two sentences, no jargon the screenshot script flags).
+Changing the copy does not touch any example spec or prompt, so `apps/site/public/recordings/*` stay valid; re-run
+`node apps/site/scripts/capture.mjs` if the GIF and video should show the new line.

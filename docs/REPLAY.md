@@ -6,12 +6,12 @@ For the optional one-click upload server, see [SHARE-DEPLOY.md](SHARE-DEPLOY.md)
 ## Replay mode and recordings
 
 Every session is recordable: **Session → Share…** saves a JSON file of the model candidates with their
-prompts and progress lines (see [Share a session](#share-a-session) below). Recordings in `public/recordings/` are matched by function name + spec hash + tests hash, so
+prompts and progress lines (see [Share a session](#share-a-session) below). Recordings in `apps/site/public/recordings/` are matched by function name + spec hash + tests hash, so
 replay works for the unmodified examples and for their **Break it** edits. Edit a spec to something that was never
 recorded and replay mode says so, and tells you how to run live.
 
 Maintainers re-record the shipped sessions with `npm run record` (starts the dev server, drives headless Chrome through the
-real app against your Codex login, and writes `public/recordings/*.json`; it keeps a session only if the first candidate
+real app against your Codex login, and writes `apps/site/public/recordings/*.json`; it keeps a session only if the first candidate
 was rejected and prints how many tries that took). `npm run check:replay` serves the production build with no backend and
 checks that each example replays from its recording through the real UI, including each `?opener=` value.
 

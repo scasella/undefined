@@ -24,9 +24,8 @@ revision of your running program. Everything runs in your browser except the mod
 
 - **In your browser:** [scasella.github.io/undefined](https://scasella.github.io/undefined/) opens with `median([3, 1, 4, 2])`
   in the console. Press Enter, watch the first draft get rejected and the retry committed. The other examples are one click away.
-- **Try a different opener (`?opener=…`):** [`?opener=fibonacci`](https://scasella.github.io/undefined/?opener=fibonacci),
-  `?opener=slugify` or `?opener=orders` starts on that example instead (first visit only; anything else falls back to
-  `median`). [What the fibonacci opener looks like](docs/opening-fibonacci.gif).
+- **Another opener:** [`?opener=fibonacci`](https://scasella.github.io/undefined/?opener=fibonacci), `?opener=slugify`
+  or `?opener=orders` starts on that example (first visit only). [The fibonacci opener](docs/opening-fibonacci.gif).
 - **Make it yours:** call any function that doesn't exist. With no spec, only Compile and Invariants judge it; pin a
   result as a test or write a one-line spec to make the gate stricter. [All features](docs/FEATURES.md).
 - **Decide** where the spec was silent: a rejection a check marks as a spec gap becomes a question (`median([])`: throw,
@@ -37,82 +36,85 @@ revision of your running program. Everything runs in your browser except the mod
 
 ## Run it
 
-**Prerequisites:** Node `^20.19 || >=22.12` (Vite 8's floor; typecheck, 1126 tests and the build were run on Node 20.20, 22.23 and 26.8; older 20.x releases fail Vite's own engine check), [Codex CLI](https://github.com/openai/codex) 0.157 or later (`npm i -g @openai/codex`), and
-`codex login` completed. No API keys, no cloud backend, nothing leaves your machine except the prompt to Codex.
+**Prerequisites:** Node `^20.19 || >=22.12` (Vite 8's floor), [Codex CLI](https://github.com/openai/codex) 0.157 or
+later (`npm i -g @openai/codex`) and `codex login` completed. No API keys, no cloud backend, nothing leaves your machine
+except the prompt to Codex. The repository is an npm workspace (`apps/site`, and `packages/engine`, `cli` and `action`
+below; [layout](docs/ARCHITECTURE.md#layout)); every command runs from the root.
 
 ```bash
 git clone https://github.com/scasella/undefined.git && cd undefined
 npm install
-npm run dev          # opens on http://localhost:5173 with the generation service running (LIVE mode)
+npm run dev          # http://localhost:5173 with the generation service running (LIVE mode)
+npm test && npm run typecheck && npm run build    # tests for every package, then the static site in apps/site/dist/
 ```
 
-**Replay mode (no Codex needed):** `npm run build` produces a static site in `dist/` (deployable to GitHub Pages; assets
-use relative paths). With no generation service reachable the app replays recorded `gpt-6-luna` sessions; the header pill reads
-*"Replay · gates run live"*. The candidates are recorded; **every gate still executes live in your browser** against
-them. `npm run preview` serves the build locally. Clicking the pill explains how to switch to live.
+**Replay mode (no Codex needed):** the static build in `apps/site/dist/` needs no backend and no environment variables
+(deployable to GitHub Pages). With no generation service reachable it replays recorded `gpt-6-luna` sessions; the
+header pill reads *"Replay · gates run live"*: the candidates are recorded, **every gate still executes live in your
+browser**. `npm run preview` serves it locally.
+
+## The engine
+
+The gates work without the site. `certify` takes a TypeScript file exporting functions and its spec (the site's
+`undefined-spec` format, or the vitest + fast-check test file next to it), runs the four gates and the mutation check in
+Node with a real watchdog, and prints each verdict, evidence line, surviving mutant (with its line) and spec-gap
+question. Exits 0 pass, 1 rejected, 2 spec gaps, 3 could not run; `--json` emits the provenance structure the site ejects.
 
 ```bash
-npm test             # unit + integration tests (Node)
-npm run typecheck
+npx @scasella/undefined certify src/stats.ts [--spec src/stats.test.ts] [--json]
+# not published yet; from a clone: npm run build:cli && node packages/cli/dist/cli.js certify src/stats.ts
 ```
+
+The GitHub Action certifies the exported functions a PR touches and keeps one comment up to date (evidence line per
+function, surviving mutants at `file:line`, spec gaps as decisions the reviewer answers by adding a test). It fails the
+check only on a rejection, never on a gap ([fork PRs](packages/action/README.md)):
+
+```yaml
+- uses: actions/checkout@v4
+  with: { fetch-depth: 0 }
+- uses: scasella/undefined/packages/action@<commit-sha>
+  with: { paths: 'src/**/*.ts' }
+```
+
+**It certifies code from any source: Claude Code, Codex, Cursor, a human.** The engine, CLI and Action never generate
+code. They run the code under test in a Node `worker_thread` with a watchdog, **not a secure sandbox**
+([SECURITY](docs/SECURITY.md#the-node-host-packagesengine-used-by-the-cli-and-the-action)). On the shipped recordings they
+reproduce the site's verdicts, evidence and mutation results ([parity](docs/EVIDENCE.md#node-and-cli-parity)). API, spec
+formats, limits: [docs/ENGINE.md](docs/ENGINE.md); npm names: [docs/PACKAGES.md](docs/PACKAGES.md).
 
 ## What leaves your browser
 
-- **Replay mode / the static site:** nothing about your program. The page loads its own files and the bundled
-  recordings from the site that serves it, and asks that same site for `./generate/health` (to see whether a local
-  service is running). It loads no third-party scripts, fonts or other resources.
-- **Live mode:** each generation is a `POST ./generate` to the local service on the same host, which runs `codex exec`
-  with the prompt; Codex sends it to the model provider. The prompt holds the signature, the doc, the *names* of your
-  tests and properties (never their bodies), the argument types of the triggering call, declared types and sample rows
-  as described in [Data scratchpad](docs/FEATURES.md#data-scratchpad). A retry adds the rejected draft and the gates' diagnostics, and a "retry with the error fed
-  back" adds the failing call and its error; these can quote argument values and results, except as described there
-  while data is loaded.
-- **A recording link** (`?recording=<url>` or **Load a recording** → link): that one URL is fetched.
-- **Sharing:** nothing is uploaded. **Share this session** downloads a file; you decide where to host it. A copy of
-  the site built with the optional `VITE_SHARE_ENDPOINT` (off by default; the public site does not set one unless its
-  owner builds with it; see [docs/SHARE-DEPLOY.md](docs/SHARE-DEPLOY.md)) also shows **Create link**: pressing it
-  uploads the recording (specs, tests, prompts, candidates, calls and any dataset rows in the session) to that
-  endpoint, whose host the dialog names, and nothing is uploaded until you press it.
-- Your program, data and the optional session log stay in this browser's IndexedDB.
+- **Replay mode / the static site:** nothing about your program. The page loads its own files and recordings from the
+  site that serves it and asks that site for `./generate/health`. No third-party scripts, fonts or other resources.
+- **Live mode:** each generation is a `POST ./generate` to the local service, which runs `codex exec`; Codex sends the
+  prompt to the model provider. It holds the signature, the doc, the *names* of your tests and properties (never their
+  bodies), the argument types of the call, declared types and sample rows. A retry adds the rejected draft, the gates'
+  diagnostics and, when the error is fed back, the failing call; these can quote argument values and results, except
+  as described in [Data scratchpad](docs/FEATURES.md#data-scratchpad) while data is loaded.
+- **A recording link** (`?recording=<url>`): that one URL is fetched. **Sharing** uploads nothing: it downloads a file,
+  unless the site was built with the optional `VITE_SHARE_ENDPOINT` and you press **Create link**, which uploads the
+  recording to the host the dialog names ([docs/SHARE-DEPLOY.md](docs/SHARE-DEPLOY.md)).
+- Your program, data and the optional session log stay in this browser's IndexedDB. The CLI makes no network calls;
+  the Action calls only the GitHub API, for its one comment. No accounts, telemetry or analytics anywhere.
 
 ## Limits and known gaps
 
-- **The sandbox is not a security boundary.** See [docs/SECURITY.md](docs/SECURITY.md) for exactly what it does and does not do.
-- **REPL lines** are single lines; separate statements with `;`. Declarations (including destructuring) bind REPL
-  variables like `x = …` does (`const` is not enforced, and `let x;` / `var x;` set `x` to `undefined` even when it
-  already holds a value); `let`/`var` inside a block or loop stay local to it; function and
-  class declarations, `import`/`export`, `return` outside a function and top-level `await` are refused. After a function grows, only the
-  statement that called it runs again, from its start: earlier statements never re-run, but side effects earlier in *that*
-  statement (`(n = n + 1, median(xs))`, the finished iterations of a loop) run twice. Each statement has its own time
-  budget, and a timeout restores the program to before the statement that overran.
-- **Composition is new and measured only once.** A generated function may call another one that is already certified
-  in the same program; the prompt lists those functions only when there are any, so prompts for programs with no other
-  certified function are byte-identical to before. With other functions listed, one morning's measurements showed the
-  examples' rejection rates unchanged and the decline rules holding, except that `hello()` is declined more often
-  (about 4 in 10 instead of 2 in 10); details in [docs/COMPOSE-MEASUREMENTS.md](docs/COMPOSE-MEASUREMENTS.md). No cycles (mutual recursion is refused at compile time), and tests cannot call other generated
-  functions. When a function it calls changes (directly, or anything further down the chain), a dependent is re-checked with the new code before it runs again; if it
-  fails, it does not run and the next call regrows it. A fault or side effect inside a callee is reported for the callee
-  and names its caller: the blame is shared. The Repo shows what each function uses and is used by, and why a dependent
-  is out of date or waiting; ejecting a function ejects the functions it calls with it.
-- A self-recursive function with no declared return type cannot compile (TS7023); the engine allows one extra attempt and
-  tells the model.
-- Two tabs share one stored program and do not merge edits: a tab that finds another one open shows *This program is
-  open in another tab. Edits in two tabs overwrite each other; close one.* Dataset rows are never dropped by the other
-  tab's saves; a stored image that still refers to rows that are missing is repaired (those datasets are unbound, and
-  the page says which), and one that cannot be read at all is discarded with a notice saying why. No async tests.
-- Browsers with IndexedDB blocked fall back to in-memory state for the session.
+- **Neither sandbox is a security boundary:** not the browser workers, not the Node runner ([docs/SECURITY.md](docs/SECURITY.md)).
+- **REPL lines** are single lines (statements separated by `;`; declarations of functions and classes, `import`/`export`
+  and top-level `await` are refused); after a function grows, only the statement that called it re-runs ([details](docs/FEATURES.md)).
+- **Composition** (a generated function calling another certified one) was measured once
+  ([docs/COMPOSE-MEASUREMENTS.md](docs/COMPOSE-MEASUREMENTS.md)); no cycles, and a dependent is re-checked when a callee changes.
+- A self-recursive function with no declared return type cannot compile (TS7023); one extra attempt is allowed.
+- Two tabs share one stored program and do not merge edits (the page warns); with IndexedDB blocked, state is in-memory
+  for the session. No async tests.
 - The measured rejection rates are one day's rates for one model, not a guarantee ([docs/EXAMPLES.md](docs/EXAMPLES.md)).
 
 ## Documentation
 
-- [docs/FEATURES.md](docs/FEATURES.md): everything you can do, Decide, the data scratchpad, pinning, Eject, `?opener=`, the local session log.
-- [docs/EXAMPLES.md](docs/EXAMPLES.md): the four examples, why each first draft is rejected, measured session rates.
-- [docs/EVIDENCE.md](docs/EVIDENCE.md): the confidence line, mutation testing, measured kill rates.
-- [docs/COMPOSE-MEASUREMENTS.md](docs/COMPOSE-MEASUREMENTS.md): functions calling functions, measured live (prompt change, declines, reuse, re-checks).
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how a call is decided, what the model sees, the generation service, source layout.
-- [docs/SECURITY.md](docs/SECURITY.md): the security model, what is enforced and what is not.
-- [docs/REPLAY.md](docs/REPLAY.md): replay mode, re-recording, sharing a session.
-- [docs/DEMO-SCRIPT.md](docs/DEMO-SCRIPT.md): a 60-second demo script.
-- [docs/HOSTILE.md](docs/HOSTILE.md): 54 stranger-style calls and how each one went.
-- [docs/SHARE-DEPLOY.md](docs/SHARE-DEPLOY.md): deploying the optional one-click share endpoint.
-- [docs/DESIGN.md](docs/DESIGN.md): module contracts. [docs/LAUNCH.md](docs/LAUNCH.md), [docs/COPY-OPTIONS.md](docs/COPY-OPTIONS.md).
+[FEATURES](docs/FEATURES.md) (everything you can do: Decide, the data scratchpad, pinning, Eject, `?opener=`, the
+session log) · [EXAMPLES](docs/EXAMPLES.md) (the four examples, measured rates) · [EVIDENCE](docs/EVIDENCE.md) (the
+confidence line, mutation testing, kill rates, Node/CLI parity) · [ENGINE](docs/ENGINE.md) (engine, CLI and Action: API,
+spec formats, exit codes, JSON) · [PACKAGES](docs/PACKAGES.md) (npm names) · [ARCHITECTURE](docs/ARCHITECTURE.md) ·
+[SECURITY](docs/SECURITY.md) · [REPLAY](docs/REPLAY.md) · [COMPOSE-MEASUREMENTS](docs/COMPOSE-MEASUREMENTS.md) ·
+[HOSTILE](docs/HOSTILE.md) (54 stranger-style calls) · [SHARE-DEPLOY](docs/SHARE-DEPLOY.md) · [DESIGN](docs/DESIGN.md)
+(module contracts) · [DEMO-SCRIPT](docs/DEMO-SCRIPT.md) · [LAUNCH](docs/LAUNCH.md) · [COPY-OPTIONS](docs/COPY-OPTIONS.md).

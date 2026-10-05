@@ -3,16 +3,16 @@
 The model is the *upstream* source of code. The ordinary toolchain (compiler, tests, property checks, invariants)
 is the *downstream consumer* that decides what gets accepted. Everything here exists to make that inversion legible.
 
-`src/types.ts` is the shared contract. If you need to change it, say so in your report; do not fork types.
+`packages/engine/src/types.ts` is the shared contract. If you need to change it, say so in your report; do not fork types.
 
 ## Ground rules (all modules)
 
 - TypeScript strict. ESM. No new runtime dependencies (preact, @preact/signals, fast-check, typescript 5.9 are installed). Do not edit `package.json`.
-- Browser-first: everything under `src/` except `*.test.ts` must run in a browser (or Worker) without Node APIs. `server/` is Node.
+- Browser-first: everything under `packages/engine/src/` and `apps/site/src/` except `*.test.ts` must run in a browser (or Worker) without Node APIs. `apps/site/server/` is Node.
 - Pure logic is separated from environment glue so it can be unit tested with `vitest` in Node (`npm test`). Browser-only glue (Worker spawning, IndexedDB, DOM) is kept thin.
 - The project must keep passing `npx tsc --noEmit`. While other modules are in flight you may see errors in files you do not own; ignore those, fix yours.
 - Never claim determinism the model can't provide. The *gates* are deterministic (fixed fast-check seed derived from the hashes); the *model* is not.
-- Do not touch files you do not own. Shared contract = `src/types.ts` (read-only for you).
+- Do not touch files you do not own. Shared contract = `packages/engine/src/types.ts` (read-only for you).
 
 ## Data flow of one REPL call
 
@@ -101,21 +101,21 @@ The prompt contains: role + hard rules (do NOT run commands, do NOT read/inspect
 
 | Path | Owner task | Exports (contract) |
 |---|---|---|
-| `src/types.ts` | architect | the contract |
-| `src/shared/show.ts` `serialize.ts` `inferType.ts` `hash.ts` `specInfo.ts` | core | `show`, `callString`, `encodeValue`, `decodeValue`, `inferType`, `sha256Hex`, `specHash(spec)`, `testsHash(spec)`, `listTestNames(src)`, `hashesFor(spec): Promise<{specHash,testsHash}>`, `gateSeed(specHash,testsHash): number` |
-| `src/shared/prompt.ts` | service | `buildPrompt(input: PromptInput): string`, `formatDiagnosticsForModel(gates: GateResult[]): string`, `declarationLine(spec: FunctionSpec, opts?: {forceInferredReturn?: string}): string` |
-| `server/codexService.ts`, `server/codexPlugin.ts` | service | Vite plugin `codexService()` mounting `GET /generate/health` and `POST /generate` (SSE) |
-| `src/gates/source.ts` | compile | `buildSource(spec, body): { source: string; bodyStartLine: number }`, `specFromCall(name, argTypes: string[]): FunctionSpec` (params named `arg0..`, returns null) |
-| `src/gates/compile.ts` | compile | `compileCandidate(spec, body): Promise<{ gate: GateResult; js: string \| null; source: string; returnType: string }>`, `transpileUserCode(src: string): { js: string; error?: string }`, lazy-loads `typescript` + lib `.d.ts` files |
-| `src/sandbox/testApi.ts`, `gateExecutor.ts`, `gateWorker.ts`, `gateRunner.ts` | sandbox-gates | `runExecutionGates(input: ExecGateInput, onGate?: (r: GateResult) => void): Promise<GateResult[]>` (3 results: tests, properties, invariants). `gateExecutor.ts` is the environment-agnostic core usable in Node tests (no Worker/timeout there); `gateWorker.ts` is the thin shell; `gateRunner.ts` owns Worker + watchdog + termination |
-| `src/sandbox/mask.ts` | architect (DONE, read it) | `evalMasked(js, exportName)`, `InvariantViolation`, `isInvariantViolation`, `takeViolations()`, `scrubWorkerGlobals(self)`. Both workers use it; the gate executor must check `takeViolations()` after every phase/call because a candidate can swallow the thrown error |
-| `src/sandbox/runtimeWorker.ts`, `runtime.ts` | sandbox-runtime | `class Runtime` (below) |
-| `src/core/program.ts` | core | pure program/revision operations (below) |
-| `src/core/store.ts` | core | IndexedDB persistence + image export/import/validation |
-| `src/core/generator.ts` | replay | `LiveGenerator`, `ReplayGenerator`, `createGenerator(...)`, `probeService()`, `GenerationFailure`, `RecordingSink` |
-| `src/examples/*.ts` | examples | `EXAMPLES: ExampleDef[]`, `INITIAL_EXAMPLE_ID = 'median'` |
-| `src/core/engine.ts` | engine (phase 2) | `createEngine(): Engine` |
-| `src/ui/**`, `src/main.tsx`, `src/styles.css` | ui | the app |
+| `packages/engine/src/types.ts` | architect | the contract |
+| `packages/engine/src/shared/show.ts` `serialize.ts` `inferType.ts` `hash.ts` `specInfo.ts` | core | `show`, `callString`, `encodeValue`, `decodeValue`, `inferType`, `sha256Hex`, `specHash(spec)`, `testsHash(spec)`, `listTestNames(src)`, `hashesFor(spec): Promise<{specHash,testsHash}>`, `gateSeed(specHash,testsHash): number` |
+| `apps/site/src/shared/prompt.ts` | service | `buildPrompt(input: PromptInput): string`, `formatDiagnosticsForModel(gates: GateResult[]): string`, `declarationLine(spec: FunctionSpec, opts?: {forceInferredReturn?: string}): string` |
+| `apps/site/server/codexService.ts`, `apps/site/server/codexPlugin.ts` | service | Vite plugin `codexService()` mounting `GET /generate/health` and `POST /generate` (SSE) |
+| `packages/engine/src/gates/source.ts` | compile | `buildSource(spec, body): { source: string; bodyStartLine: number }`, `specFromCall(name, argTypes: string[]): FunctionSpec` (params named `arg0..`, returns null) |
+| `packages/engine/src/gates/compile.ts` | compile | `compileCandidate(spec, body): Promise<{ gate: GateResult; js: string \| null; source: string; returnType: string }>`, `transpileUserCode(src: string): { js: string; error?: string }`, lazy-loads `typescript` + lib `.d.ts` files |
+| `packages/engine/src/sandbox/testApi.ts`, `gateExecutor.ts`, `gateWorker.ts`, `gateRunner.ts` | sandbox-gates | `runExecutionGates(input: ExecGateInput, onGate?: (r: GateResult) => void): Promise<GateResult[]>` (3 results: tests, properties, invariants). `gateExecutor.ts` is the environment-agnostic core usable in Node tests (no Worker/timeout there); `gateWorker.ts` is the thin shell; `gateRunner.ts` owns Worker + watchdog + termination |
+| `packages/engine/src/sandbox/mask.ts` | architect (DONE, read it) | `evalMasked(js, exportName)`, `InvariantViolation`, `isInvariantViolation`, `takeViolations()`, `scrubWorkerGlobals(self)`. Both workers use it; the gate executor must check `takeViolations()` after every phase/call because a candidate can swallow the thrown error |
+| `apps/site/src/sandbox/runtimeWorker.ts`, `runtime.ts` | sandbox-runtime | `class Runtime` (below) |
+| `packages/engine/src/program.ts` | core | pure program/revision operations (below) |
+| `apps/site/src/core/store.ts` | core | IndexedDB persistence + image export/import/validation |
+| `apps/site/src/core/generator.ts` | replay | `LiveGenerator`, `ReplayGenerator`, `createGenerator(...)`, `probeService()`, `GenerationFailure`, `RecordingSink` |
+| `apps/site/src/examples/*.ts` | examples | `EXAMPLES: ExampleDef[]`, `INITIAL_EXAMPLE_ID = 'median'` |
+| `apps/site/src/core/engine.ts` | engine (phase 2) | `createEngine(): Engine` |
+| `apps/site/src/ui/**`, `apps/site/src/main.tsx`, `apps/site/src/styles.css` | ui | the app |
 
 ### `PromptInput` (shared/prompt.ts)
 ```ts
@@ -214,7 +214,7 @@ export class RecordingSink { add(req, result, label, ctx?: { spec, call, dataset
 ```
 All URLs relative (`./generate`) so the static build works from a sub-path.
 
-### Examples (`src/examples`)
+### Examples (`apps/site/src/examples`)
 ```ts
 export interface ExampleDef extends ExampleInfo {
   spec: FunctionSpec;              // origin 'example', exampleId set

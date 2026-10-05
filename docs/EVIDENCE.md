@@ -87,8 +87,8 @@ see [DECIDE-MEASUREMENTS.md](DECIDE-MEASUREMENTS.md).
 
 ## Measured kill rates of the shipped checks
 
-The engine's own path, run on each known-good body in `src/examples`
-(seed derived from the spec hashes, default 6 s box; printed by `src/core/engine.evidence.test.ts`, which runs in
+The engine's own path, run on each known-good body in `apps/site/src/examples`
+(seed derived from the spec hashes, default 6 s box; printed by `apps/site/src/core/engine.evidence.test.ts`, which runs in
 Node, where there is no watchdog):
 
 | example | body | result |
@@ -101,6 +101,54 @@ Node, where there is no watchdog):
 | orders | (spec-less) | no tests yet: nothing could kill a mutant |
 
 In the browser, replaying the shipped recordings from the production build with the real watchdog (`node
-scripts/mutation-check.mjs`, measured after the final re-record), the app itself reads: median 12 of 12, slugify 1 of 1,
+apps/site/scripts/mutation-check.mjs`, measured after the final re-record), the app itself reads: median 12 of 12, slugify 1 of 1,
 and fibonacci 11 of 12 (two of them stopped by the time limit; one survived). These belong to the recorded bodies and change
 when the recordings are re-made.
+
+The table above is the engine run in-process by vitest **without a watchdog** (a slow mutant is never stopped by the
+time limit there), on the examples' known-good bodies; it is not what the site shows. What the site shows for the
+recorded bodies is the browser measurement below.
+
+### Node and CLI parity
+
+The browser's values for every recorded candidate are measured by `node apps/site/scripts/parity-measure.mjs --write`
+(production build, `vite preview`, replay mode, headless Chrome, the real Worker watchdog; session 1 by clicking the
+example, session 2 by the Repo tab's *Break it*) and saved in `apps/site/src/examples/parity.browser.json`: per attempt
+the gate rows, the rejecting gate and headline, and for the accepted body the "What was checked" sentence, its tooltip
+(the evidence line the CLI and eject print) and each surviving mutant. The recordings themselves carry only the model's
+bodies, not gate results. Two suites compare against that file on every one of the 11 recorded candidates:
+`apps/site/src/examples/parity.node.test.ts` (the engine's Node path in-process, in `npm test`) and
+`apps/site/scripts/cli.parity.ts` (`npm run check:parity`, in CI: the **built CLI** as a subprocess, `certify <file>
+--json`, empty environment, one at a time; about 15 s). Both check the recording's spec and tests hashes (so the seed),
+the verdict and exit code, the rejecting gate, every gate's status, the rejection headline as the site renders it, the
+evidence line, the site's sentence rebuilt from the CLI's `--json` evidence, the mutation buckets and which mutants
+survived. Measured 2026-10-05 (Chrome and Node 25.8.1 on the same Mac):
+
+| example | candidate | site | CLI | evidence line | mutants, site = CLI (killed + by time limit / total) |
+|---|---|---|---|---|---|
+| median | 1.1 | rejected by Properties, spec was silent | gaps by properties, exit 2 | — | — |
+| median | 1.2 | accepted | accepted, exit 0 | exact | 12 + 0 / 12, 0 survived |
+| median | 2.1 (Break it) | accepted | accepted, exit 0 | exact | 12 + 0 / 12, 0 survived |
+| slugify | 1.1 | rejected by Tests, spec was silent | gaps by tests, exit 2 | — | — |
+| slugify | 1.2 | accepted | accepted, exit 0 | exact | 1 + 0 / 1, 0 survived |
+| slugify | 2.1 (Break it) | accepted | accepted, exit 0 | exact | 11 + 0 / 12, 1 survived (compiled line 13, `0 → 1`) |
+| fibonacci | 1.1 | rejected by Invariants (`bounded`) | rejected by invariants, exit 1 | — | — |
+| fibonacci | 1.2 | accepted | accepted, exit 0 | exact | 9 + 2 / 12, 1 survived (compiled line 1, `\|\| → &&`) |
+| fibonacci | 2.1 (Break it) | accepted | accepted, exit 0 | exact | 10 + 1 / 12, 1 survived (same) |
+| orders | 1.1, 2.1 | accepted (spec-less) | accepted, exit 0 | exact | not run: no tests |
+
+Stated differences, the only ones the suites allow:
+
+1. **Watchdog timing** (fibonacci): a mutant that both fails a check and runs slowly can be stopped by the 1000 ms
+   per-call limit first on one machine and fail its check first on another, so only *killed + stopped by the time
+   limit* is compared, never the split (the clause is merged out of both sentences before comparing). On the
+   measurement machine the split matched too. A mutation run cut short by the 6 s box fails the suites instead of being
+   accepted as a smaller total. fibonacci's attempt-1 rejection is itself a watchdog verdict (`bounded`, 1500 ms) with
+   a margin of seconds.
+2. **One verdict mapping, not timing:** when every failure in the rejecting gate carries "the spec was silent", the site
+   shows *Rejected by … — spec was silent* with a Decide card; the engine, CLI and Action call that `gaps` (exit 2, and
+   the Action does not fail the check) with the same question. Any other rejection is `rejected` (exit 1) in both.
+
+Re-measure (`npm run build && npm run measure:parity -w apps/site`) whenever the recordings change; both suites refuse a
+measurement taken on other recordings.
+

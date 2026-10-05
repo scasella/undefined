@@ -1,0 +1,95 @@
+{
+  "format": "undefined-certify",
+  "version": 1,
+  "tool": {
+    "name": "@scasella/undefined",
+    "version": "<version>",
+    "node": "<node>",
+    "v8": "<v8>",
+    "icu": "<icu>",
+    "typescript": "<typescript>",
+    "fastCheck": "<fastCheck>",
+    "host": "node worker_thread + node:vm realm with a watchdog (not a secure sandbox)"
+  },
+  "exitCode": 1,
+  "file": "src/leap.ts",
+  "specFile": "src/leap.undefined.json",
+  "specSource": "undefined-spec",
+  "functions": {
+    "isLeapYear": {
+      "verdict": "rejected",
+      "source": {
+        "file": "src/leap.ts",
+        "line": 2,
+        "bodyLine": 3
+      },
+      "specHash": "7fc2f752c09ff5a9b4013a712778022cb6edfde3b971f308e0e5ac0cf28f56cd",
+      "testsHash": "d642ca5e2912c541ceee2d4764ee201a5aa97c8893966c23b9a348213d6eb7b3",
+      "seed": -1451213556,
+      "rejectedBy": "tests",
+      "headline": "Rejected: isLeapYear(1900) returned true, expected false",
+      "unchecked": false,
+      "calls": [],
+      "gates": [
+        {
+          "gate": "compile",
+          "status": "pass",
+          "summary": "0 errors",
+          "counts": {
+            "passed": 1,
+            "total": 1
+          },
+          "ms": "<ms>"
+        },
+        {
+          "gate": "tests",
+          "status": "fail",
+          "summary": "3/4 tests passed",
+          "headline": "Rejected: isLeapYear(1900) returned true, expected false",
+          "counts": {
+            "passed": 3,
+            "total": 4
+          },
+          "ms": "<ms>"
+        },
+        {
+          "gate": "properties",
+          "status": "skipped",
+          "summary": "not reached",
+          "note": "not reached",
+          "ms": "<ms>"
+        },
+        {
+          "gate": "invariants",
+          "status": "skipped",
+          "summary": "not reached",
+          "note": "not reached",
+          "ms": "<ms>"
+        }
+      ],
+      "diagnostics": [
+        {
+          "kind": "test",
+          "name": "centuries are not leap years",
+          "call": "isLeapYear(1900)",
+          "expected": "false",
+          "actual": "true",
+          "message": "expected false, got true"
+        }
+      ],
+      "gaps": [],
+      "evidenceLine": null,
+      "evidence": null,
+      "mutation": null,
+      "mutantLines": [],
+      "skippedByTestFile": [],
+      "provenance": null
+    }
+  },
+  "order": [
+    "isLeapYear"
+  ],
+  "issues": [],
+  "notes": [],
+  "unattributed": []
+}

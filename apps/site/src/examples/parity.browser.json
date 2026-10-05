@@ -1,0 +1,332 @@
+{
+  "measuredAt": "2026-10-05T11:08:38.733Z",
+  "how": "node apps/site/scripts/parity-measure.mjs --write (production build, vite preview, replay mode, headless Chrome, real Worker watchdog)",
+  "head": "0d1c13c",
+  "dirtyTree": true,
+  "chrome": "154.0.8037.95",
+  "recordings": {
+    "median": [
+      "9d21d9cd048e1f37bd1b66a8272fed6d43125c400567e0b85843f4900a6a24a2",
+      "9cb6dee85e922117e424b73fc68c981a06635f09ecb183bb51a6398da04dff41"
+    ],
+    "slugify": [
+      "2d848df5ebee80255d492e05ca463020f33c5e5ba80e92f1dee45d7aedb4d21d",
+      "91917d16f54a4c9d75e5a6aada5aa454d14344939dd9dc51eb64d4bd66ed32fc"
+    ],
+    "fibonacci": [
+      "e924f6c85db985bfcb1600fb51a4ceee134da6c758a15e6f6f8aeaa49cc374cf",
+      "47aaf0816654f88d08c00b11459334869a55ee9958e07fe855634a40ec85f9e4"
+    ],
+    "orders": [
+      "0dde492c94d5235dee52fc81ffcc959cc8cb6743d38c939d53e22317ac937257",
+      "70ac5a53e0542e00963707a1a0f6d806955592f4b8c79d158393331c34506d3d"
+    ]
+  },
+  "examples": {
+    "median": [
+      [
+        {
+          "verdict": "rejected",
+          "gates": [
+            {
+              "gate": "Compile",
+              "status": "pass"
+            },
+            {
+              "gate": "Tests",
+              "status": "pass"
+            },
+            {
+              "gate": "Properties",
+              "status": "fail"
+            },
+            {
+              "gate": "Invariants",
+              "status": "skipped"
+            }
+          ],
+          "rejection": {
+            "gateLine": "✕ REJECTED BY PROPERTIES — SPEC WAS SILENT · #1",
+            "headline": "median([]) threw Error: median requires a non-empty list, expected NaN"
+          }
+        },
+        {
+          "verdict": "accepted",
+          "gates": [
+            {
+              "gate": "Compile",
+              "status": "pass"
+            },
+            {
+              "gate": "Tests",
+              "status": "pass"
+            },
+            {
+              "gate": "Properties",
+              "status": "pass"
+            },
+            {
+              "gate": "Invariants",
+              "status": "pass"
+            }
+          ],
+          "text": "Compiled. 4 tests passed. 3 rules held for 100 random inputs each. 26 calls re-run to look for side effects. Your checks caught 12 of 12 deliberately broken copies.",
+          "evidenceLine": "Compiled. 4 unit tests. 3 properties, 100 runs each. 26 calls replayed for purity. Tests killed 12 of 12 mutants.",
+          "survivors": [],
+          "committed": "r2"
+        }
+      ],
+      [
+        {
+          "verdict": "accepted",
+          "gates": [
+            {
+              "gate": "Compile",
+              "status": "pass"
+            },
+            {
+              "gate": "Tests",
+              "status": "pass"
+            },
+            {
+              "gate": "Properties",
+              "status": "pass"
+            },
+            {
+              "gate": "Invariants",
+              "status": "pass"
+            }
+          ],
+          "text": "Compiled. 5 tests passed. 3 rules held for 100 random inputs each. 26 calls re-run to look for side effects. Your checks caught 12 of 12 deliberately broken copies.",
+          "evidenceLine": "Compiled. 5 unit tests. 3 properties, 100 runs each. 26 calls replayed for purity. Tests killed 12 of 12 mutants.",
+          "survivors": [],
+          "committed": "r4"
+        }
+      ]
+    ],
+    "slugify": [
+      [
+        {
+          "verdict": "rejected",
+          "gates": [
+            {
+              "gate": "Compile",
+              "status": "pass"
+            },
+            {
+              "gate": "Tests",
+              "status": "fail"
+            },
+            {
+              "gate": "Properties",
+              "status": "skipped"
+            },
+            {
+              "gate": "Invariants",
+              "status": "skipped"
+            }
+          ],
+          "rejection": {
+            "gateLine": "✕ REJECTED BY TESTS — SPEC WAS SILENT · #1",
+            "headline": "slugify(\"Don't Stop\") returned \"don-t-stop\", expected \"dont-stop\""
+          }
+        },
+        {
+          "verdict": "accepted",
+          "gates": [
+            {
+              "gate": "Compile",
+              "status": "pass"
+            },
+            {
+              "gate": "Tests",
+              "status": "pass"
+            },
+            {
+              "gate": "Properties",
+              "status": "pass"
+            },
+            {
+              "gate": "Invariants",
+              "status": "pass"
+            }
+          ],
+          "text": "Compiled. 10 tests passed. 2 rules held for 100 random inputs each. 26 calls re-run to look for side effects. Your checks caught 1 of 1 deliberately broken copy.",
+          "evidenceLine": "Compiled. 10 unit tests. 2 properties, 100 runs each. 26 calls replayed for purity. Tests killed 1 of 1 mutant.",
+          "survivors": [],
+          "committed": "r3"
+        }
+      ],
+      [
+        {
+          "verdict": "accepted",
+          "gates": [
+            {
+              "gate": "Compile",
+              "status": "pass"
+            },
+            {
+              "gate": "Tests",
+              "status": "pass"
+            },
+            {
+              "gate": "Properties",
+              "status": "pass"
+            },
+            {
+              "gate": "Invariants",
+              "status": "pass"
+            }
+          ],
+          "text": "Compiled. 8 tests passed. 2 rules held for 100 random inputs each. 26 calls re-run to look for side effects. Your checks caught 11 of 12 deliberately broken copies (1 slipped through, and may behave exactly like the original).",
+          "evidenceLine": "Compiled. 8 unit tests. 2 properties, 100 runs each. 26 calls replayed for purity. Tests killed 11 of 12 mutants (1 survived, which may be equivalent).",
+          "survivors": [
+            "compiled line 13: 0 → 1 (may be an equivalent mutant)"
+          ],
+          "committed": "r5"
+        }
+      ]
+    ],
+    "fibonacci": [
+      [
+        {
+          "verdict": "rejected",
+          "gates": [
+            {
+              "gate": "Compile",
+              "status": "pass"
+            },
+            {
+              "gate": "Tests",
+              "status": "skipped"
+            },
+            {
+              "gate": "Properties",
+              "status": "skipped"
+            },
+            {
+              "gate": "Invariants",
+              "status": "fail"
+            }
+          ],
+          "rejection": {
+            "gateLine": "✕ REJECTED BY INVARIANTS — MODEL MISTAKE · #1",
+            "headline": "fibonacci(1000000) did not return within 1500 ms"
+          }
+        },
+        {
+          "verdict": "accepted",
+          "gates": [
+            {
+              "gate": "Compile",
+              "status": "pass"
+            },
+            {
+              "gate": "Tests",
+              "status": "pass"
+            },
+            {
+              "gate": "Properties",
+              "status": "pass"
+            },
+            {
+              "gate": "Invariants",
+              "status": "pass"
+            }
+          ],
+          "text": "Compiled. 4 tests passed. 2 rules held for 100 random inputs each. 25 calls re-run to look for side effects. Your checks caught 11 of 12 deliberately broken copies (2 of them by the time limit; 1 slipped through, and may behave exactly like the original).",
+          "evidenceLine": "Compiled. 4 unit tests. 2 properties, 100 runs each. 25 calls replayed for purity. Tests killed 9 of 12 mutants (2 more stopped by the time limit; 1 survived, which may be equivalent).",
+          "survivors": [
+            "compiled line 1: || → && (may be an equivalent mutant)"
+          ],
+          "committed": "r3"
+        }
+      ],
+      [
+        {
+          "verdict": "accepted",
+          "gates": [
+            {
+              "gate": "Compile",
+              "status": "pass"
+            },
+            {
+              "gate": "Tests",
+              "status": "pass"
+            },
+            {
+              "gate": "Properties",
+              "status": "pass"
+            },
+            {
+              "gate": "Invariants",
+              "status": "pass"
+            }
+          ],
+          "text": "Compiled. 5 tests passed. 2 rules held for 100 random inputs each. 25 calls re-run to look for side effects. Your checks caught 11 of 12 deliberately broken copies (1 of them by the time limit; 1 slipped through, and may behave exactly like the original).",
+          "evidenceLine": "Compiled. 5 unit tests. 2 properties, 100 runs each. 25 calls replayed for purity. Tests killed 10 of 12 mutants (1 more stopped by the time limit; 1 survived, which may be equivalent).",
+          "survivors": [
+            "compiled line 1: || → && (may be an equivalent mutant)"
+          ],
+          "committed": "r5"
+        }
+      ]
+    ],
+    "orders": [
+      [
+        {
+          "verdict": "accepted",
+          "gates": [
+            {
+              "gate": "Compile",
+              "status": "pass"
+            },
+            {
+              "gate": "Tests",
+              "status": "skipped"
+            },
+            {
+              "gate": "Properties",
+              "status": "skipped"
+            },
+            {
+              "gate": "Invariants",
+              "status": "pass"
+            }
+          ],
+          "text": "Compiled. No tests. No random-input checks. 1 call re-run to look for side effects. With nothing to check against, no broken copies were tried.",
+          "evidenceLine": "Compiled. No unit tests. No properties. 1 call replayed for purity. No tests yet: nothing could kill a mutant.",
+          "survivors": [],
+          "committed": "r3"
+        }
+      ],
+      [
+        {
+          "verdict": "accepted",
+          "gates": [
+            {
+              "gate": "Compile",
+              "status": "pass"
+            },
+            {
+              "gate": "Tests",
+              "status": "skipped"
+            },
+            {
+              "gate": "Properties",
+              "status": "skipped"
+            },
+            {
+              "gate": "Invariants",
+              "status": "pass"
+            }
+          ],
+          "text": "Compiled. No tests. No random-input checks. 1 call re-run to look for side effects. With nothing to check against, no broken copies were tried.",
+          "evidenceLine": "Compiled. No unit tests. No properties. 1 call replayed for purity. No tests yet: nothing could kill a mutant.",
+          "survivors": [],
+          "committed": "r5"
+        }
+      ]
+    ]
+  }
+}

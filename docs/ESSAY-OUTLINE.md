@@ -15,7 +15,7 @@ sentences: compilers have always judged code people wrote; here a model writes i
 decide whether it stays.
 
 - The opening GIF / video: in replay on the production build, Enter → rejection in 8.2 s and Enter → commit in 16.3 s
-  (real time, `node scripts/capture.mjs`, 2026-10-04; the GIF re-times the waiting, so quote the real-time figures).
+  (real time, `node apps/site/scripts/capture.mjs`, 2026-10-04; the GIF re-times the waiting, so quote the real-time figures).
 - The rejection on screen is median's: `median([])` threw where the tests expected `NaN`, found by a property and shrunk
   by fast-check ([LAUNCH.md §3](LAUNCH.md#3-real-session-transcripts-verbatim-with-the-diagnostics-the-model-received),
   seed 356460707).
@@ -48,7 +48,7 @@ tests.
 
 ## 3. How often it actually happens (the rates)
 
-- Whole sessions, 8 per example, real gates, real 3-candidate budget (LAUNCH.md §1a, `node scripts/sessions.mjs 8`):
+- Whole sessions, 8 per example, real gates, real 3-candidate budget (LAUNCH.md §1a, `node apps/site/scripts/sessions.mjs 8`):
   first candidate rejected median 8/8, slugify 6/8, fibonacci 6/8, orders 0/8 (no tests); committed within 3 candidates
   8/8, 7/8, 7/8, 8/8; mean session time 37.3 s, 42.6 s, 42.7 s, 22.2 s.
 - The 2 sessions of 32 without a commit both ran out of budget, neither crashed (slugify session 6: tests, compile,
@@ -131,9 +131,26 @@ is a recording; Chrome only.
   to 3 sample rows go to Codex; in replay mode nothing leaves the browser except a recording URL you choose to open.
 
 **Must not claim:** any security property; browser coverage beyond Chrome; a test count unless it is re-counted on the
-day (README's "1126 tests" was not re-counted after the latest features).
+day (the README no longer states one).
 
-## 9. Where it goes
+## 9. The engine as a product: the toolchain does not care who wrote the code
+
+The inversion's last step: if the toolchain is the downstream consumer, it should not matter what is upstream. The same
+gates ship as a CLI (`certify <file> [--spec <file>] [--json]`, exit 0/1/2/3) and a GitHub Action that certifies the
+functions a PR touches, with no generation path in either ([ENGINE.md](ENGINE.md)).
+
+- Parity, the evidence that it is the same engine: all 11 recorded candidates, site in Chrome vs built CLI in Node, same
+  verdicts, evidence lines and mutation buckets ([EVIDENCE.md](EVIDENCE.md#node-and-cli-parity); LAUNCH.md §4a).
+- Spec gaps leave the site as review questions: the CLI prints the test to add for each answer; the Action's comment
+  lists them as decisions and never fails the check on one.
+- Neutrality as the point: Claude Code, Codex, Cursor or a human; the verdict depends on the checks, not the author.
+
+**Must not claim:** that it is a sandbox (a `worker_thread` with a watchdog, not a security boundary; in the Action an
+escape would reach the job's token); that certification is proof (it is evidence that the given checks pass); that a
+kill rate measures the code (it measures the tests); that it is published or used by anyone (nothing is published; npm
+names are proposals, [PACKAGES.md](PACKAGES.md)); parity beyond the shipped recordings or one machine's timing.
+
+## 10. Where it goes
 
 A program as a log of accepted changes. Keep it to what exists; anything new is labelled as an idea.
 

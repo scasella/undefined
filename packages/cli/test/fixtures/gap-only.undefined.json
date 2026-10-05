@@ -1,0 +1,10 @@
+{
+  "format": "undefined-spec",
+  "version": 1,
+  "functions": {
+    "sign": {
+      "tests": "test('positive', () => { eq(sign(5), 1); });\ntest('negative', () => { eq(sign(-5), -1); });\ntest('zero', () => { eq(sign(0), 0); }, { silentOn: 'the sign of zero', reasonable: 'Treating zero as positive is a common convention.' });",
+      "properties": ""
+    }
+  }
+}

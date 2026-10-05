@@ -105,8 +105,8 @@ Two notes on difficulty:
 
 ## Protocol
 
-Harness: [`scripts/decide-sessions.mjs`](../scripts/decide-sessions.mjs) on top of `scripts/lib/drive.mjs`. The setup
-matches `scripts/sessions.mjs`:
+Harness: [`apps/site/scripts/decide-sessions.mjs`](../apps/site/scripts/decide-sessions.mjs) on top of `apps/site/scripts/lib/drive.mjs`. The setup
+matches `apps/site/scripts/sessions.mjs`:
 
 - `npm run dev` with the live Codex service, the real Worker watchdog and the real 3-attempt budget
 - a fresh image for every session (`openApp` clears IndexedDB and localStorage)
@@ -124,9 +124,9 @@ The harness aborts unless the app is in live mode. No recordings are involved.
    - pick the alternative's radio
    - press **Decide**
 
-   This is the same DOM path `scripts/replay-check.mjs` drives. One session (slugify match #5) exhausted its grow, so it
+   This is the same DOM path `apps/site/scripts/replay-check.mjs` drives. One session (slugify match #5) exhausted its grow, so it
    had no accepted verdict to click under. There the harness called `engine.decide` with the GapRef the rejection card
-   builds (`src/ui/decide.ts` `gapRefFor`), which is the call `Decide.tsx` makes. The `via` column in the appendix says
+   builds (`apps/site/src/ui/decide.ts` `gapRefFor`), which is the call `Decide.tsx` makes. The `via` column in the appendix says
    which path each run took (33 page, 1 engine). Only the engine path sets a reason ("measurement run"). Alternatives
    come from `engine.gapQuestion`, never from the model:
    - `match` takes the one that agrees with the check
@@ -149,8 +149,8 @@ The harness aborts unless the app is in live mode. No recordings are involved.
 
 Two pilot sessions (one `median:match`, one `median:differ`, the same outcomes as their sets) were used to debug the
 harness and are excluded. Raw output is written to `.tmp/decide-sessions-out.json`. It is ephemeral, which is why every
-session line is reproduced below. Re-run with `node scripts/decide-sessions.mjs 8` (default sets) or name sets, for
-example `node scripts/decide-sessions.mjs 8 median:zero`.
+session line is reproduced below. Re-run with `node apps/site/scripts/decide-sessions.mjs 8` (default sets) or name sets, for
+example `node apps/site/scripts/decide-sessions.mjs 8 median:zero`.
 
 ## Caveats
 

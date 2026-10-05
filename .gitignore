@@ -3,3 +3,6 @@ dist
 .DS_Store
 *.log
 .tmp
+
+# the GitHub Action runs from its committed bundle (packages/action/scripts/build.mjs; CI: npm run check:action-dist)
+!packages/action/dist

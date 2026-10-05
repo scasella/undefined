@@ -30,6 +30,7 @@ jobs:
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          # npm workspaces: the root `npm run build` builds apps/site, whose output stays next to it
+          path: apps/site/dist
       - id: deployment
         uses: actions/deploy-pages@v4

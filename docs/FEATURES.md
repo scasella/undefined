@@ -84,7 +84,7 @@ On a first visit the console is pre-typed with the `median` example. `?opener=fi
 bundled rows are bound to `rows` first). Case and surrounding spaces are ignored; a missing, empty or unknown value falls
 back to `median`. The parameter is read only when there is no stored program yet: once this browser holds a program it is
 ignored, and resetting the program seeds `median` again. Share links strip it. [opening-fibonacci.gif](opening-fibonacci.gif) shows the
-`fibonacci` opener; `node scripts/capture.mjs --opener=<id>` records one for any opener.
+`fibonacci` opener; `node apps/site/scripts/capture.mjs --opener=<id>` records one for any opener.
 
 ## Data scratchpad
 

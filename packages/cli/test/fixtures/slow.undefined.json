@@ -1,0 +1,7 @@
+{
+  "format": "undefined-spec",
+  "version": 1,
+  "functions": {
+    "fib": { "tests": "test('big', () => { eq(fib(40), 102334155); });", "properties": "", "budgetMs": 200 }
+  }
+}

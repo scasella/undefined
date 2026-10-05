@@ -29,7 +29,7 @@ prompt, and what was withheld.
 | `topCustomersByRevenue(rows)` | There is no spec and no test, so nothing can reject it: the claims are only that it compiles, is pure and replays on the real rows. The model's own note states its assumptions (here: revenue after discount, refunded orders counted) and the result is yours to judge; pin it to make it a test, or use *Break it* to say refunded orders don't count. | none (spec-less: Compile and Invariants only) | 8/8 committed on the first candidate |
 
 Measured 2026-10-04 with `gpt-6-luna`, effort `low`, Codex CLI 0.159.2, as 8 complete sessions per example through the real
-app (`node scripts/sessions.mjs`: real Worker watchdog, the real 3-attempt budget). These are one day's rates for one model,
+app (`node apps/site/scripts/sessions.mjs`: real Worker watchdog, the real 3-attempt budget). These are one day's rates for one model,
 not a guarantee. They are lower than my earlier single-retry sampling (8/8 for all three), which is why I quote
 session-level numbers: the model sometimes passes first time (2 of 8 slugify and fibonacci sessions) and sometimes runs out
 of attempts (1 of 8 each). The shipped recordings are real sessions captured by `npm run record`, which keeps a session only
@@ -56,7 +56,7 @@ control; no candidate called the unrelated function. See [COMPOSE-MEASUREMENTS.m
 
 ## Re-measuring
 
-`TUNE_N=8 TUNE_EX=median,slugify,fibonacci npx vitest run -c scripts/vitest.tune.config.ts` re-measures the rejection
-rates above against your own Codex login (results in `.tmp/tune-out.json`). `scripts/tune.tune.ts` samples the real model
-against the real gates. `node scripts/decide-sessions.mjs 8` re-measures the spec-gap split and the Decide flow
+`TUNE_N=8 TUNE_EX=median,slugify,fibonacci npx vitest run -c apps/site/scripts/vitest.tune.config.ts` re-measures the rejection
+rates above against your own Codex login (results in `.tmp/tune-out.json`). `apps/site/scripts/tune.tune.ts` samples the real model
+against the real gates. `node apps/site/scripts/decide-sessions.mjs 8` re-measures the spec-gap split and the Decide flow
 (results in `.tmp/decide-sessions-out.json`; see [DECIDE-MEASUREMENTS.md](DECIDE-MEASUREMENTS.md)).
