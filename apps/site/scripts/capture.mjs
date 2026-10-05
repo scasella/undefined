@@ -2,7 +2,9 @@
 // with real Chrome frames (2x device pixels), re-times them (dead time while the model "thinks" is sped up, the
 // rejection card is held) and writes:
 //   docs/opening.gif   the opening sequence (Enter -> rejection -> retry -> commit), 1440 px wide
-//   docs/demo.mp4      ~30 s: the opening sequence + the data flow (orders: data drawer, spec-less call, table, pin), 2880x1800
+//   docs/demo.mp4      ~40 s: the opening sequence, Decide on median([]) (the spec was silent; rule NaN; the committed
+//                      median is re-certified in place, no model call), then the data flow (orders: data drawer,
+//                      spec-less call, table, pin), 2880x1800
 // node scripts/capture.mjs --opener=<id> [--skip-build]  — the opening sequence only, loaded with `?opener=<id>`, written
 // to docs/opening-<id>.gif (docs/opening.gif and docs/demo.mp4 are left alone)
 import { execFileSync } from 'node:child_process';
@@ -62,6 +64,19 @@ if (opener !== 'orders') { await p.waitForFunction(() => document.querySelector(
 await p.waitForFunction(() => /Accepted · saved as r\d+/.test(document.body.innerText), null, { timeout: 90000 }); at.committed = now();
 await p.waitForTimeout(2600); at.openingEnd = now();
 if (!opener) {
+// Decide (docs/FEATURES.md "Decide"): the accepted card's "The spec was silent on median([]) (draft #1). Decide" opens
+// the question on the rejected draft; rule NaN; the committed median is re-certified at r3 with no model call. Then
+// back to the accepted card, whose evidence line now counts the decision.
+await p.locator('.silent-decide').click(); at.decideOpen = now();
+await p.waitForSelector('details.decide[open]', { timeout: 10000 }); await p.waitForTimeout(1700); // the alternatives
+await p.locator('details.decide label.decide-alt', { hasText: 'returns NaN' }).first().click(); await p.waitForTimeout(1100); // "Adds a test: ..."
+await p.locator('details.decide .decide-confirm').click();
+await p.waitForSelector('details.decide[data-decide="recertified"]', { timeout: 60000 }); at.recertified = now();
+await p.waitForTimeout(1900);
+await p.locator('button[data-attempt="2"]').click(); await p.waitForTimeout(300);
+await p.evaluate(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
+await p.waitForFunction(() => /including 1 decision\./.test(document.body.innerText) && document.scrollingElement.scrollTop === 0, null, { timeout: 10000 }); at.evidence = now();
+await p.waitForTimeout(1900); at.decideEnd = now();
 // data flow
 await p.locator('button.example', { hasText: 'topCustomersByRevenue(' }).click(); await p.waitForTimeout(900);
 await p.locator('.menu summary').click(); await p.waitForTimeout(250); await p.getByRole('menuitem', { name: /^Data/ }).click(); at.drawerOpen = now(); await p.waitForTimeout(3200);
@@ -85,6 +100,8 @@ function speed(t) {
   if (t >= at.enter && !s.typing && s.generating && s.statuses === 'generating') return 3.2; // waiting for the model
   if (t >= at.rejected && t < at.rejected + 3.4 && s.verdict === 'fail') return 0.55; // hold on the rejection card
   if (t >= at.committed && t < at.committed + 2.4) return 0.7; // hold on the commit
+  if (t >= at.recertified && t < at.recertified + 1.9) return 0.85; // hold on "Re-certified"
+  if (t >= at.evidence && t < at.decideEnd) return 0.9; // hold on the evidence line counting the decision
   if (t >= at.drawerOpen && t < at.drawerClosed) return 1.1;
   if (t >= at.enter2 && t < at.table && s.generating) return 3.2;
   return 1.15;
