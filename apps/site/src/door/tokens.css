@@ -1,0 +1,113 @@
+/* Front door design tokens — extracted from the Round 3 boards (V3-Door-Landing / V3-Door-FirstRun).
+   Light theme only. The check trace is an always-dark SURFACE (the --tr-* tokens), not a theme. */
+
+/* ─────────── fonts (self-hosted, latin only; font-src is 'self') ─────────── */
+@font-face {
+  font-family: 'Geist Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('@fontsource-variable/geist/files/geist-latin-wght-normal.woff2') format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Geist Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('@fontsource-variable/geist/files/geist-latin-ext-wght-normal.woff2') format('woff2-variations');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Geist Mono Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2') format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Geist Mono Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('@fontsource-variable/geist-mono/files/geist-mono-latin-ext-wght-normal.woff2') format('woff2-variations');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+:root {
+  color-scheme: light;
+
+  /* type */
+  --fd-sans: 'Geist Variable', 'Geist', ui-sans-serif, system-ui, sans-serif;
+  --fd-mono: 'Geist Mono Variable', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* ink */
+  --fd-ink: #0B0D12;
+  --fd-ink-2: #3A4150;
+  --fd-ink-3: #5A6373;
+
+  /* surfaces + lines */
+  --fd-bg: #F6F7F9;
+  --fd-surface: #FFFFFF;
+  --fd-surface-2: #F0F2F6;
+  --fd-surface-3: #FBFBFD;
+  --fd-line: #E3E6EC;
+  --fd-line-2: #CDD2DB;
+
+  /* accent (indigo) */
+  --fd-indigo: #3D3BF3;
+  --fd-indigo-hover: #2B29C9;
+  --fd-indigo-wash: #EEEEFE;
+  --fd-indigo-ring: rgba(61, 59, 243, 0.24);
+  --fd-indigo-soft: #8B8AFF;
+
+  /* verdicts */
+  --fd-green: #17A36B;
+  --fd-green-ink: #0B6B43;
+  --fd-green-wash: #E7F6EE;
+  --fd-amber: #F6B73C;
+  --fd-amber-ink: #7A4A00;
+  --fd-amber-wash: #FFF5DE;
+  --fd-red: #9E1C2A;
+
+  /* the check trace (always dark) */
+  --tr-bg: #0C1016;
+  --tr-dot: #1A212B;
+  --tr-lane: #121821;
+  --tr-cell: #19202B;
+  --tr-border: #222A35;
+  --tr-border-2: #303A47;
+  --tr-text: #EDF0F4;
+  --tr-text-2: #A8B2C0;
+  --tr-text-3: #808A99;
+  --tr-pass: #33C793;
+  --tr-pen: #D2FF3F;
+  --tr-ask: #FFB547;
+  --tr-ask-bg: #2E2310;
+  --tr-fail: #FF5A4E;
+  --tr-fail-bg: #2F1412;
+  --tr-lock: #B9C2FF;
+  --tr-ink: #07090C;
+
+  /* shadows */
+  --fd-sh-1: 0 1px 0 rgba(11, 13, 18, 0.04), 0 1px 2px rgba(11, 13, 18, 0.06);
+  --fd-sh-card: 0 1px 0 rgba(11, 13, 18, 0.04), 0 1px 2px rgba(11, 13, 18, 0.06), 0 0 0 1px #E3E6EC;
+  --fd-sh-ring: 0 0 0 1px #E3E6EC;
+  --fd-sh-ring-2: 0 0 0 1px #CDD2DB;
+  --fd-sh-float: 0 1px 2px rgba(11, 13, 18, 0.05), 0 12px 28px -12px rgba(11, 13, 18, 0.18);
+  --fd-sh-answer: 0 0 0 1px rgba(61, 59, 243, 0.16), 0 2px 4px rgba(11, 13, 18, 0.05), 0 28px 56px -20px rgba(43, 41, 201, 0.22);
+  --fd-sh-focus: 0 0 0 1px #3D3BF3, 0 0 0 4px rgba(61, 59, 243, 0.24);
+
+  /* radii */
+  --fd-r-xs: 2px;
+  --fd-r-sm: 6px;
+  --fd-r-md: 10px;
+  --fd-r-lg: 16px;
+  --fd-r-xl: 20px;
+
+  /* layout */
+  --fd-max: 1296px;
+  --fd-gutter: clamp(16px, 4vw, 48px);
+  --fd-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+}

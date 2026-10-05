@@ -1,0 +1,187 @@
+/* The answer card (LANDING 212-323, FIRSTRUN 259-324). Keyframes are prefixed fd-ac- so the trace's own
+   (identically shaped) animations never override these. Reduced motion: base.css removes every animation; no static
+   style here is a hidden state except the veil's (which must end hidden), so the card ends fully revealed. */
+
+.fd-ac {
+  --fd-trev: 0s;
+  position: relative;
+  background: var(--fd-surface);
+  border-radius: var(--fd-r-xl);
+  padding: 24px;
+  box-sizing: border-box;
+  overflow: hidden;
+  color: var(--fd-ink);
+  font-size: 16px;
+  line-height: 24px;
+}
+.fd-ac--held { box-shadow: var(--fd-sh-1); }
+.fd-ac--shown { box-shadow: var(--fd-sh-answer); }
+.fd-ac--empty { min-height: 360px; }
+
+/* seal line: the indigo hairline drawn across the top as the answer is released */
+.fd-ac__seal {
+  position: absolute; top: 0; left: 24px; right: 24px; height: 1px;
+  background: var(--fd-indigo); transform-origin: left center;
+}
+.fd-ac--held .fd-ac__seal { display: none; }
+
+.fd-ac__fig { font-size: 13px; line-height: 18px; color: var(--fd-ink-3); }
+.fd-ac__eyebrow {
+  margin-top: 16px; display: flex; align-items: center; gap: 8px;
+  font-family: var(--fd-mono); font-variant-numeric: tabular-nums slashed-zero; font-feature-settings: 'tnum', 'zero';
+  font-size: 11px; line-height: 14px; font-weight: 500; letter-spacing: 0.08em; color: var(--fd-green-ink);
+}
+.fd-ac__eyebrow svg { flex: none; }
+
+.fd-ac__lead-name { margin-top: 12px; font-size: 28px; line-height: 32px; font-weight: 600; letter-spacing: -0.015em; overflow-wrap: anywhere; }
+.fd-ac__lead-num { font-size: 56px; line-height: 60px; font-weight: 500; letter-spacing: -0.02em; margin-top: 4px; overflow-wrap: anywhere; }
+.fd-ac__lead-num--long { font-size: 28px; line-height: 34px; letter-spacing: -0.01em; }
+.fd-ac__unit { margin-left: 10px; font-family: var(--fd-sans); font-size: 16px; letter-spacing: 0; color: var(--fd-ink-3); }
+.fd-ac__lead-bar {
+  margin-top: 8px; height: 4px; border-radius: var(--fd-r-xs); width: 100%;
+  background: var(--fd-indigo-wash); box-shadow: inset 0 0 0 1px var(--fd-line-2);
+}
+
+/* bars */
+.fd-ac__track { display: block; height: 4px; border-radius: var(--fd-r-xs); background: var(--fd-surface-2); }
+.fd-ac__fill {
+  display: block; height: 4px; border-radius: var(--fd-r-xs);
+  background: var(--fd-indigo-wash); box-shadow: inset 0 0 0 1px var(--fd-line-2);
+}
+
+/* the rest of the list: landing (table) */
+.fd-ac__table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+.fd-ac__table td { border-top: 1px solid var(--fd-line); }
+.fd-ac__td-rank { width: 40px; padding: 12px 0; font-size: 12px; color: var(--fd-ink-3); }
+.fd-ac__td-name { padding: 12px 12px 12px 0; font-size: 15px; line-height: 22px; font-weight: 500; }
+.fd-ac__td-bar { padding: 12px 16px 12px 0; width: 38%; }
+.fd-ac__td-amt { padding: 12px 0; text-align: right; font-size: 15px; line-height: 22px; width: 110px; }
+
+/* the rest of the list: start (ordered list) */
+.fd-ac__rest { list-style: none; margin: 16px 0 0; padding: 0; min-height: 188px; }
+.fd-ac__row { display: flex; align-items: center; gap: 12px; min-height: 47px; border-top: 1px solid var(--fd-line); }
+.fd-ac__rank { width: 40px; flex: none; font-size: 12px; color: var(--fd-ink-3); }
+.fd-ac__name { flex: 1 1 auto; min-width: 0; font-size: 15px; line-height: 22px; font-weight: 500; overflow-wrap: anywhere; }
+.fd-ac__track--row { flex: 0 1 34%; }
+.fd-ac__amt { width: 110px; flex: none; text-align: right; font-size: 15px; line-height: 22px; }
+.fd-ac__more { margin: 8px 0 0; font-size: 13px; line-height: 18px; color: var(--fd-ink-3); }
+
+/* fallbacks: an answer with no single figure to lead with */
+.fd-ac__fallback-note { margin: 16px 0 0; font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
+.fd-ac__fallback { margin-top: 12px; overflow-x: auto; border-radius: var(--fd-r-md); box-shadow: var(--fd-sh-ring); }
+.fd-ac__fallback-table { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 18px; }
+.fd-ac__fallback-table th {
+  text-align: left; padding: 8px 12px; background: var(--fd-surface-3); color: var(--fd-ink-3);
+  font-family: var(--fd-mono); font-size: 11px; font-weight: 500; letter-spacing: 0.04em; white-space: nowrap;
+}
+.fd-ac__fallback-table td { padding: 8px 12px; border-top: 1px solid var(--fd-line); white-space: nowrap; }
+.fd-ac__fallback .fd-ac__more { padding: 0 12px 8px; }
+.fd-ac__raw {
+  margin: 12px 0 0; padding: 16px; background: var(--fd-surface-2); border-radius: var(--fd-r-md); overflow-x: auto;
+  font-size: 13px; line-height: 20px; color: var(--fd-ink); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+
+/* what the AI assumed */
+.fd-ac__assumed { margin-top: 16px; }
+.fd-ac--landing .fd-ac__assumed { margin-top: 24px; }
+.fd-ac__h3 { margin: 0; font-size: 16px; line-height: 22px; font-weight: 600; }
+.fd-ac--landing .fd-ac__assumed .fd-ac__h3 { letter-spacing: -0.005em; }
+.fd-ac__assumed-list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.fd-ac__no-notes { margin: 10px 0 0; font-size: 14px; line-height: 20px; color: var(--fd-ink-3); }
+.fd-ac__assumption {
+  display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 2px 4px 2px 12px; border-radius: var(--fd-r-sm);
+  box-sizing: border-box; font-size: 14px; line-height: 20px;
+  border: 1.5px dashed var(--fd-line-2); color: var(--fd-ink-2);
+}
+.fd-ac__assumption--done { border: 0; background: var(--fd-surface); box-shadow: var(--fd-sh-ring); color: var(--fd-ink); }
+.fd-ac__assumption-text { flex: 1; min-width: 0; }
+.fd-ac__confirm {
+  min-height: 44px; padding: 0 12px; border: 0; border-radius: var(--fd-r-md); background: transparent;
+  color: var(--fd-indigo); font-family: inherit; font-size: 14px; font-weight: 500; cursor: pointer;
+}
+.fd-ac__confirm:hover { color: var(--fd-indigo-hover); }
+.fd-ac__confirm:focus-visible { outline: none; box-shadow: var(--fd-sh-focus); }
+.fd-ac__confirmed { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--fd-green-ink); padding: 0 8px; }
+.fd-ac__confirmed svg { flex: none; }
+
+/* evidence ledger: checked against / not checked */
+.fd-ac__ledger { margin-top: 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.fd-ac--landing .fd-ac__ledger { margin-top: 24px; }
+.fd-ac__checked { background: var(--fd-surface); border-radius: var(--fd-r-lg); box-shadow: var(--fd-sh-ring); padding: 20px; }
+.fd-ac__not-checked { background: var(--fd-surface-3); border-radius: var(--fd-r-lg); border: 1.5px dashed var(--fd-line-2); padding: 19px; }
+.fd-ac__ledger-list {
+  list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 14px; line-height: 20px;
+}
+.fd-ac__not-checked .fd-ac__ledger-list { color: var(--fd-ink-2); }
+.fd-ac__ledger-list li { display: flex; gap: 8px; align-items: flex-start; }
+.fd-ac__ledger-glyph { flex: none; margin-top: 2px; }
+
+.fd-ac__honest { margin: 16px 0 0; font-size: 16px; line-height: 24px; color: var(--fd-ink-2); }
+
+/* actions: lock, see the calculation / add a house rule, help */
+.fd-ac__actions { margin-top: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
+.fd-ac--landing .fd-ac__actions { margin-top: 20px; }
+.fd-ac__lock {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 20px; border-radius: var(--fd-r-md);
+  font-family: inherit; font-size: 14px; font-weight: 500; cursor: pointer;
+  background: var(--fd-indigo); color: #FFFFFF; border: 1px solid var(--fd-indigo);
+}
+.fd-ac__lock:hover { background: var(--fd-indigo-hover); border-color: var(--fd-indigo-hover); }
+.fd-ac__lock--on, .fd-ac__lock--on:hover { background: var(--fd-indigo-wash); color: var(--fd-indigo-hover); border-color: var(--fd-indigo); }
+.fd-ac__lock:disabled { cursor: progress; opacity: 0.7; }
+.fd-ac__lock:focus-visible, .fd-ac__calc-toggle:focus-visible, .fd-ac__rule-link:focus-visible { outline: none; box-shadow: var(--fd-sh-focus); }
+.fd-ac__calc-toggle {
+  min-height: 44px; padding: 0 4px; border: 0; border-radius: var(--fd-r-sm); background: transparent; color: var(--fd-ink-2);
+  font-family: inherit; font-size: 14px; font-weight: 500; cursor: pointer;
+  text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--fd-line-2);
+}
+.fd-ac__calc-toggle:hover { color: var(--fd-ink); }
+.fd-ac__rule-link { font-size: 14px; font-weight: 500; min-height: 44px; display: inline-flex; align-items: center; border-radius: var(--fd-r-sm); }
+.fd-ac__help { font-size: 13px; line-height: 18px; color: var(--fd-ink-3); }
+.fd-ac__calc {
+  margin: 12px 0 0; padding: 16px; background: var(--fd-surface-2); border-radius: var(--fd-r-md); overflow-x: auto;
+  font-size: 12px; line-height: 18px; color: var(--fd-ink-2);
+}
+
+/* veil: the held state */
+.fd-ac__veil {
+  position: absolute; inset: 0; border-radius: var(--fd-r-xl); background: var(--fd-surface-2); padding: 24px; box-sizing: border-box;
+}
+.fd-ac--shown .fd-ac__veil { opacity: 0; pointer-events: none; }
+.fd-ac__veil-bars { display: flex; flex-direction: column; gap: 22px; padding-top: 56px; }
+.fd-ac--landing .fd-ac__veil-bars { padding-top: 48px; }
+.fd-ac__veil-bar { display: flex; justify-content: space-between; align-items: center; opacity: 0.4; }
+.fd-ac__veil-bar span { height: 12px; border-radius: var(--fd-r-xs); background: var(--fd-line-2); }
+.fd-ac__veil-bar span:first-child { width: 40%; }
+.fd-ac__veil-bar span:last-child { width: 18%; }
+.fd-ac__veil-caption {
+  margin-top: 40px; text-align: center; font-family: var(--fd-mono); font-size: 12px; line-height: 16px; font-weight: 500;
+  letter-spacing: 0.01em; color: var(--fd-ink-3);
+}
+
+/* ───────── the timed reveal (only with .fd-ac--reveal) ───────── */
+@keyframes fd-ac-cd {
+  from { transform: translateY(4px); box-shadow: var(--fd-sh-1); }
+  to { transform: translateY(0); box-shadow: var(--fd-sh-answer); }
+}
+@keyframes fd-ac-sl { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes fd-ac-fo { from { opacity: 1; } to { opacity: 0; } }
+@keyframes fd-ac-ri { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+.fd-ac--reveal { animation: fd-ac-cd 0.42s var(--fd-ease) var(--fd-trev) 1 both; }
+.fd-ac--reveal .fd-ac__seal { animation: fd-ac-sl 0.4s var(--fd-ease) var(--fd-trev) 1 both; }
+.fd-ac--reveal .fd-ac__veil { animation: fd-ac-fo 0.2s var(--fd-ease) var(--fd-trev) 1 both; }
+.fd-ac--reveal .fd-ac__ri { animation: fd-ac-ri 0.3s var(--fd-ease) calc(var(--fd-trev) + var(--fd-ri, 0s)) 1 both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fd-ac, .fd-ac *, .fd-ac *::before, .fd-ac *::after { animation: none !important; transition: none !important; }
+}
+
+@media (max-width: 480px) {
+  .fd-ac { padding: 20px 16px; }
+  .fd-ac__seal { left: 16px; right: 16px; }
+  .fd-ac__lead-num { font-size: 44px; line-height: 48px; }
+  .fd-ac__td-bar { width: 24%; }
+  .fd-ac__track--row { flex-basis: 22%; }
+  .fd-ac__amt, .fd-ac__td-amt { width: 92px; }
+}

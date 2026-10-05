@@ -1,0 +1,4 @@
+/* "Get started" (V3-Door-FirstRun 81-387): left column (data, question, run) and the right rail. */
+.fd-start { padding: 0 0 48px; }
+.fd-start__row { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+.fd-start__main { flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }

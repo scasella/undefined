@@ -1,7 +1,18 @@
 # Features
 
-Everything you can do in the app, in more detail than the [README](../README.md). For how a call is decided, see
+Everything you can do in the app (the front door and the workbench), in more detail than the [README](../README.md). For how a call is decided, see
 [ARCHITECTURE.md](ARCHITECTURE.md); for what the confidence line under a commit means, see [EVIDENCE.md](EVIDENCE.md).
+
+## Front door
+
+The site's default page (`index.html`, code in `apps/site/src/door/`) is the **front door**: a landing page (`#/`) that
+shows a slowed-down, labelled illustration of one question being checked, and a first-run page (`#/start`) where you
+bring a CSV/TSV/JSON export (or a sample), ask a question, and watch the real checks run on the same engine. It speaks
+in plain words (examples, a locked answer, house rules, a stress test) for the features below; the map from its words to
+the engine's, its honesty rules and how its one recording is made are in [FRONT-DOOR.md](FRONT-DOOR.md).
+
+Everything else in this file is the **workbench** (`workbench.html`, the original REPL, linked from the front door's
+footer). An old link to the site root carrying `?opener=` or `?recording=` is passed on to the workbench.
 
 ## What you can do
 
@@ -79,7 +90,7 @@ decision.*), and an ejected zip lists each in `provenance.json` and the README, 
 
 ## Try a different opener (?opener=…)
 
-On a first visit the console is pre-typed with the `median` example. `?opener=fibonacci`, `?opener=slugify` or
+On a first visit the workbench's console is pre-typed with the `median` example. `workbench.html?opener=fibonacci`, `?opener=slugify` or
 `?opener=orders` pre-types that example instead, loaded exactly as its example button would load it (for `orders`, the
 bundled rows are bound to `rows` first). Case and surrounding spaces are ignored; a missing, empty or unknown value falls
 back to `median`. The parameter is read only when there is no stored program yet: once this browser holds a program it is

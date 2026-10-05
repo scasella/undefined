@@ -1,0 +1,46 @@
+/* First run · Ask a question (V3-Door-FirstRun 188-206). */
+.fd-ask {
+  background: var(--fd-surface); border-radius: var(--fd-r-lg); box-shadow: var(--fd-sh-card); padding: 20px;
+}
+.fd-ask__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; }
+.fd-ask__h { margin: 0; font-size: 16px; line-height: 22px; font-weight: 600; }
+.fd-ask__note { font-size: 13px; line-height: 18px; color: var(--fd-ink-3); }
+
+.fd-ask__chips { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px; }
+.fd-ask__chip {
+  display: inline-flex; align-items: center; min-height: 40px; padding: 0 14px; box-sizing: border-box;
+  border-radius: 999px; border: 0; background: var(--fd-surface); color: var(--fd-ink-2); box-shadow: var(--fd-sh-ring-2);
+  font-family: inherit; font-size: 14px; font-weight: 500; text-align: left; cursor: pointer;
+  transition: box-shadow 120ms ease; position: relative;
+}
+/* 44px target: an invisible band around the design's 40px pill (the 8px row gap leaves room) */
+.fd-ask__chip::before { content: ''; position: absolute; inset: -2px 0; }
+.fd-ask__chip:hover { box-shadow: 0 0 0 1px var(--fd-ink-3); }
+.fd-ask__chip.is-on { background: var(--fd-indigo-wash); color: var(--fd-ink); box-shadow: 0 0 0 1px var(--fd-indigo); }
+.fd-ask__chip[aria-disabled='true'] { cursor: not-allowed; }
+.fd-ask__tag {
+  margin-left: 8px; font-family: var(--fd-mono); font-variant-numeric: tabular-nums slashed-zero; font-feature-settings: 'tnum', 'zero';
+  font-size: 11px; font-weight: 500; color: var(--fd-ink-3); white-space: nowrap;
+}
+.fd-ask__chip.is-on .fd-ask__tag { color: var(--fd-indigo-hover); }
+/* replay, nothing recorded: a quiet dashed marker (the trace's "not set up" look, on light) */
+.fd-ask__live {
+  margin-left: 8px; padding: 0 6px; border-radius: 4px; border: 1px dashed var(--fd-line-2);
+  font-family: var(--fd-mono); font-size: 11px; line-height: 16px; font-weight: 500; color: var(--fd-ink-3); white-space: nowrap;
+}
+
+.fd-ask__row { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.fd-ask__box {
+  flex: 1 1 320px; min-width: 0; min-height: 48px; box-sizing: border-box;
+  border-radius: var(--fd-r-md); border: 1px solid var(--fd-line-2); background: var(--fd-surface);
+  padding: 0 14px; font-family: inherit; font-size: 16px; color: var(--fd-ink);
+}
+.fd-ask__box:focus-visible { outline: none; box-shadow: var(--fd-sh-focus); border-color: var(--fd-indigo); }
+.fd-ask__go { min-height: 48px; }
+.fd-ask__go[aria-disabled='true'] { cursor: not-allowed; opacity: 0.55; }
+.fd-ask__go[aria-disabled='true']:hover { background: var(--fd-indigo); }
+.fd-ask__level { margin: 10px 0 0; font-size: 13px; line-height: 18px; color: var(--fd-ink-2); }
+
+@media (max-width: 479px) {
+  .fd-ask__go { flex: 1 1 100%; }
+}

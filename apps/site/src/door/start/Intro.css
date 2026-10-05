@@ -1,0 +1,22 @@
+/* The first run's hero line (V3-Door-FirstRun 65-79). */
+.fd-intro { padding: 48px 0 24px; }
+.fd-intro__row { display: flex; flex-wrap: wrap; gap: 24px 48px; align-items: flex-end; }
+.fd-intro__copy { flex: 999 1 640px; min-width: 0; }
+.fd-intro__h {
+  margin: 12px 0 0; max-width: 860px;
+  font-size: clamp(32px, 3.4vw, 44px); line-height: 1.09; font-weight: 600; letter-spacing: -0.03em; color: var(--fd-ink);
+}
+.fd-intro__accent { color: var(--fd-indigo); }
+.fd-intro__p { margin: 16px 0 0; max-width: 720px; font-size: 16px; line-height: 24px; color: var(--fd-ink-2); }
+.fd-intro__steps { flex: 1 1 300px; min-width: 0; list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.fd-intro__step {
+  display: flex; align-items: center; gap: 12px; min-height: 40px; padding: 0 14px; box-sizing: border-box;
+  border-radius: var(--fd-r-md); background: var(--fd-surface); box-shadow: var(--fd-sh-ring);
+  font-size: 14px; line-height: 20px; color: var(--fd-ink);
+}
+.fd-intro__num {
+  flex: none; width: 22px; height: 22px; border-radius: 999px; display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 500; background: var(--fd-indigo-wash); color: var(--fd-indigo-hover);
+  transition: background-color 200ms ease, color 200ms ease;
+}
+.fd-intro__step.is-lit .fd-intro__num { background: var(--tr-bg); color: var(--tr-text); }

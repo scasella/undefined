@@ -1,0 +1,60 @@
+/* Landing · Fig. 3 "Agree once" (V3-Door-Landing lines 589-667). */
+.fd-once { padding: 48px 0; }
+.fd-once__wrap {
+  max-width: var(--fd-max); margin: 0 auto; padding: 0 var(--fd-gutter); box-sizing: border-box;
+  display: flex; flex-wrap: wrap; gap: 32px 48px; align-items: flex-start;
+}
+.fd-once__intro { flex: 1 1 320px; max-width: 400px; }
+.fd-once__eyebrow {
+  font-family: var(--fd-mono); font-size: 11px; line-height: 14px; font-weight: 500; letter-spacing: 0.08em; color: var(--fd-ink-3);
+}
+.fd-once__h { margin: 8px 0 0; font-size: clamp(26px, 3vw, 36px); line-height: 1.15; font-weight: 600; letter-spacing: -0.025em; }
+.fd-once__lede { margin: 12px 0 0; color: var(--fd-ink-2); }
+.fd-once__small { margin: 12px 0 0; font-size: 14px; line-height: 20px; color: var(--fd-ink-3); }
+
+.fd-once__board {
+  flex: 999 1 620px; min-width: 0; box-sizing: border-box; padding: 24px; border-radius: var(--fd-r-xl);
+  background-color: var(--tr-bg); background-image: radial-gradient(var(--tr-dot) 1px, transparent 1px); background-size: 8px 8px;
+  box-shadow: var(--fd-sh-float); color: var(--tr-text);
+}
+.fd-once__title {
+  font-family: var(--fd-mono); font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: 0.01em; color: var(--tr-text-2);
+}
+.fd-once__scroll { margin-top: 16px; overflow-x: auto; border-radius: var(--fd-r-xs); }
+/* the page's indigo ring is under 3:1 on the dark board: use the board's own light ink */
+.fd-once__scroll:focus-visible { outline-color: var(--tr-pen); }
+.fd-once__table {
+  width: 100%; min-width: 640px; border-collapse: separate; border-spacing: 0 4px;
+  font-family: var(--fd-mono); font-variant-numeric: tabular-nums slashed-zero; font-feature-settings: 'tnum', 'zero';
+  font-size: 12px; line-height: 16px; font-weight: 500;
+}
+.fd-once__caption {
+  caption-side: bottom; text-align: left; padding-top: 12px;
+  font-family: var(--fd-sans); font-size: 13px; line-height: 18px; font-weight: 400; color: var(--tr-text-2);
+}
+.fd-once__corner { text-align: left; padding: 0 12px 8px 0; font-weight: 500; color: var(--tr-text-3); }
+.fd-once__ver { text-align: left; padding: 0 8px 8px; font-weight: 500; vertical-align: bottom; }
+.fd-once__ver-name { display: block; color: var(--tr-text); }
+.fd-once__ver-sub {
+  display: block; margin-top: 2px; font-family: var(--fd-sans); font-weight: 400; font-size: 12px; color: var(--tr-text-2);
+}
+.fd-once__term {
+  text-align: left; padding: 6px 12px; background: var(--tr-lane); border-radius: 2px 0 0 2px; min-width: 136px;
+  font-family: var(--fd-sans); font-size: 13px; line-height: 16px; font-weight: 400; color: var(--tr-text);
+}
+.fd-once__cell { padding: 6px 8px; background: var(--tr-lane); height: 28px; box-sizing: border-box; }
+.fd-once__status { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.fd-once__status--pass { color: var(--tr-pass); }
+.fd-once__status--not-checked,
+.fd-once__status--not-run { color: var(--tr-text-3); }
+.fd-once__status--thrown-out { color: var(--tr-fail); }
+
+.fd-once__outcome-h { padding: 8px 12px 0 0; }
+.fd-once__outcome { padding: 8px 8px 0; }
+.fd-once__badge {
+  display: inline-block; padding: 3px 8px; border-radius: var(--fd-r-sm);
+  font-size: 12px; line-height: 16px; font-weight: 500; white-space: nowrap;
+}
+.fd-once__badge--replaced { color: var(--tr-text-2); box-shadow: inset 0 0 0 1px var(--tr-border-2); }
+.fd-once__badge--thrown-out { background: var(--tr-fail-bg); color: var(--tr-fail); }
+.fd-once__badge--reached { background: var(--tr-pen); color: var(--tr-ink); }

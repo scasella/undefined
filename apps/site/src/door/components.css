@@ -1,0 +1,34 @@
+/* Shared front-door controls: buttons/link-buttons, and the boot screens. Other sections reuse these classes. */
+html { scroll-behavior: smooth; }
+
+.fd-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; box-sizing: border-box;
+  min-height: 44px; padding: 0 18px; border: 0; border-radius: var(--fd-r-md);
+  font-family: inherit; font-size: 14px; line-height: 20px; font-weight: 500;
+  text-decoration: none; cursor: pointer; white-space: nowrap;
+  transition: background-color 120ms ease, box-shadow 120ms ease, color 120ms ease;
+}
+.fd-btn:disabled, .fd-btn[aria-disabled='true'] { cursor: not-allowed; opacity: 0.55; }
+
+.fd-btn--primary { padding: 0 20px; background: var(--fd-indigo); color: #FFFFFF; }
+.fd-btn--primary:hover { background: var(--fd-indigo-hover); color: #FFFFFF; }
+.fd-btn--primary:disabled:hover { background: var(--fd-indigo); }
+
+.fd-btn--secondary { background: var(--fd-surface); color: var(--fd-ink); box-shadow: var(--fd-sh-ring-2); }
+.fd-btn--secondary:hover { color: var(--fd-ink); background: var(--fd-surface-3); box-shadow: 0 0 0 1px var(--fd-ink-3); }
+
+.fd-btn--ghost-link {
+  min-height: 40px; padding: 0 4px; background: transparent; color: var(--fd-indigo);
+}
+.fd-btn--ghost-link:hover { color: var(--fd-indigo-hover); text-decoration: underline; text-underline-offset: 3px; }
+
+/* boot: loading line and startup failure */
+.fd-boot { max-width: var(--fd-max); margin: 0 auto; padding: 48px var(--fd-gutter); box-sizing: border-box; }
+.fd-boot-line { margin: 0; font-size: 14px; line-height: 20px; color: var(--fd-ink-3); }
+.fd-boot-error {
+  max-width: 640px; padding: 24px; background: var(--fd-surface); border-radius: var(--fd-r-lg); box-shadow: var(--fd-sh-card);
+}
+.fd-boot-error h1 { margin: 0; font-size: 22px; line-height: 28px; font-weight: 600; letter-spacing: -0.015em; }
+.fd-boot-error p { margin: 12px 0 0; font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
+.fd-boot-error code { font-family: var(--fd-mono); font-size: 13px; color: var(--fd-red); word-break: break-word; }
+.fd-boot-error a { font-size: 14px; }

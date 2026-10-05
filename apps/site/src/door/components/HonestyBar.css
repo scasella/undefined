@@ -1,0 +1,7 @@
+.fd-honesty { position: sticky; bottom: 0; z-index: 4; background: var(--fd-surface); border-top: 1px solid var(--fd-line); }
+.fd-honesty__in {
+  max-width: var(--fd-max); margin: 0 auto; padding: 0 var(--fd-gutter); box-sizing: border-box; min-height: 36px;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 16px;
+  font-size: 12px; line-height: 16px; color: var(--fd-ink-2);
+}
+.fd-honesty__in a { color: var(--fd-indigo); }

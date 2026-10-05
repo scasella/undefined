@@ -1,0 +1,442 @@
+/**
+ * First run · the outcomes that are not a plain answer, shown between the check trace and the (held) answer card:
+ *   stopped      "A QUESTION ONLY YOU CAN ANSWER · Needs you" (LANDING 683-731's card, fed by the engine's GapQuestion)
+ *                → session.decide → the green "Saved as a house rule." (kept while the decide's own run is shown)
+ *   declined     the grey "I can't do that reliably." panel (LANDING 759-765), from GenerationView.declined
+ *   no-recording the honest replay message (session.noRecording), with the way to run it and a question that works
+ *   thrown-out   every draft was thrown out: the last reason and how many drafts were tried
+ *   service      the writing service failed: its message and the exact fix commands
+ *   error        the calculation itself failed on the file
+ *   cached       a normal answer, plus one quiet line saying nothing was re-checked
+ * Nothing here is scripted: every sentence is the session's (or a fixed plain sentence about the engine's own code).
+ * When one of these appears because of something the user just did, focus moves to its heading.
+ */
+import type { RefObject } from 'preact';
+import { useEffect, useRef, useState } from 'preact/hooks';
+import type { AttemptView, DecideOptions, Declined, Engine, GapAlternative, GapQuestion, GenerateError, GenerationView } from '@scasella/undefined-engine/types';
+import { dayText } from '../model/agreement';
+import { ghostFromAttempts, type LaneFacts } from '../model/lanes';
+import { AskDiamond, CheckDisc, ThrownOut } from '../icons';
+import { Button } from '../components/LinkButton';
+import { ASK_BUTTON_ID } from './AskCard';
+import { matchRun, type RunOutcome } from './derive';
+import { sessionFor, type Session } from './session';
+import './RunStates.css';
+
+/** Where the "run it on your computer" explanation lives (the landing's team-file section). */
+export const OWN_FILE_HREF = '#/#own-file';
+export const CACHED_LINE = 'Already checked in this session. Change a rule or ask a different question to check again.';
+export const NOTHING_SAVED = 'Nothing was saved.';
+
+// ───────────────────────── the question only you can answer ─────────────────────────
+
+export interface GapOption {
+  id: string;
+  /** `Give $0.00` / `Stop and show an error` / `Give the same as …` */
+  label: string;
+  /** lower-case for the preview: `gives $0.00` */
+  verb: string;
+  /** Where the choice comes from, in plain words. */
+  tag: string;
+  /** Shown but not selectable, with the reason. */
+  disabled?: string;
+}
+
+export interface GapView {
+  head: string;
+  body: string;
+  caseTag: string;
+  call: string;
+  caseLine: string;
+  legend: string;
+  options: GapOption[];
+  /** `for every negative n` when a rule for the whole kind of case can be saved. */
+  scope: string | null;
+  existing: string | null;
+  onlyAgreeing: string | null;
+}
+
+const PREFIX = 'This adds a house rule: ';
+
+export function sourceTag(alt: Pick<GapAlternative, 'source'>): string {
+  switch (alt.source) {
+    case 'tests':
+      return 'what your check expects';
+    case 'candidate':
+      return 'what the draft did';
+    case 'declared':
+      return 'listed by your rule';
+    case 'common':
+      return 'a common choice';
+  }
+}
+
+export function optionOf(alt: GapAlternative): GapOption {
+  let verb: string;
+  if (alt.relational) verb = `gives the same as ${alt.relational.label.replace(/^same as /, '')}`;
+  else if (alt.outcome && 'throws' in alt.outcome) verb = 'stops and shows an error';
+  else verb = `gives ${alt.label}`;
+  return {
+    id: alt.id,
+    label: verb.charAt(0).toUpperCase() + verb.slice(1),
+    verb,
+    tag: sourceTag(alt),
+    ...(alt.disabled ? { disabled: alt.disabled.replace(/`/g, '') } : {}),
+  };
+}
+
+export function gapView(g: GapQuestion): GapView {
+  const isRule = g.check.kind === 'property';
+  const whose = isRule ? 'your house rule expects' : 'your example expects';
+  return {
+    head: 'What should happen in this case?',
+    body: isRule
+      ? `We tried a made-up table where this happens. Your rules are silent on “${g.silentOn}”. We won't guess.`
+      : `One of your examples lands on this case, and your rules are silent on “${g.silentOn}”. We won't guess.`,
+    caseTag: isRule ? 'MADE-UP TABLE · THE SMALLEST ONE THAT SHOWS IT' : 'YOUR EXAMPLE',
+    call: g.call,
+    caseLine: `draft gave ${g.actualShown} · ${whose} ${g.expectedShown}`,
+    legend: 'What should happen?',
+    options: g.alternatives.map(optionOf),
+    scope: g.ruleScope?.label ?? null,
+    existing: g.existing ? 'You already decided this case. Saving again replaces that rule.' : null,
+    onlyAgreeing: g.onlyAgreeing ? g.onlyAgreeing.replace(/`/g, '') : null,
+  };
+}
+
+/** The live preview sentence under the options. */
+export function gapPreview(v: Pick<GapView, 'call' | 'options'>, selected: string | null, scope: 'call' | 'rule', scopeLabel: string | null): string {
+  const o = v.options.find((x) => x.id === selected && !x.disabled);
+  if (!o) return 'Pick what should happen. Nothing is saved until you do.';
+  if (scope === 'rule' && scopeLabel) return `${PREFIX}${scopeLabel}, it ${o.verb}.`;
+  return `${PREFIX}${v.call} ${o.verb}.`;
+}
+
+/** The saved rule, as the green card shows it: the preview without its lead-in, capitalised. */
+export function savedRuleText(preview: string): string {
+  return preview.replace(PREFIX, '').replace(/^./, (m) => m.toUpperCase());
+}
+
+// ───────────────────────── it says no ─────────────────────────
+
+export const DECLINE_WHY: Record<Declined['reason'], string> = {
+  'cannot-be-pure': "The answer would depend on something outside your file, like today's date, chance or another file. No check could hold it steady.",
+  'needs-spec': "Your question and your columns don't say enough to check a draft against, so any answer would be a guess.",
+};
+const DECLINE_HELP: Record<Declined['reason'], string> = {
+  'cannot-be-pure': 'Ask about what is in the file itself, for example with the dates written out.',
+  'needs-spec': 'Say exactly what counts, then it becomes a rule we can check.',
+};
+
+export function declinedView(reason: Declined['reason'], message: string, asked: string): { asked: string; why: string; help: string } {
+  return { asked: `YOU ASKED · ${asked}`, why: DECLINE_WHY[reason], help: message.trim() || DECLINE_HELP[reason] };
+}
+
+// ───────────────────────── thrown out ─────────────────────────
+
+export const THROWN_OUT_HEAD = 'Nothing is shown: every draft was thrown out.';
+
+/** The last draft's rejection in the trace's own words, and how many drafts were tried. */
+export function thrownOutView(gen: GenerationView | null, facts: LaneFacts, recordedOut: boolean): { last: string; tried: string; recorded: string | null } {
+  const n = gen?.attempts.length ?? 0;
+  let last = '';
+  const lastA = gen?.attempts[n - 1];
+  if (gen && lastA) {
+    // ghostFromAttempts leaves out the attempt it is told is shown (by identity): pass a copy so every rejection counts
+    const shown: AttemptView = { ...lastA };
+    const ghosts = ghostFromAttempts(gen, facts, shown);
+    const g = ghosts[ghosts.length - 1];
+    if (g) last = g.note.map((s) => s.text).join('').trim();
+  }
+  return {
+    last: last || 'No draft passed every check.',
+    tried: n === 1 ? '1 draft tried' : `${n} drafts tried`,
+    recorded: recordedOut ? 'In this demo, answers are recorded, and the recorded drafts ran out before one passed.' : null,
+  };
+}
+
+// ───────────────────────── service / error ─────────────────────────
+
+export function serviceView(o: Extract<RunOutcome, { kind: 'service' }> | Extract<RunOutcome, { kind: 'error' }>): { head: string; text: string; fix: string[] } {
+  if (o.kind === 'service') {
+    const e: GenerateError = o.error;
+    return { head: "The AI couldn't write a draft.", text: e.message, fix: e.fix ?? [] };
+  }
+  return { head: 'The calculation failed when it ran on your file.', text: `${o.name}: ${o.message}`, fix: [] };
+}
+
+// ───────────────────────── component ─────────────────────────
+
+const SHOWN = new Set<RunOutcome['kind']>(['stopped', 'declined', 'no-recording', 'thrown-out', 'service', 'error', 'cached']);
+
+interface Saved {
+  runId: number;
+  rule: string;
+  at: number;
+}
+
+export function RunStates({ engine, session }: { engine: Engine; session?: Session }) {
+  const s = session ?? sessionFor(engine);
+  const o = s.outcome.value;
+  const run = s.run.value;
+  const busy = s.busy.value;
+  const [saved, setSaved] = useState<Saved | null>(null);
+  const headRef = useRef<HTMLHeadingElement>(null);
+  const savedRef = useRef<HTMLDivElement>(null);
+  // runs started before this mounted never steal focus (e.g. coming back to the page)
+  const firstRun = useRef(run?.id ?? 0);
+  const focused = useRef('');
+
+  const showSaved = !!saved && run?.id === saved.runId;
+  useEffect(() => {
+    if (saved && run && run.id !== saved.runId) setSaved(null);
+  }, [run?.id]);
+
+  useEffect(() => {
+    if (!run || run.id <= firstRun.current || !SHOWN.has(o.kind) || o.kind === 'cached') return;
+    const key = `${run.id}:${o.kind}`;
+    if (focused.current === key) return;
+    focused.current = key;
+    headRef.current?.focus();
+  }, [run?.id, o.kind]);
+
+  const decide = (choice: string, opts: DecideOptions, rule: string) => {
+    const before = s.run.peek()?.id;
+    const p = s.decide({ alternative: choice }, opts);
+    const r = s.run.peek();
+    if (r && r.id !== before) {
+      setSaved({ runId: r.id, rule, at: Date.now() });
+      setTimeout(() => savedRef.current?.focus(), 0);
+    }
+    void p;
+  };
+  const retry = () => {
+    if (s.canAsk.peek()) void s.ask();
+  };
+  const tryOther = (id: string) => {
+    void s.selectQuestion(id).then(() => document.getElementById(ASK_BUTTON_ID)?.focus());
+  };
+
+  const label = s.question.value?.label ?? '';
+  let card = null;
+  if (o.kind === 'stopped') {
+    const g = s.gap.value;
+    if (g) card = <GapCard key={`${run?.id}:${g.call}:${g.check.name}`} gap={g} busy={busy} headRef={headRef} onSave={decide} />;
+  } else if (o.kind === 'declined') {
+    const v = declinedView(o.reason, o.message, label);
+    card = (
+      <div class="fd-rs fd-rs--no" role="status">
+        <div class="fd-rs__eyebrow">{v.asked}</div>
+        <h3 class="fd-rs__no-h" tabIndex={-1} ref={headRef}>
+          I can't do that reliably.
+        </h3>
+        <p class="fd-rs__p">
+          <span class="fd-rs__b">Why: </span>
+          {v.why}
+        </p>
+        <p class="fd-rs__p">
+          <span class="fd-rs__b">What would help: </span>
+          {v.help}
+        </p>
+        <p class="fd-rs__meta">{NOTHING_SAVED}</p>
+      </div>
+    );
+  } else if (o.kind === 'no-recording') {
+    const other = s.recordedOther.value;
+    card = (
+      <div class="fd-rs fd-rs--no" role="status">
+        <div class="fd-rs__eyebrow">YOU ASKED · {label}</div>
+        <h3 class="fd-rs__no-h" tabIndex={-1} ref={headRef}>
+          No recorded answer for this one.
+        </h3>
+        <p class="fd-rs__p">{s.noRecording.value || o.message}</p>
+        <div class="fd-rs__actions">
+          {other && (
+            <Button variant="secondary" aria-disabled={busy || undefined} onClick={() => !busy && tryOther(other.id)}>
+              Try “{other.label}”
+            </Button>
+          )}
+          <a class="fd-rs__link" href={OWN_FILE_HREF}>
+            How to run it on your computer
+          </a>
+        </div>
+        <p class="fd-rs__meta">Nothing was checked. {NOTHING_SAVED}</p>
+      </div>
+    );
+  } else if (o.kind === 'thrown-out') {
+    const gen = matchRun(s.engine.state.value, run).generation;
+    const v = thrownOutView(gen, s.trace.value.facts, o.recordedOut);
+    card = (
+      <div class="fd-rs fd-rs--out" role="status">
+        <h3 class="fd-rs__out-h" tabIndex={-1} ref={headRef}>
+          <ThrownOut size={16} tone="light" />
+          {THROWN_OUT_HEAD}
+        </h3>
+        <p class="fd-rs__p">{v.last}</p>
+        {v.recorded && <p class="fd-rs__p">{v.recorded}</p>}
+        <div class="fd-rs__actions">
+          <Button variant="secondary" aria-disabled={!s.canAsk.value || undefined} onClick={retry}>
+            Try again
+          </Button>
+          <span class="fd-rs__meta fd-rs__meta--inline">{v.tried} · {NOTHING_SAVED}</span>
+        </div>
+      </div>
+    );
+  } else if (o.kind === 'service' || o.kind === 'error') {
+    const v = serviceView(o);
+    card = (
+      <div class="fd-rs fd-rs--plain" role="alert">
+        <h3 class="fd-rs__plain-h" tabIndex={-1} ref={headRef}>
+          {v.head}
+        </h3>
+        <p class="fd-rs__p">{v.text}</p>
+        {v.fix.length > 0 && (
+          <>
+            <p class="fd-rs__p">To fix it, run:</p>
+            <pre class="fd-rs__fix">{v.fix.join('\n')}</pre>
+          </>
+        )}
+        <div class="fd-rs__actions">
+          <Button variant="secondary" aria-disabled={!s.canAsk.value || undefined} onClick={retry}>
+            Try again
+          </Button>
+          <span class="fd-rs__meta fd-rs__meta--inline">Nothing was checked. {NOTHING_SAVED}</span>
+        </div>
+      </div>
+    );
+  } else if (o.kind === 'cached') {
+    card = (
+      <p class="fd-rs__cached" role="status">
+        {CACHED_LINE}
+      </p>
+    );
+  }
+
+  if (!showSaved && !card) return null;
+  return (
+    <div class="fd-rs-wrap">
+      {showSaved && saved && (
+        <div class="fd-rs fd-rs--saved" role="status">
+          <div class="fd-rs__saved-h" tabIndex={-1} ref={savedRef}>
+            <CheckDisc size={20} />
+            Saved as a house rule.
+          </div>
+          <p class="fd-rs__saved-rule">{saved.rule}</p>
+          <p class="fd-rs__saved-meta">
+            Decided by you on {dayText(saved.at)}
+            {o.kind === 'running' ? ' · Checking again with your rule…' : o.kind === 'committed' || o.kind === 'cached' ? ' · Checked again with your rule.' : ''}
+          </p>
+        </div>
+      )}
+      {card}
+    </div>
+  );
+}
+
+function GapCard({
+  gap,
+  busy,
+  headRef,
+  onSave,
+}: {
+  gap: GapQuestion;
+  busy: boolean;
+  headRef: RefObject<HTMLHeadingElement | null>;
+  onSave: (choice: string, opts: DecideOptions, rule: string) => void;
+}) {
+  const v = gapView(gap);
+  const [sel, setSel] = useState<string | null>(null);
+  const [scope, setScope] = useState<'call' | 'rule'>('call');
+  const [why, setWhy] = useState('');
+  const preview = gapPreview(v, sel, scope, v.scope);
+  const ready = !!sel && !busy;
+  const save = () => {
+    if (!ready || !sel) return;
+    const opts: DecideOptions = { ...(v.scope ? { scope } : {}), ...(why.trim() ? { reason: why.trim() } : {}) };
+    onSave(sel, opts, savedRuleText(preview));
+  };
+
+  return (
+    <div role="group" aria-labelledby="fd-gap-h" class="fd-rs fd-rs--ask">
+      <div class="fd-rs__ask-eyebrow">
+        <AskDiamond solid size={16} />A QUESTION ONLY YOU CAN ANSWER · Needs you
+      </div>
+      <h3 id="fd-gap-h" tabIndex={-1} ref={headRef} class="fd-rs__ask-h">
+        {v.head}
+      </h3>
+      <p class="fd-rs__ask-body">{v.body}</p>
+      <div class="fd-rs__case">
+        <div class="fd-rs__case-tag">{v.caseTag}</div>
+        <div class="fd-rs__case-row">
+          <span class="fd-rs__case-call">{v.call}</span>
+          <span>{v.caseLine}</span>
+        </div>
+      </div>
+      {v.existing && <p class="fd-rs__ask-note">{v.existing}</p>}
+      {v.onlyAgreeing && <p class="fd-rs__ask-note">{v.onlyAgreeing}</p>}
+
+      <fieldset class="fd-rs__fs">
+        <legend class="fd-rs__legend">{v.legend}</legend>
+        <div class="fd-rs__opts">
+          {v.options.map((opt) => {
+            const on = opt.id === sel;
+            const whyId = `fd-gap-${opt.id}-why`;
+            return (
+              <label key={opt.id} class={`fd-rs__opt${on ? ' is-on' : ''}${opt.disabled ? ' is-disabled' : ''}`}>
+                <input
+                  type="radio"
+                  name="fd-gap-choice"
+                  value={opt.id}
+                  checked={on}
+                  disabled={!!opt.disabled}
+                  aria-describedby={opt.disabled ? whyId : undefined}
+                  onChange={() => setSel(opt.id)}
+                  class="fd-rs__radio"
+                />
+                <span class="fd-rs__opt-text">
+                  <span>{opt.label}</span>
+                  <span class="fd-rs__opt-tag">{opt.tag}</span>
+                  {opt.disabled && (
+                    <span class="fd-rs__opt-why" id={whyId}>
+                      {opt.disabled}
+                    </span>
+                  )}
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      </fieldset>
+
+      {v.scope && (
+        <fieldset class="fd-rs__fs fd-rs__fs--scope">
+          <legend class="fd-rs__legend">Save it for</legend>
+          <div class="fd-rs__scope">
+            {(['call', 'rule'] as const).map((k) => (
+              <label key={k} class={`fd-rs__opt fd-rs__opt--small${scope === k ? ' is-on' : ''}`}>
+                <input type="radio" name="fd-gap-scope" value={k} checked={scope === k} onChange={() => setScope(k)} class="fd-rs__radio" />
+                <span>{k === 'call' ? 'Just this case' : v.scope!.charAt(0).toUpperCase() + v.scope!.slice(1)}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      )}
+
+      <p class="fd-rs__preview" aria-live="polite">
+        {preview}
+      </p>
+      <div class="fd-rs__why">
+        <label for="fd-gap-why" class="fd-rs__why-label">
+          Why <span class="fd-rs__why-opt">(optional, saved with the rule)</span>
+        </label>
+        <input id="fd-gap-why" type="text" class="fd-rs__why-box" value={why} onInput={(e) => setWhy((e.target as HTMLInputElement).value)} />
+      </div>
+      <div class="fd-rs__actions">
+        <Button variant="primary" aria-disabled={!ready || undefined} onClick={save}>
+          Save as a house rule
+        </Button>
+        <span class="fd-rs__waiting">Waiting on you. No new answer is shown until you decide.</span>
+      </div>
+    </div>
+  );
+}

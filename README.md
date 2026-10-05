@@ -4,7 +4,17 @@
 
 **A live program that grows the functions you call but haven't written. The model proposes; your toolchain decides.**
 
-**[Try it in your browser](https://scasella.github.io/undefined/)** (replays recorded `gpt-6-luna` sessions; the gates run live in your browser, no install, no account). To run it live against your own Codex login, see [Run it](#run-it).
+**[Try it in your browser](https://scasella.github.io/undefined/)** (a demo: recorded `gpt-6-luna` answers, real checks running in your browser, no install, no account). To ask new questions about your own file, [run it on your computer](#run-it-on-your-computer).
+
+The site has two pages:
+
+- **The front door** ([`index.html`](https://scasella.github.io/undefined/), the default): bring a spreadsheet export
+  (CSV, TSV or JSON), ask a question in plain words, watch the AI's calculation get checked before you see the answer:
+  your examples, your locked answers, your house rules, and what was *not* checked. `#/start` is the first-run page.
+  Its contract and vocabulary are in [docs/FRONT-DOOR.md](docs/FRONT-DOOR.md).
+- **The workbench** ([`workbench.html`](https://scasella.github.io/undefined/workbench.html), linked from the front
+  door's footer): the original REPL, where every engine feature lives (call any function, Decide, pin, revisions,
+  Eject, share links). Everything below about the console, openers and sharing is the workbench.
 
 ![The opening sequence: an undefined call, a rejected candidate, a retry, a commit](docs/opening.gif)
 
@@ -22,10 +32,11 @@ revision of your running program. Everything runs in your browser except the mod
 
 ## Try it
 
-- **In your browser:** [scasella.github.io/undefined](https://scasella.github.io/undefined/) opens with `median([3, 1, 4, 2])`
+- **In your browser:** [the workbench](https://scasella.github.io/undefined/workbench.html) opens with `median([3, 1, 4, 2])`
   in the console. Press Enter, watch the first draft get rejected and the retry committed. The other examples are one click away.
-- **Another opener:** [`?opener=fibonacci`](https://scasella.github.io/undefined/?opener=fibonacci), `?opener=slugify`
-  or `?opener=orders` starts on that example (first visit only). [The fibonacci opener](docs/opening-fibonacci.gif).
+- **Another opener:** [`workbench.html?opener=fibonacci`](https://scasella.github.io/undefined/workbench.html?opener=fibonacci), `?opener=slugify`
+  or `?opener=orders` starts on that example (first visit only; an older link to the site root with `?opener=` or
+  `?recording=` is passed on to the workbench). [The fibonacci opener](docs/opening-fibonacci.gif).
 - **Make it yours:** call any function that doesn't exist. With no spec, only Compile and Invariants judge it; pin a
   result as a test or write a one-line spec to make the gate stricter. [All features](docs/FEATURES.md).
 - **Decide** where the spec was silent: a rejection a check marks as a spec gap becomes a question (`median([])`: throw,
@@ -34,7 +45,12 @@ revision of your running program. Everything runs in your browser except the mod
   README, runnable without the app. [Details](docs/FEATURES.md#eject).
 - **Share** a session as a `?recording=` link. [How](docs/REPLAY.md#share-a-session).
 
-## Run it
+## Run it on your computer
+
+This is what the front door's *How to run it on your computer* points to: the public site only plays back recorded
+answers, so new questions about your own file need this local copy, where the AI writes each calculation through your
+own Codex login. Your file stays in your browser; what is sent to the model is listed in
+[What leaves your browser](#what-leaves-your-browser).
 
 **Prerequisites:** Node `^20.19 || >=22.12` (Vite 8's floor), [Codex CLI](https://github.com/openai/codex) 0.157 or
 later (`npm i -g @openai/codex`) and `codex login` completed. No API keys, no cloud backend, nothing leaves your machine
@@ -44,16 +60,22 @@ below; [layout](docs/ARCHITECTURE.md#layout)); every command runs from the root.
 ```bash
 git clone https://github.com/scasella/undefined.git && cd undefined
 npm install
-npm run dev          # http://localhost:5173 with the generation service running (LIVE mode)
+npm run dev          # http://localhost:5173: the front door, with the generation service running (LIVE mode)
+                     # http://localhost:5173/workbench.html: the workbench (the REPL), same service
 npm test && npm run typecheck && npm run build    # tests for every package, then the static site in apps/site/dist/
 ```
 
-In live mode a fresh browser opens on **Use your data**: drop or paste a CSV/JSON file and call a function on it that
+Open `http://localhost:5173/#/start`, bring your file (or a sample) and ask. The bar at the top reads *Live · the AI runs
+on your computer, real checks*; if it still says *Demo*, the generation service could not reach Codex (check
+`codex login`).
+
+In live mode a fresh browser opens the workbench on **Use your data**: drop or paste a CSV/JSON file and call a function on it that
 does not exist yet (**Start with examples** switches to the example-first opening and is remembered).
 
-**Replay mode (no Codex needed):** the static build in `apps/site/dist/` needs no backend and no environment variables
+**Replay mode (no Codex needed):** the static build in `apps/site/dist/` (both pages, `index.html` and
+`workbench.html`) needs no backend and no environment variables
 (deployable to GitHub Pages). With no generation service reachable it replays recorded `gpt-6-luna` sessions; the
-header pill reads *"Replay · gates run live"*: the candidates are recorded, **every gate still executes live in your
+front door says *Demo · recorded answers, real checks* and the workbench's header pill *"Replay · gates run live"*: the candidates are recorded, **every gate still executes live in your
 browser**. `npm run preview` serves it locally.
 
 ## The engine
@@ -114,6 +136,7 @@ formats, limits: [docs/ENGINE.md](docs/ENGINE.md); npm names: [docs/PACKAGES.md]
 
 ## Documentation
 
+[FRONT-DOOR](docs/FRONT-DOOR.md) (the front door: pages, vocabulary, honesty rules, recordings) ·
 [FEATURES](docs/FEATURES.md) (everything you can do: Decide, the data scratchpad, pinning, Eject, `?opener=`, the
 session log) · [EXAMPLES](docs/EXAMPLES.md) (the four examples, measured rates) · [EVIDENCE](docs/EVIDENCE.md) (the
 confidence line, mutation testing, kill rates, Node/CLI parity) · [ENGINE](docs/ENGINE.md) (engine, CLI and Action: API,

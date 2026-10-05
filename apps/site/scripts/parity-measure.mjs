@@ -15,7 +15,7 @@
 import { execSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { startServer, launch } from './lib/drive.mjs';
+import { startServer, launch, workbench } from './lib/drive.mjs';
 
 process.chdir(fileURLToPath(new URL('../', import.meta.url)));
 const WRITE = process.argv.includes('--write');
@@ -95,7 +95,7 @@ async function enterAndMeasure(before) {
 const out = {};
 try {
   for (const [id, ex] of Object.entries(EX)) {
-    await p.goto(srv.url);
+    await p.goto(workbench(srv.url));
     await p.evaluate(async () => {
       localStorage.clear();
       await new Promise((r) => {
@@ -104,7 +104,7 @@ try {
         setTimeout(r, 1500);
       });
     });
-    await p.goto(srv.url);
+    await p.goto(workbench(srv.url));
     await p.waitForSelector('#repl-input');
     if (id !== 'median') await p.locator('button.example', { hasText: ex.button }).click();
     const s1 = await enterAndMeasure(await revisionNow());

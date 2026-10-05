@@ -1,0 +1,10 @@
+.fd-footer { border-top: 1px solid var(--fd-line); background: var(--fd-surface); }
+.fd-footer__in {
+  max-width: var(--fd-max); margin: 0 auto; padding: 24px var(--fd-gutter) 32px; box-sizing: border-box;
+  display: flex; flex-wrap: wrap; gap: 12px 24px; font-size: 13px; line-height: 18px; color: var(--fd-ink-3);
+}
+.fd-footer__links { margin-left: auto; display: inline-flex; flex-wrap: wrap; gap: 4px 16px; }
+.fd-footer__links a { color: var(--fd-ink-3); text-decoration: underline; text-decoration-color: var(--fd-line-2); text-underline-offset: 3px; }
+.fd-footer__links a:hover { color: var(--fd-indigo); text-decoration-color: currentColor; }
+/* 44px targets without growing the footer */
+.fd-footer__links a { display: inline-flex; align-items: center; min-height: 44px; margin: -13px 0; }

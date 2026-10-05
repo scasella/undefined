@@ -1,0 +1,108 @@
+/* Landing · "It asks instead of guessing" (V3-Door-Landing lines 669-745). */
+.fd-asks { padding: 48px 0; background: var(--fd-surface); border-top: 1px solid var(--fd-line); border-bottom: 1px solid var(--fd-line); }
+.fd-asks__wrap {
+  max-width: var(--fd-max); margin: 0 auto; padding: 0 var(--fd-gutter); box-sizing: border-box;
+  display: flex; flex-wrap: wrap; gap: 32px 48px; align-items: flex-start;
+}
+.fd-asks__intro { flex: 1 1 320px; max-width: 400px; }
+.fd-asks__eyebrow {
+  font-family: var(--fd-mono); font-size: 11px; line-height: 14px; font-weight: 500; letter-spacing: 0.08em; color: var(--fd-ink-3);
+}
+.fd-asks__h { margin: 8px 0 0; font-size: clamp(26px, 3vw, 36px); line-height: 1.15; font-weight: 600; letter-spacing: -0.025em; }
+.fd-asks__lede { margin: 12px 0 0; color: var(--fd-ink-2); }
+.fd-asks__seg { margin-top: 20px; }
+/* 44px target without changing the design's 40px pill (the group's 3px padding holds the extra 2px each side) */
+.fd-asks__seg .fd-seg__item { position: relative; }
+.fd-asks__seg .fd-seg__item::before { content: ''; position: absolute; inset: -2px 0; }
+/* one row, as the design (its pill row sets the intro column width); wraps only on narrow screens */
+@media (min-width: 560px) { .fd-asks__seg { flex-wrap: nowrap; max-width: none; } }
+/* narrow: each pill fills its row, so the wrapped group reads as a stacked control, not a stray grey block */
+@media (max-width: 559px) { .fd-asks__seg { display: flex; } .fd-asks__seg .fd-seg__item { flex: 1 1 auto; } }
+.fd-asks__small { margin: 12px 0 0; font-size: 14px; line-height: 20px; color: var(--fd-ink-3); }
+
+.fd-asks__main { flex: 999 1 560px; min-width: 0; }
+
+/* the question card */
+.fd-asks__q {
+  background: var(--fd-amber-wash); border: 1px solid var(--fd-amber); border-radius: var(--fd-r-lg);
+  box-shadow: var(--fd-sh-float); padding: 24px;
+}
+.fd-asks__q-eyebrow {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--fd-mono); font-size: 11px; line-height: 14px; font-weight: 500; letter-spacing: 0.08em; color: var(--fd-amber-ink);
+}
+.fd-asks__q-eyebrow svg { flex: none; }
+.fd-asks__q-h { margin: 12px 0 0; font-size: 22px; line-height: 28px; font-weight: 600; letter-spacing: -0.015em; color: var(--fd-ink); }
+.fd-asks__q-h:focus { outline: none; }
+.fd-asks__q-h:focus-visible { outline: 2px solid var(--fd-indigo); outline-offset: 2px; }
+.fd-asks__q-body { margin: 8px 0 0; color: var(--fd-ink-2); }
+
+.fd-asks__case { margin-top: 16px; background: var(--fd-surface); border-radius: var(--fd-r-md); box-shadow: var(--fd-sh-ring); overflow: hidden; }
+.fd-asks__case-tag {
+  padding: 6px 12px; border-bottom: 1px solid var(--fd-line);
+  font-family: var(--fd-mono); font-size: 11px; line-height: 14px; font-weight: 500; letter-spacing: 0.08em; color: var(--fd-ink-3);
+}
+.fd-asks__case-row {
+  padding: 10px 12px; font-family: var(--fd-mono); font-variant-numeric: tabular-nums slashed-zero; font-feature-settings: 'tnum', 'zero';
+  font-size: 13px; line-height: 18px; color: var(--fd-ink);
+}
+
+.fd-asks__clash { margin-top: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 0; }
+.fd-asks__side { flex: 1 1 200px; background: var(--fd-surface); border-radius: var(--fd-r-sm); box-shadow: var(--fd-sh-ring); padding: 10px 12px; }
+.fd-asks__side-name { display: block; font-size: 14px; line-height: 20px; font-weight: 500; }
+.fd-asks__side-name--lock { display: flex; align-items: center; gap: 6px; }
+.fd-asks__side-name--lock svg { flex: none; }
+.fd-asks__side-note {
+  display: block; font-family: var(--fd-mono); font-size: 12px; line-height: 16px; font-weight: 500; color: var(--fd-ink-3);
+}
+.fd-asks__ne { flex: 0 0 72px; height: 44px; position: relative; display: flex; align-items: center; justify-content: center; }
+.fd-asks__ne-line { position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--fd-amber); }
+.fd-asks__ne-glyph {
+  position: relative; width: 28px; height: 28px; border-radius: 999px; background: var(--fd-surface); box-shadow: 0 0 0 1px var(--fd-amber);
+  display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 600; color: var(--fd-amber-ink);
+}
+
+.fd-asks__fs { margin: 20px 0 0; padding: 0; border: 0; min-width: 0; }
+.fd-asks__legend { padding: 0; font-size: 14px; line-height: 20px; font-weight: 600; color: var(--fd-ink); }
+.fd-asks__opts { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
+.fd-asks__opt {
+  display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 16px; box-sizing: border-box;
+  border-radius: var(--fd-r-md); background: var(--fd-surface); cursor: pointer;
+  font-size: 15px; line-height: 20px; color: var(--fd-ink-2); box-shadow: var(--fd-sh-ring);
+  transition: box-shadow 120ms ease;
+}
+.fd-asks__opt.is-on { box-shadow: 0 0 0 1.5px var(--fd-indigo); font-weight: 500; color: var(--fd-ink); }
+.fd-asks__radio { width: 18px; height: 18px; margin: 0; accent-color: var(--fd-indigo); flex: none; }
+.fd-asks__preview { margin: 12px 0 0; font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
+.fd-asks__actions { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.fd-asks__waiting { font-size: 13px; line-height: 18px; color: var(--fd-amber-ink); }
+
+/* the saved state */
+.fd-asks__saved {
+  background: var(--fd-green-wash); border: 1px solid var(--fd-green); border-radius: var(--fd-r-lg);
+  box-shadow: var(--fd-sh-float); padding: 24px;
+}
+.fd-asks__saved-h {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 22px; line-height: 28px; font-weight: 600; letter-spacing: -0.015em; color: var(--fd-green-ink);
+}
+.fd-asks__saved-h svg { flex: none; }
+.fd-asks__saved-h:focus { outline: none; }
+.fd-asks__saved-h:focus-visible { outline: 2px solid var(--fd-indigo); outline-offset: 2px; }
+.fd-asks__saved-rule { margin: 10px 0 0; color: var(--fd-ink); }
+.fd-asks__saved-meta {
+  margin: 6px 0 0; font-family: var(--fd-mono); font-size: 12px; line-height: 16px; font-weight: 500; color: var(--fd-green-ink);
+}
+.fd-asks__again {
+  margin-top: 10px; min-height: 44px; padding: 0; border: 0; background: transparent; cursor: pointer;
+  color: var(--fd-indigo); font-family: inherit; font-size: 14px; font-weight: 500;
+}
+.fd-asks__again:hover { color: var(--fd-indigo-hover); }
+
+/* narrow screens: the two sides stack, the ≠ sits on a vertical line between them (no half-wrapped row) */
+@media (max-width: 559px) {
+  .fd-asks__clash { flex-direction: column; align-items: stretch; }
+  .fd-asks__side { flex: none; }
+  .fd-asks__ne { flex: none; height: 44px; }
+  .fd-asks__ne-line { left: 50%; right: auto; top: 0; bottom: 0; width: 1px; height: auto; }
+}

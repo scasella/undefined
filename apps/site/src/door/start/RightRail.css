@@ -1,0 +1,5 @@
+/* First-run right rail (V3-Door-FirstRun 327-385): the aside holds three cards, 16px apart. */
+.fd-rrail { flex: 1 1 360px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+
+/* No file yet: the same card, with the not-yet values in the quieter ink. */
+.fd-rrail__none { color: var(--fd-ink-3); }

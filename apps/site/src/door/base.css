@@ -1,0 +1,38 @@
+/* Front door page base. Every rule is scoped by the fd- prefix or by element selectors that the design sets globally. */
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--fd-bg);
+  color: var(--fd-ink);
+  font-family: var(--fd-sans);
+  font-size: 16px;
+  line-height: 24px;
+}
+a { color: var(--fd-indigo); }
+a:hover { color: var(--fd-indigo-hover); }
+button { font-family: inherit; }
+:focus-visible { outline: 2px solid var(--fd-indigo); outline-offset: 2px; }
+.skip {
+  position: absolute; left: 8px; top: -48px; z-index: 20; padding: 10px 14px; border-radius: var(--fd-r-md);
+  background: var(--fd-ink); color: #fff; text-decoration: none; font-size: 14px; font-weight: 500;
+}
+.skip:focus { top: 8px; }
+.fd-shell { min-height: 100vh; display: flex; flex-direction: column; background: var(--fd-bg); color: var(--fd-ink); }
+.fd-shell > main { flex: 1 0 auto; }
+.fd-wrap { max-width: var(--fd-max); margin: 0 auto; padding: 0 var(--fd-gutter); box-sizing: border-box; }
+.fd-mono {
+  font-family: var(--fd-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-feature-settings: 'tnum', 'zero';
+}
+.fd-eyebrow {
+  font-family: var(--fd-mono); font-size: 11px; line-height: 14px; font-weight: 500;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--fd-ink-3);
+}
+.fd-sr {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+.fd-card { background: var(--fd-surface); border-radius: var(--fd-r-lg); box-shadow: var(--fd-sh-card); }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}

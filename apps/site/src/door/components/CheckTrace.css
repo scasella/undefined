@@ -1,0 +1,191 @@
+/* The check trace: an always-dark surface (V3-Door-Landing 117-210, V3-Door-FirstRun 208-257).
+   Every static style here is the END state of the design's animation, so with prefers-reduced-motion (base.css kills
+   all animation) the trace still lands in the right picture. Motion is inline `animation` built by model/traceScript. */
+
+.fd-trace {
+  position: relative;
+  background-color: var(--tr-bg);
+  background-image: radial-gradient(var(--tr-dot) 1px, transparent 1px);
+  background-size: 8px 8px;
+  border-radius: var(--fd-r-xl);
+  box-shadow: var(--fd-sh-float);
+  padding: 24px;
+  color: var(--tr-text);
+  overflow: hidden;
+}
+.fd-trace__seal {
+  position: absolute; top: 0; left: 24px; right: 24px; height: 1px;
+  background: var(--tr-pen); transform-origin: left center;
+}
+.fd-trace__mono {
+  font-family: var(--fd-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-feature-settings: 'tnum', 'zero';
+}
+.fd-trace__head {
+  display: flex; align-items: center; gap: 16px;
+  font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: 0.01em;
+}
+.fd-trace__hl { flex: 1; min-width: 0; display: grid; }
+.fd-trace__hl > span, .fd-trace__timer > span { grid-area: 1 / 1; }
+.fd-trace__hl-a { color: var(--tr-text-2); }
+.fd-trace__hl-b { color: var(--tr-text); }
+.fd-trace__hl-b--ask { color: var(--tr-ask); }
+.fd-trace__hl-b--fail { color: var(--tr-fail); }
+.fd-trace__timer { display: grid; justify-items: end; flex: none; }
+.fd-trace__timer-a { color: var(--tr-pen); }
+.fd-trace__timer-b { color: var(--tr-text-2); }
+.fd-trace__timer-b--ask { color: var(--tr-ask); }
+.fd-trace__hidden { opacity: 0; }
+
+.fd-trace__draft {
+  margin-top: 20px;
+  font-family: var(--fd-mono); font-size: 11px; line-height: 14px; font-weight: 500; letter-spacing: 0.08em;
+  color: var(--tr-text-2);
+}
+.fd-trace__list {
+  list-style: none; margin: 4px -12px -12px; padding: 12px; overflow-x: auto;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.fd-trace__draft + .fd-trace__list { margin-top: -4px; }
+.fd-trace__ghost-list { opacity: 0.45; }
+.fd-trace__ghost-note {
+  margin-top: 6px; display: flex; gap: 10px; align-items: flex-start;
+  background: var(--tr-fail-bg); border-radius: var(--fd-r-xs); padding: 10px 12px;
+  font-size: 14px; line-height: 20px; color: var(--tr-text);
+}
+.fd-trace__ghost-note svg { flex: none; margin-top: 2px; }
+
+/* ── a lane ── */
+.fd-lane {
+  display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 4px 12px; box-sizing: border-box;
+  border-radius: var(--fd-r-xs); background: var(--tr-lane);
+}
+.fd-lane--compact { min-height: 28px; padding: 2px 12px; }
+/* Phones (both pages): keep each lane on one line (the design's cells never wrap) and let the lane list scroll sideways
+   (.fd-trace__list has overflow-x: auto) instead of squeezing the cells into a column. 760px = the widest lane:
+   padding 24 + label 280 + 100-table grid 298 + count 132 + gaps 24. Wider traces are unaffected. */
+.fd-trace__list > .fd-lane { min-width: 760px; }
+.fd-trace__list > .fd-lane--compact { min-width: 640px; }
+.fd-lane--stopped { background: var(--tr-ask-bg); }
+.fd-lane--running { box-shadow: 0 0 0 1px var(--tr-pen), 0 0 24px rgba(210, 255, 63, 0.14); }
+.fd-lane--hl { outline: 2px solid var(--fd-indigo-soft); outline-offset: 2px; }
+.fd-lane__label {
+  flex: none; width: 280px; display: flex; align-items: center; gap: 8px;
+  font-size: 14px; line-height: 18px; color: var(--tr-text);
+}
+.fd-lane--compact .fd-lane__label { width: 240px; font-size: 13px; }
+.fd-lane__label--dim { color: var(--tr-text-3); }
+.fd-lane__label svg { flex: none; }
+.fd-lane__num { font-family: var(--fd-mono); font-size: 11px; color: var(--tr-text-3); }
+.fd-lane__mid { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.fd-lane__cells { position: relative; display: flex; align-items: center; flex-wrap: nowrap; gap: 4px; }
+.fd-lane__cells--grid { display: grid; grid-template-columns: repeat(50, 4px); gap: 2px; }
+.fd-lane__strike { flex: 1; height: 1px; background: var(--tr-fail); transform-origin: left center; }
+.fd-lane__off {
+  display: inline-flex; align-items: center; min-height: 24px; padding: 0 10px; border-radius: var(--fd-r-sm);
+  border: 1.5px dashed var(--tr-border-2); font-size: 12px; line-height: 16px; color: var(--tr-text-3); white-space: nowrap;
+}
+
+/* cells: ticks 10x14 (8x12 compact), grid 4x4, stress 10x10 */
+.fd-cell {
+  width: 10px; height: 14px; border-radius: var(--fd-r-xs);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 8px; line-height: 8px; font-weight: 700; box-sizing: border-box;
+  background: var(--tr-pass);
+}
+.fd-lane--compact .fd-cell { width: 8px; height: 12px; }
+.fd-lane__cells--grid .fd-cell { width: 4px; height: 4px; border-radius: 2px; }
+.fd-lane__cells--stress .fd-cell { width: 10px; height: 10px; }
+.fd-cell--wait { background: var(--tr-cell); }
+.fd-cell--fail { background: var(--tr-fail); color: #FFFFFF; }
+.fd-cell--ask { background: var(--tr-ask-bg); box-shadow: inset 0 0 0 1px var(--tr-ask); color: var(--tr-ask); }
+
+/* the pen: 1px line with a 6px nub; at rest it has swept past the end */
+.fd-lane__pen {
+  position: absolute; top: -6px; bottom: -6px; width: 1px; left: 100%; opacity: 0; background: var(--tr-pen);
+}
+.fd-lane__pen > span { position: absolute; top: 0; left: -3px; width: 6px; height: 6px; background: inherit; }
+.fd-lane__pen--stop { opacity: 1; background: var(--tr-ask); }
+
+/* count box */
+.fd-lane__count {
+  flex: none; width: 132px; display: grid; justify-items: end; text-align: right;
+  font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: 0.01em;
+}
+.fd-lane--compact .fd-lane__count { width: 120px; }
+.fd-lane__count > span { grid-area: 1 / 1; }
+.fd-lane__wait { color: var(--tr-text-3); }
+.fd-lane__wait svg { vertical-align: -1px; margin-right: 6px; }
+.fd-lane__run { height: 16px; overflow: hidden; color: var(--tr-pen); }
+.fd-lane__strip { display: block; transform: translateY(calc(-100% + 16px)); }
+.fd-lane__strip > span { display: block; height: 16px; }
+.fd-lane__done { display: flex; flex-direction: column; align-items: flex-end; color: var(--tr-pass); }
+.fd-lane__done--fail { color: var(--tr-fail); }
+.fd-lane__done--ask { color: var(--tr-ask); }
+.fd-lane__line1 { display: flex; align-items: center; gap: 6px; justify-content: flex-end; }
+.fd-lane__line2 { display: flex; align-items: center; gap: 6px; justify-content: flex-end; }
+.fd-lane__line2--ask { color: var(--tr-ask); }
+.fd-lane__line2--fail { color: var(--tr-fail); }
+.fd-lane__line2--pass { color: var(--tr-pass); }
+
+/* Phones: let the header wrap so the verdict gets the full width and the timer sits under it (no squeezed column). */
+@media (max-width: 480px) {
+  .fd-trace__head { flex-wrap: wrap; gap: 4px 16px; }
+  .fd-trace__hl { flex: 1 1 100%; }
+  .fd-trace__timer { justify-items: start; }
+}
+
+/* footer */
+.fd-trace__foot {
+  margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--tr-border);
+  display: flex; flex-wrap: wrap; gap: 6px 24px; justify-content: space-between;
+}
+.fd-trace__foot-text { margin: 0; font-size: 13px; line-height: 18px; color: var(--tr-text-2); flex: 1 1 360px; }
+.fd-trace__foot-meta { font-size: 12px; line-height: 16px; font-weight: 500; color: var(--tr-text-3); }
+
+/* ── the design's keyframes; a and b are identical so alternating names restarts a replay ── */
+@keyframes tka { from { background: var(--tr-cell); box-shadow: 0 0 0 1px var(--tr-pen); } to { background: var(--tr-pass); box-shadow: 0 0 0 1px rgba(210, 255, 63, 0); } }
+@keyframes tkb { from { background: var(--tr-cell); box-shadow: 0 0 0 1px var(--tr-pen); } to { background: var(--tr-pass); box-shadow: 0 0 0 1px rgba(210, 255, 63, 0); } }
+@keyframes swa { 0% { left: 0; opacity: 0; } 2% { opacity: 1; } 98% { opacity: 1; } 100% { left: 100%; opacity: 0; } }
+@keyframes swb { 0% { left: 0; opacity: 0; } 2% { opacity: 1; } 98% { opacity: 1; } 100% { left: 100%; opacity: 0; } }
+@keyframes sga { 0% { left: 0; opacity: 0; } 1% { opacity: 1; } 49.9% { left: 100%; } 50% { left: 0; } 99% { left: 100%; opacity: 1; } 100% { left: 100%; opacity: 0; } }
+@keyframes sgb { 0% { left: 0; opacity: 0; } 1% { opacity: 1; } 49.9% { left: 100%; } 50% { left: 0; } 99% { left: 100%; opacity: 1; } 100% { left: 100%; opacity: 0; } }
+@keyframes spa { 0% { left: 0; opacity: 0; background: var(--tr-pen); } 2% { opacity: 1; } 99% { background: var(--tr-pen); } 100% { left: 93.3%; opacity: 1; background: var(--tr-ask); } }
+@keyframes spb { 0% { left: 0; opacity: 0; background: var(--tr-pen); } 2% { opacity: 1; } 99% { background: var(--tr-pen); } 100% { left: 93.3%; opacity: 1; background: var(--tr-ask); } }
+@keyframes jta { 0% { transform: translateX(1px); } 50% { transform: translateX(-1px); } 100% { transform: translateX(0); } }
+@keyframes jtb { 0% { transform: translateX(1px); } 50% { transform: translateX(-1px); } 100% { transform: translateX(0); } }
+@keyframes lga {
+  0% { box-shadow: 0 0 0 1px rgba(210, 255, 63, 0); }
+  3% { box-shadow: 0 0 0 1px var(--tr-pen), 0 0 24px rgba(210, 255, 63, 0.14); }
+  97% { box-shadow: 0 0 0 1px var(--tr-pen), 0 0 24px rgba(210, 255, 63, 0.14); }
+  100% { box-shadow: 0 0 0 1px rgba(210, 255, 63, 0); }
+}
+@keyframes lgb {
+  0% { box-shadow: 0 0 0 1px rgba(210, 255, 63, 0); }
+  3% { box-shadow: 0 0 0 1px var(--tr-pen), 0 0 24px rgba(210, 255, 63, 0.14); }
+  97% { box-shadow: 0 0 0 1px var(--tr-pen), 0 0 24px rgba(210, 255, 63, 0.14); }
+  100% { box-shadow: 0 0 0 1px rgba(210, 255, 63, 0); }
+}
+@keyframes ona { 0% { opacity: 0; } 3% { opacity: 1; } 97% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes onb { 0% { opacity: 0; } 3% { opacity: 1; } 97% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes fia { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fib { from { opacity: 0; } to { opacity: 1; } }
+@keyframes foa { from { opacity: 1; } to { opacity: 0; } }
+@keyframes fob { from { opacity: 1; } to { opacity: 0; } }
+@keyframes gha { from { opacity: 1; } to { opacity: 0.45; } }
+@keyframes ghb { from { opacity: 1; } to { opacity: 0.45; } }
+@keyframes sla { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes slb { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes sta { from { transform: scale(1.15); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes stb { from { transform: scale(1.15); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes cta { from { transform: translateY(0); } to { transform: translateY(calc(-100% + 16px)); } }
+@keyframes ctb { from { transform: translateY(0); } to { transform: translateY(calc(-100% + 16px)); } }
+@keyframes aka { from { background: var(--tr-lane); } to { background: var(--tr-ask-bg); } }
+@keyframes akb { from { background: var(--tr-lane); } to { background: var(--tr-ask-bg); } }
+@keyframes dga { 0% { transform: scale(1); } 50% { transform: scale(1.12); } 100% { transform: scale(1); } }
+@keyframes dgb { 0% { transform: scale(1); } 50% { transform: scale(1.12); } 100% { transform: scale(1); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .fd-trace *, .fd-trace *::before, .fd-trace *::after { animation: none !important; transition: none !important; }
+}
