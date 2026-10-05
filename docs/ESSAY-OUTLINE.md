@@ -5,8 +5,8 @@ the section must **not** claim. Every live number below comes from one model on 
 `low`, Codex CLI 0.159.2, Chrome 154 headless, measured 2026-10-04 ([LAUNCH.md](LAUNCH.md), setup paragraph). Say that
 once, early, and do not let any later sentence generalise past it.
 
-Assets: [`opening.gif`](opening.gif) (the opening sequence), [`demo.mp4`](demo.mp4) (~32 s, ends on the pinned orders
-result), [`opening-fibonacci.gif`](opening-fibonacci.gif), [`social.png`](social.png) (the link-preview card).
+Assets: [`opening.gif`](opening.gif) (the opening sequence), [`demo.mp4`](demo.mp4) (~40 s: the opening, a Decide on
+`median([])`, then the orders data flow; ends on the pinned orders result), [`opening-fibonacci.gif`](opening-fibonacci.gif), [`social.png`](social.png) (the link-preview card).
 
 ## 1. The inversion, in ten seconds
 
