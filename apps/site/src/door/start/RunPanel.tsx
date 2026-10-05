@@ -23,7 +23,7 @@ export function confirmKey(run: { id: number; questionId: string } | null): stri
   return run ? `${run.id}:${run.questionId}` : '';
 }
 
-export function RunPanel({ engine, session }: { engine: Engine; session?: Session }) {
+export function RunPanel({ engine, session, zen = false }: { engine: Engine; session?: Session; zen?: boolean }) {
   const s = session ?? sessionFor(engine);
   const t = s.trace.value;
   const a = s.answer.value;
@@ -59,7 +59,7 @@ export function RunPanel({ engine, session }: { engine: Engine; session?: Sessio
         onConfirm={(id) => setConfirmed({ key, ids: new Set([...ids, id]) })}
         checked={a.checked}
         notChecked={a.notChecked}
-        houseRuleHref={HOUSE_RULE_HREF}
+        {...(zen ? {} : { houseRuleHref: HOUSE_RULE_HREF })}
       />
       {a.view && run && (o.kind === 'committed' || o.kind === 'cached') && <Handoff engine={engine} fn={run.fn} runId={run.id} />}
     </div>

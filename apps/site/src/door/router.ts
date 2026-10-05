@@ -6,19 +6,21 @@
 import { signal, type ReadonlySignal } from '@preact/signals';
 import { h, type AnchorHTMLAttributes, type ComponentChildren } from 'preact';
 
-export type Route = 'landing' | 'start';
+export type Route = 'landing' | 'start' | 'zen';
 
-export const ROUTE_PATHS: Record<Route, string> = { landing: '#/', start: '#/start' };
+export const ROUTE_PATHS: Record<Route, string> = { landing: '#/', start: '#/start', zen: '#/zen' };
 
 export const ROUTE_TITLES: Record<Route, string> = {
   landing: 'Undefined — answers from your spreadsheet, checked before you see them',
   start: 'Get started · Undefined',
+  zen: 'Zen · Undefined',
 };
 
 /** Pure: the route a hash names, or null when the hash is not a route (an in-page anchor; keep the current route). */
 export function parseHash(hash: string): Route | null {
   if (hash === '' || hash === '#' || hash === '#/') return 'landing';
   if (/^#\/start(?:[?/].*)?$/.test(hash)) return 'start';
+  if (/^#\/zen(?:[?/].*)?$/.test(hash)) return 'zen';
   if (hash.startsWith('#/')) return 'landing'; // an unknown route: the front door
   return null;
 }

@@ -10,6 +10,7 @@ import { TelemetryBar } from './components/TelemetryBar';
 import { Landing } from './landing/Landing';
 import { installRouter, useRoute } from './router';
 import { Start } from './start/Start';
+import { Zen } from './zen/Zen';
 import { engineRef, headVersion, shellFileChip, shellRunning } from './state';
 
 /** The landing's example is "Version 3 · 5 Oct 2026" (an illustration, see FRONT-DOOR.md honesty rule 2). */
@@ -22,6 +23,7 @@ export function App({ engine, initError }: { engine: Engine; initError?: string 
   const page = useRoute();
   const st = engine.state.value;
   const chip = shellFileChip.value ?? (page === 'landing' ? LANDING_CHIP : null);
+  if (page === 'zen') return <Zen engine={engine} initError={initError ?? null} />;
   const honesty = page === 'landing' ? LANDING_VERSION : headVersion(st);
 
   return (

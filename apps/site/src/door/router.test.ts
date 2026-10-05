@@ -11,6 +11,11 @@ describe('parseHash', () => {
     expect(parseHash('#/start')).toBe('start');
     expect(parseHash('#/start?file=sales')).toBe('start');
   });
+  it('maps zen mode', () => {
+    expect(parseHash('#/zen')).toBe('zen');
+    expect(parseHash('#/zen?x=1')).toBe('zen');
+    expect(parseHash('#/zenith')).toBe('landing');
+  });
   it('sends unknown routes to the front door', () => {
     expect(parseHash('#/nope')).toBe('landing');
     expect(parseHash('#/starter')).toBe('landing');

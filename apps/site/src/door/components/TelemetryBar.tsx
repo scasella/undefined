@@ -37,6 +37,9 @@ export function TelemetryBar({ engine, fileChip, running = false }: TelemetryBar
           {replay ? 'Demo · recorded answers, real checks' : 'Live · the AI runs on your computer, real checks'}
         </span>
         <span class="fd-tele__count fd-mono">{formatSession(session.value)}</span>
+        <a href="#/zen" class="fd-tele__zen">
+          Zen mode
+        </a>
         <span class="fd-tele__privacy">
           <span>
             Your file stays in this browser · AI sees column names + {rowsShort(on)}

@@ -19,6 +19,7 @@ spacing, colours, motion, a11y attributes), translated into Preact + CSS files w
 |---|---|---|
 | `#/` (default) | Landing: telemetry bar, hero claim, live example stage (check trace + answer + agreement rail), evidence strip, order-of-work, definition ladder, "agree once", "it asks", "says no" + privacy, team file + honest limits, footer, honesty bar | `V3-Door-Landing` |
 | `#/start` | First run: bring a file (drop / paste / sample), column preview, ask a question, live check trace, answer, right rail (what the AI will see, your agreement, demo note) | `V3-Door-FirstRun` |
+| `#/zen` | Zen mode: the same session, ask card and check trace in a bare single column (data, ask, checks, answer). No landing, rails or top bar; one footer line states what leaves the browser | (no board; `src/door/zen/`) |
 
 ## Vocabulary map (the design's words are plain-language names for engine features)
 

@@ -25,3 +25,4 @@
 .fd-tele__privacy {
   margin-left: auto; display: inline-flex; align-items: center; gap: 8px; font-size: 12px; line-height: 16px; color: var(--fd-ink-2);
 }
+.fd-tele__zen { display: inline-flex; align-items: center; min-height: 44px; padding: 0 4px; font-size: 13px; font-weight: 500; text-decoration: none; }

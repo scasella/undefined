@@ -1,0 +1,61 @@
+/* Zen · the data card: a chip when bound, otherwise a quiet drop target with samples. */
+.zd { display: flex; flex-direction: column; gap: 12px; }
+.zd [hidden] { display: none !important; }
+
+.zd__chip {
+  display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 4px 8px 4px 16px; box-sizing: border-box;
+  border-radius: var(--fd-r-lg); background: var(--fd-surface); box-shadow: var(--fd-sh-card);
+}
+.zd__chip-icon { flex: none; color: var(--fd-ink-2); }
+.zd__chip-text { flex: 1; min-width: 0; font-size: 13px; line-height: 18px; font-weight: 500; color: var(--fd-ink); overflow-wrap: anywhere; }
+.zd__change {
+  flex: none; min-height: 44px; padding: 0 12px; border: 0; background: none; cursor: pointer; border-radius: var(--fd-r-md);
+  font: inherit; font-size: 14px; font-weight: 500; color: var(--fd-indigo);
+}
+.zd__change:hover { color: var(--fd-indigo-hover); background: var(--fd-indigo-wash); }
+.zd__change[aria-disabled='true'] { cursor: progress; opacity: 0.6; }
+
+.zd__picker { display: flex; flex-direction: column; gap: 12px; }
+.zd__zone {
+  padding: 32px 20px; box-sizing: border-box; text-align: center; border-radius: var(--fd-r-lg);
+  background: var(--fd-surface); box-shadow: inset 0 0 0 1.5px var(--fd-line-2);
+  transition: background-color 120ms ease, box-shadow 120ms ease;
+}
+.zd__zone.is-over { background: var(--fd-indigo-wash); box-shadow: inset 0 0 0 1.5px var(--fd-indigo); }
+.zd__zone-h { margin: 0 0 16px; font-size: 18px; line-height: 24px; font-weight: 600; letter-spacing: -0.01em; color: var(--fd-ink); }
+.zd__actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.zd__btn {
+  min-height: 44px; padding: 0 18px; border: 0; border-radius: 999px; cursor: pointer; font: inherit; font-size: 14px; font-weight: 500;
+  background: var(--fd-surface); color: var(--fd-ink); box-shadow: var(--fd-sh-ring-2);
+}
+.zd__btn:hover { box-shadow: 0 0 0 1.5px var(--fd-ink-3); }
+.zd__btn--go { background: var(--fd-indigo); color: #fff; box-shadow: none; }
+.zd__btn--go:hover { background: var(--fd-indigo-hover); box-shadow: none; }
+.zd__btn[aria-disabled='true'] { opacity: 0.55; cursor: not-allowed; }
+
+.zd__paste { display: flex; flex-direction: column; gap: 10px; text-align: left; }
+.zd__paste .zd__actions { justify-content: flex-start; }
+.zd__label { font-size: 14px; line-height: 20px; font-weight: 500; color: var(--fd-ink); }
+.zd__textarea {
+  width: 100%; box-sizing: border-box; min-height: 140px; padding: 12px; resize: vertical;
+  border-radius: var(--fd-r-md); border: 1px solid var(--fd-line-2); background: var(--fd-surface-3);
+  font-size: 13px; line-height: 20px; color: var(--fd-ink);
+}
+
+.zd__samples { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; }
+.zd__or { font-size: 13px; color: var(--fd-ink-3); margin-right: 4px; }
+.zd__sample {
+  min-height: 44px; padding: 0 14px; border: 0; border-radius: 999px; cursor: pointer; font-size: 13px; font-weight: 500;
+  background: var(--fd-surface); color: var(--fd-ink); box-shadow: var(--fd-sh-ring-2);
+}
+.zd__sample:hover { box-shadow: 0 0 0 1.5px var(--fd-ink-3); }
+.zd__sample.is-on { background: var(--fd-indigo-wash); box-shadow: 0 0 0 1.5px var(--fd-indigo); color: var(--fd-indigo-hover); }
+.zd__sample[aria-disabled='true'] { cursor: progress; }
+.zd__hint { margin: 0; text-align: center; font-size: 12px; line-height: 16px; color: var(--fd-ink-3); }
+
+.zd__status:not(:empty) { font-size: 13px; line-height: 18px; color: var(--fd-ink-2); text-align: center; }
+.zd__problem {
+  margin: 0; padding: 10px 12px; border-radius: var(--fd-r-sm); background: var(--fd-amber-wash);
+  font-size: 13px; line-height: 18px; color: var(--fd-ink); overflow-wrap: anywhere;
+}
+.zd__note { margin: 0; font-size: 13px; line-height: 18px; color: var(--fd-ink-2); }
