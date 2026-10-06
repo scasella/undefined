@@ -64,6 +64,8 @@ export interface LaneView {
   offNote?: string;
   /** Stress lanes: how many of the cells (the last ones) are amber '?' cells. */
   missed?: number;
+  /** Lane 06 only: what the stress test came to (the one definition the lane, the seal and the answer's lists share). */
+  stress?: StressStatus;
   /** Stopped grid lanes: the 1-based made-up table it stopped on (cells after it stay dark). */
   stopAt?: number;
   aria: string;
@@ -108,6 +110,93 @@ export interface LiveLanesInput {
   fn?: string;
   /** 'idle': nothing asked (lanes ready/off); 'held': the run waits on a question only the user can answer. */
   run: RunFlag;
+  /** The page stopped waiting for the stress test (derive.ts stressGaveUp): lane 06 says it didn't run, whatever arrives later. */
+  stressGaveUp?: boolean;
+}
+
+// ───────────────────────── the stress test, in one place ─────────────────────────
+
+/**
+ * What the stress test (the lazy mutation check) came to. ONE definition, used by lane 06, the trace's header and footer,
+ * the answer's seal, its Checked against / Not checked lists and the landing's illustration, so they can never disagree:
+ *   total  = report.total (the copies that really ran; copies that did not compile are not in it)
+ *   caught = report.killed + report.killedByBound
+ *   missed = report.survived
+ * none: nothing for it to run against (no example, locked answer or house rule ran) · pending: it will run and has not
+ * finished (the answer is held) · done: it ran every break it had · partial: it ran out of time · not-run: it was
+ * expected and gave no result (it failed, had nothing to break, or the page stopped waiting).
+ */
+export type StressStatus =
+  | { kind: 'none' }
+  | { kind: 'pending'; phase: 'waiting' | 'running'; done: number; total: number }
+  | { kind: 'done'; total: number; caught: number; missed: number }
+  | { kind: 'partial'; total: number; caught: number; missed: number; planned: number | null }
+  | { kind: 'not-run' };
+
+/** The engine's time-box note ("time box reached after 7 of 12 mutants"): how many breaks it planned, when it says. */
+function plannedBreaks(skipped: string | undefined): number | null {
+  const m = skipped ? /\bafter \d+ of (\d+) /.exec(skipped) : null;
+  return m ? Number(m[1]) : null;
+}
+
+export interface StressInput {
+  /** Something ran that the stress test could be held against (a Full-checks answer). */
+  expected: boolean;
+  /** Artifact.evidence.mutation of the answer. */
+  report?: MutationReport | null | undefined;
+  /** EngineState.mutation and the function it must be about. */
+  mutation?: EngineState['mutation'] | undefined;
+  fn?: string | undefined;
+  /** The page stopped waiting: the answer shows "didn't run" for good. */
+  gaveUp?: boolean | undefined;
+}
+
+export function stressStatus(i: StressInput): StressStatus {
+  if (!i.expected) return { kind: 'none' };
+  if (i.gaveUp) return { kind: 'not-run' };
+  const m = i.mutation && i.fn !== undefined && i.mutation.fn === i.fn ? i.mutation : undefined;
+  // a report that is still being (re)made for this function is not this answer's result yet, whatever the artifact holds
+  if (m && m.phase !== 'done') return { kind: 'pending', phase: m.phase, done: m.done, total: m.total };
+  const r = i.report;
+  if (!r || r.total <= 0) return { kind: 'not-run' };
+  const base = { total: r.total, caught: r.killed + r.killedByBound, missed: r.survived };
+  return r.skipped !== undefined ? { kind: 'partial', ...base, planned: plannedBreaks(r.skipped) } : { kind: 'done', ...base };
+}
+
+/** The stress test is still to come: the answer (and the seal) wait for it. */
+export const stressPending = (s: StressStatus): boolean => s.kind === 'pending';
+
+const breaksWord = (n: number): string => (n === 1 ? 'break' : 'breaks');
+
+/**
+ * The seal in words (sentence case; the card sets it in capitals). `ran` of `of` are the checks that apply: every one
+ * that has something to run, plus the stress test. "Every check" is only ever said when the stress test finished.
+ */
+export function sealWords(s: { stress: StressStatus; ran: number; of: number }): string {
+  const st = s.stress;
+  if (st.kind === 'done') return `Passed every check · stress test caught ${st.caught} of ${st.total}`;
+  if (st.kind === 'partial') return `Passed ${s.ran} of ${s.of} checks · stress test ran out of time`;
+  if (st.kind === 'not-run') return `Passed ${s.ran} of ${s.of} checks · stress test didn't run`;
+  return 'Passed every check';
+}
+
+/** The stress test's line in "Checked against", with whether it takes the amber glyph (anything missed or unfinished). */
+export function stressChecked(st: StressStatus): { text: string; ask: boolean } | null {
+  if (st.kind === 'done') return { text: `${st.total}-way stress test (${st.caught} caught)`, ask: st.missed > 0 };
+  if (st.kind === 'partial') return { text: `stress test (${st.caught} of ${st.total} caught, ran out of time)`, ask: true };
+  return null;
+}
+
+/** What the stress test leaves unsaid, for "Not checked" (plain words: never "mutant"); null when it left nothing. */
+export function stressNotChecked(st: StressStatus): string | null {
+  if (st.kind === 'done' && st.missed > 0) return `${st.missed} of ${st.total} deliberate ${breaksWord(st.total)} went unnoticed by your checks`;
+  if (st.kind === 'partial') {
+    const tried = st.planned !== null && st.planned > st.total ? `${st.total} of ${st.planned} small breaks` : `${st.total} small ${breaksWord(st.total)}`;
+    const missed = st.missed > 0 ? `, and ${st.missed} of those went unnoticed by your checks` : '';
+    return `the stress test ran out of time: it tried ${tried}${missed}`;
+  }
+  if (st.kind === 'not-run') return "whether your checks would notice a broken calculation: the stress test didn't run";
+  return null;
 }
 
 // ───────────────────────── facts ─────────────────────────
@@ -209,9 +298,12 @@ export const OFF_NOTES = {
   locksLate: 'Locked after this answer',
   /** The stress test did not run on this answer because nothing was set when it was checked (a lock came later). */
   stressLate: 'Not run on this answer',
+  /** The stress test was expected on this answer and gave no result (it failed, had nothing to break, or the page stopped waiting). */
+  stressNotRun: "Didn't run",
 } as const;
 const LATE_LOCK_ARIA = ': not checked on this answer, you locked it afterwards.';
 const LATE_STRESS_ARIA = ': not run on this answer, nothing was set when it was checked.';
+const NOT_RUN_STRESS_ARIA = ": didn't run, so this answer was not stress-tested.";
 const GRID_MAX = 100;
 const ROW_MAX = 48;
 
@@ -368,6 +460,24 @@ export function liveLanes(input: LiveLanesInput): LaneView[] {
   return [l1, l2, l3, l4, l5, l6];
 }
 
+/** The lane's label and cells for a finished (or time-boxed) stress test, as the trace draws it. */
+function stressResult(b: Base, st: Extract<StressStatus, { kind: 'done' | 'partial' }>): LaneView {
+  const { caught, missed, total } = st;
+  const cells = cellsFor('stress', total);
+  const unfinished = st.kind === 'partial';
+  const line2 = unfinished ? `${missed > 0 ? `${missed} missed · ` : ''}ran out of time` : missed > 0 ? `${missed} missed` : undefined;
+  return {
+    ...b,
+    cells,
+    state: 'passed',
+    done: `${caught} of ${total} caught`,
+    word: '',
+    ...(line2 ? { line2, line2Tone: 'ask' as const, line2Glyph: true, missed: Math.min(missed, cells) } : { glyph: 'pass' as const }),
+    stress: st,
+    aria: `${b.label}: ${caught} of ${total} caught${missed > 0 ? `, ${missed} missed` : ''}${unfinished ? ', ran out of time' : ''}`,
+  };
+}
+
 /** One lane from one gate result. A gate that had nothing to run reads as not reached here; the callers handle 'off'. */
 function laneFromGate(
   b: Base,
@@ -385,32 +495,22 @@ function laneFromGate(
 
 function stressLane(input: LiveLanesInput, a: AttemptView | null, gen: GenerationView | null, nothingToKill: boolean): LaneView {
   const fn = gen?.fn ?? input.fn;
-  const report = input.mutationReport ?? null;
   const m = input.mutation && fn !== undefined && input.mutation.fn === fn ? input.mutation : undefined;
-  const total = report && !report.skipped && report.total > 0 ? report.total : m && m.total > 0 ? m.total : null;
-  const b: Base = { num: '06', label: stressLabel(total), kind: 'stress' };
-  if (nothingToKill) return input.facts.pins > 0 ? off(b, OFF_NOTES.stressLate, LATE_STRESS_ARIA) : off(b, OFF_NOTES.stress);
-  if (report && report.skipped !== undefined && report.total === 0) return off(b, OFF_NOTES.stress);
+  const label = (total: number | null): Base => ({ num: '06', label: stressLabel(total), kind: 'stress' });
+  if (nothingToKill) return input.facts.pins > 0 ? off(label(null), OFF_NOTES.stressLate, LATE_STRESS_ARIA) : off(label(null), OFF_NOTES.stress);
   // a draft that was thrown out is never stress-tested
-  if (a && (a.status === 'rejected' || a.status === 'aborted') && input.run !== 'idle') return idle(b, total ?? 0, 'skipped');
-  if (m && m.phase === 'running') return running(b, m.total, { done: m.done, total: m.total });
-  if (report && report.total > 0 && (!m || m.phase === 'done')) {
-    const caught = report.killed + report.killedByBound;
-    const missed = report.survived;
-    return {
-      ...b,
-      cells: cellsFor('stress', report.total),
-      state: 'passed',
-      done: `${caught} of ${report.total} caught`,
-      word: '',
-      ...(missed > 0 ? { line2: `${missed} missed`, line2Tone: 'ask' as const, line2Glyph: true, missed: Math.min(missed, cellsFor('stress', report.total)) } : { glyph: 'pass' as const }),
-      aria: `${b.label}: ${caught} of ${report.total} caught${missed > 0 ? `, ${missed} missed` : ''}`,
-    };
-  }
-  if (m && m.phase === 'waiting') return idle(b, m.total, 'waiting');
+  if (a && (a.status === 'rejected' || a.status === 'aborted') && input.run !== 'idle') return idle(label(null), 0, 'skipped');
   // it runs after the answer is committed: until then it is ready, never blocking 01–05
   const committed = gen?.phase === 'committed' && input.run !== 'idle';
-  return idle(b, total ?? 0, committed ? 'waiting' : 'ready');
+  if (!committed) return idle(label(null), 0, 'ready');
+  const st = stressStatus({ expected: true, report: input.mutationReport, mutation: input.mutation, fn, gaveUp: input.stressGaveUp });
+  if (st.kind === 'pending') {
+    const b = label(st.total > 0 ? st.total : null);
+    const lane = st.phase === 'running' ? running(b, st.total, { done: st.done, total: st.total }) : idle(b, st.total, 'waiting');
+    return { ...lane, stress: st };
+  }
+  if (st.kind === 'done' || st.kind === 'partial') return stressResult(label(st.total), st);
+  return { ...off(label(m && m.total > 0 ? m.total : null), OFF_NOTES.stressNotRun, NOT_RUN_STRESS_ARIA), stress: st };
 }
 
 // ───────────────────────── the faded earlier drafts ─────────────────────────
@@ -526,6 +626,8 @@ export interface HeaderView {
   done?: boolean;
   /** Checking now: the timer reads 'checking…'. */
   running?: boolean;
+  /** Only the stress test is left (the other checks passed): the answer waits for it. `right` says which part it is in. */
+  stress?: 'waiting' | 'running';
 }
 
 export interface HeaderInput {
@@ -548,6 +650,18 @@ export function checkSeconds(a: AttemptView | null): string | null {
 
 const isFull = (lanes: LaneView[]): boolean => lanes.some((l) => (l.num === '02' || l.num === '03' || l.num === '04') && l.state !== 'off');
 
+/** The checks that apply to this answer (every lane that has something to run, plus the stress test) and how many passed. */
+function checkCounts(lanes: LaneView[]): { ran: number; of: number } {
+  const core = lanes.filter((l) => l.num !== '06' && l.state !== 'off');
+  return { ran: core.filter((l) => l.state === 'passed').length, of: core.length + 1 };
+}
+
+/** The seal in words for a Full-checks run, from the lanes themselves (the answer card says the same from its own facts). */
+export function sealOfLanes(lanes: LaneView[]): string {
+  const stress = lanes.find((l) => l.num === '06')?.stress ?? { kind: 'none' as const };
+  return sealWords({ stress, ...checkCounts(lanes) });
+}
+
 export function headerFor(h: HeaderInput): HeaderView {
   const gen = h.run === 'idle' ? null : h.generation;
   const a = gen ? shownAttempt(gen, h.attempt) : null;
@@ -559,11 +673,17 @@ export function headerFor(h: HeaderInput): HeaderView {
     return { left, right: 'paused · waiting on you', verdict: 'Stopped · a question only you can answer', tone: 'ask', done: true };
   }
   if (gen.declined) return { left, right: 'nothing checked', verdict: 'It said no · nothing was checked', tone: 'fail', done: true };
-  if (gen.phase === 'generating' || gen.phase === 'gating' || h.run === 'running') return { left, right: 'checking…', running: true };
+  if (gen.phase === 'generating' || gen.phase === 'gating') return { left, right: 'checking…', running: true };
+  // the other checks passed and the stress test is still to come: no verdict yet, the answer waits for it
+  const stress = h.lanes.find((l) => l.num === '06')?.stress;
+  if (gen.phase === 'committed' && isFull(h.lanes) && stress?.kind === 'pending') {
+    return { left, right: stress.phase === 'running' ? 'stress test running…' : 'stress test next…', running: true, stress: stress.phase };
+  }
+  if (h.run === 'running') return { left, right: 'checking…', running: true };
   const secs = checkSeconds(a) ?? '';
   if (gen.phase === 'committed') {
     const verdict = isFull(h.lanes)
-      ? 'Passed every check ↓ see the list'
+      ? `${sealOfLanes(h.lanes)} ↓ see ${stress?.kind === 'done' ? 'the list' : "what wasn't checked"}`
       : `Passed ${core.filter((l) => l.state === 'passed').length} basic checks ↓ see what wasn't checked`;
     return { left, right: secs, verdict, tone: 'pass', done: true };
   }
@@ -586,6 +706,12 @@ export function footerFor(lanes: LaneView[], header: HeaderView): { text: string
         ? 'When you ask, the two basic checks run before you see anything. Your locked answer was set after the answer on file was checked, so asking again does not re-run it.'
         : 'When you ask, the two basic checks run before you see anything. The other four switch on once you lock an answer or add a house rule.';
     return { text, meta: `${on.length} checks ready${offN > 0 ? ` · ${offN} ${lateLock ? 'not run on this answer' : 'not set up'}` : ''}` };
+  }
+  if (header.stress) {
+    return {
+      text: `The other checks passed. Last is the stress test: it breaks the calculation in small ways on purpose, to see whether your checks notice. The answer appears when it finishes.`,
+      meta: header.stress === 'running' ? 'stress test running…' : 'stress test next…',
+    };
   }
   if (header.running) return { text: 'Checking the draft before you see anything.', meta: 'checking…' };
   const parts: string[] = [];
@@ -615,20 +741,26 @@ export function footerFor(lanes: LaneView[], header: HeaderView): { text: string
       const rest = lateLock ? 'Nothing else yet: your locked answer was set after this answer was checked.' : 'Nothing else yet.';
       return { text: `Checked against: runs without errors · never changes your data · finishes fast. ${rest}`, meta: `real run ${header.right}` };
     }
-    const stress = get('06');
-    if (stress && stress.state === 'passed') parts.push('stress test');
+    // the same numbers as lane 06 and the seal; a stress test that gave no result is said so
+    const st = get('06')?.stress;
+    if (st?.kind === 'done') parts.push(`stress test (caught ${st.caught} of ${st.total})`);
+    else if (st?.kind === 'partial') parts.push(`stress test (caught ${st.caught} of ${st.total}, ran out of time)`);
     parts.push('your data untouched');
-    return { text: `Checked against: ${parts.join(' · ')}.`, meta: `real run ${header.right}` };
+    const missing = st && st.kind === 'not-run' ? " The stress test didn't run." : '';
+    return { text: `Checked against: ${parts.join(' · ')}.${missing}`, meta: `real run ${header.right}` };
   }
   return { text: 'No draft passed every check, so no answer is shown.', meta: header.right ? `real run ${header.right}` : '' };
 }
 
 /** The aria-live sentence for the trace. */
 export function liveTextFor(header: HeaderView, lanes: LaneView[]): string {
-  if (!header.done) return header.running ? 'Checking the draft.' : '';
+  if (!header.done) {
+    if (header.stress) return 'The other checks passed. Running the stress test before showing the answer.';
+    return header.running ? 'Checking the draft.' : '';
+  }
   if (header.tone === 'ask') return 'Stopped: a question only you can answer.';
   if (header.tone === 'pass') {
-    return isFull(lanes) ? 'Passed every check. Showing the answer.' : `Passed ${lanes.filter((l) => l.num !== '06' && l.state === 'passed').length} basic checks. Showing the answer.`;
+    return isFull(lanes) ? `${sealOfLanes(lanes)}. Showing the answer.` : `Passed ${lanes.filter((l) => l.num !== '06' && l.state === 'passed').length} basic checks. Showing the answer.`;
   }
   return 'Thrown out: no draft passed every check. No answer is shown.';
 }

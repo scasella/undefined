@@ -63,9 +63,9 @@
 .fd-asks__legend { padding: 0; font-size: 14px; line-height: 20px; font-weight: 600; color: var(--fd-ink); }
 .fd-asks__opts { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
 .fd-asks__opt {
-  position: relative; display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 16px; box-sizing: border-box;
+  position: relative; display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 10px 16px; box-sizing: border-box;
   border-radius: var(--fd-r-md); background: var(--fd-surface); cursor: pointer;
-  font-size: 15px; line-height: 20px; color: var(--fd-ink-2); box-shadow: var(--fd-sh-ring);
+  font-size: var(--fd-fs-row); line-height: var(--fd-lh-row); color: var(--fd-ink-2); box-shadow: var(--fd-sh-ring);
   transition: box-shadow 120ms ease;
 }
 .fd-asks__opt:hover { box-shadow: var(--fd-sh-ring-2); }

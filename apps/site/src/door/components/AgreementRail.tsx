@@ -12,7 +12,7 @@
 import type { ComponentChildren } from 'preact';
 import { useState } from 'preact/hooks';
 import { Lock } from '../icons';
-import { compactChips, type AgreementChip, type AgreementHighlight, type AgreementView } from '../model/agreement';
+import { compactChips, SEEDED_NOTE, type AgreementChip, type AgreementHighlight, type AgreementView } from '../model/agreement';
 import './AgreementRail.css';
 
 const FOOTER = "Every future version has to pass all of these. If two can't both be true, or they don't cover a case, it stops and asks you.";
@@ -157,7 +157,7 @@ function StartCard({ view, note }: { view: AgreementView; note?: string }) {
       {note && !view.empty && <p class="fd-agree__held">{note}</p>}
       {!view.empty && (
         <>
-          {view.seeded && <p class="fd-agree__seeded">Saved with this demo file from an earlier session.</p>}
+          {view.seeded && <p class="fd-agree__seeded">{SEEDED_NOTE}</p>}
           <div class="fd-agree__list fd-agree__list--start">
             {chips.map((c) => (
               <div key={c.id} class="fd-agree__chip fd-agree__chip--static">

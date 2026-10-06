@@ -54,6 +54,8 @@
 }
 .fd-trace__draft + .fd-trace__list { margin-top: -4px; }
 .fd-trace__ghost-list { opacity: 0.45; }
+/* decorative (aria-hidden in CheckTrace.tsx): at 45% it is far under the text contrast, and .fd-trace__ghost-note under it
+   says in words what the draft failed, which check never ran and why. */
 .fd-trace__ghost-note {
   margin-top: 6px; display: flex; gap: 10px; align-items: flex-start;
   background: var(--tr-fail-bg); border-radius: var(--fd-r-xs); padding: 10px 12px;
@@ -167,7 +169,7 @@
   margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--tr-border);
   display: flex; flex-wrap: wrap; gap: 6px 24px; justify-content: space-between;
 }
-.fd-trace__foot-text { margin: 0; max-width: 70ch; font-size: 13px; line-height: 19px; color: var(--tr-text-2); flex: 1 1 360px; }
+.fd-trace__foot-text { margin: 0; max-width: var(--fd-measure); font-size: 13px; line-height: 19px; color: var(--tr-text-2); flex: 1 1 360px; }
 .fd-trace__foot-meta { font-size: 12px; line-height: 17px; font-weight: 500; color: var(--tr-text-3); }
 
 /* ── the design's keyframes; a and b are identical so alternating names restarts a replay ── */

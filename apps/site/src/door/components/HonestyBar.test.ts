@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { EngineState } from '@scasella/undefined-engine/types';
-import { latestVersion, receiptLink, versionText } from './HonestyBar';
+import { bound, latestVersion, receiptLink, versionText } from './HonestyBar';
 
 describe('HonestyBar receipt link', () => {
   it('the landing goes to the first run, as the design does', () => {
@@ -49,5 +49,19 @@ describe('versionText', () => {
   });
   it("labels the landing's number as the example's", () => {
     expect(versionText({ version: 3, date: '5 Oct 2026', example: true })).toBe('Example answer: Version 3 · 5 Oct 2026');
+  });
+});
+
+describe('bound', () => {
+  it('binds the dot of the version line to its neighbours, so a wrapped bar never hangs a lone "·"', () => {
+    expect(bound('Version 3 · 5 Oct 2026')).toBe('Version 3\u00a0·\u00a05 Oct 2026');
+    expect(bound('Example answer: Version 3 · 5 Oct 2026')).toBe('Example answer: Version 3\u00a0·\u00a05 Oct 2026');
+  });
+  it('leaves a line with no dot alone', () => {
+    expect(bound('Version 3')).toBe('Version 3');
+  });
+  it('changes only the spaces: the words are the ones versionText wrote', () => {
+    const t = versionText({ version: 4, date: '5 Oct 2026', example: true })!;
+    expect(bound(t).replace(/\u00a0/g, ' ')).toBe(t);
   });
 });

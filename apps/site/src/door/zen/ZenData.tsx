@@ -10,6 +10,7 @@ import { FileGlyph } from '../icons';
 import { sampleFiles, type SampleId } from '../model/samples';
 import { sessionFor } from '../start/session';
 import { ACCEPT, DROP_NOTE, showOwnFileNote } from '../start/startView';
+import { ZEN_CONTINUE_ID } from './flow';
 import './ZenData.css';
 
 const PASTE_PLACEHOLDER = 'orderId,orderDate,customer,amount\n5001,2024-07-17,Puddlesworth Inc,279.34';
@@ -21,7 +22,9 @@ export function ZenData({ engine }: { engine: Engine }) {
   const [text, setText] = useState('');
   const [over, setOver] = useState(false);
   const [reading, setReading] = useState<string | null>(null);
+  const [ready, setReady] = useState('');
   const depth = useRef(0);
+  const picker = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
 
   const intake = s.intake.value;
@@ -36,8 +39,14 @@ export function ZenData({ engine }: { engine: Engine }) {
     setReading(null);
     // the picker closes once something is bound; a refusal keeps it open with the problem under it
     if (s.source.peek() !== 'none' && !s.intake.peek().problem) {
+      // the button that was pressed (a sample, "Use this data", the file chooser's) closes with the picker and would take the
+      // focus with it, to <body>: send it to Continue on purpose, the next thing to do, and say what is now bound
+      const a = document.activeElement;
+      const lost = !a || a === document.body || !!picker.current?.contains(a);
       setOpen(false);
       setPasting(false);
+      setReady(`${s.fileChip.peek() ?? 'Your data'} is ready.`);
+      if (lost) requestAnimationFrame(() => document.getElementById(ZEN_CONTINUE_ID)?.focus());
     }
   };
   const takeFile = (file: File | undefined | null) => {
@@ -103,7 +112,7 @@ export function ZenData({ engine }: { engine: Engine }) {
       )}
 
       {showPicker && (
-        <div id="zd-picker" class="zd__picker">
+        <div id="zd-picker" class="zd__picker" ref={picker}>
           <div
             class={'zd__zone' + (over ? ' is-over' : '')}
             onDragEnter={onDragEnter}
@@ -170,6 +179,9 @@ export function ZenData({ engine }: { engine: Engine }) {
 
       <div class="zd__status" role="status">
         {status}
+      </div>
+      <div class="fd-sr" role="status">
+        {ready}
       </div>
       {intake.problem && (
         <p class="zd__problem" role="alert">

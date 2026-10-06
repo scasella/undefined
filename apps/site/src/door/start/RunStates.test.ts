@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { GapQuestion, GenerationView } from '@scasella/undefined-engine/types';
 import { routeAnchor, parseHash } from '../router';
-import { confirmKey, draftingView, HOUSE_RULE_HREF } from './RunPanel';
+import { confirmKey, draftingView, elapsedText, HOUSE_RULE_HREF } from './RunPanel';
 import { declinedView, DECLINE_WHY, gapPreview, gapView, OWN_FILE_HREF, savedRuleText, serviceView, thrownOutView } from './RunStates';
 
 const gap: GapQuestion = {
@@ -116,11 +116,43 @@ describe('draftingView', () => {
     for (const phase of ['gating', 'committed', 'failed'] as const) expect(draftingView(gen({ phase }))).toBeNull();
     expect(draftingView(gen({ kind: 'recheck' }))).toBeNull();
   });
-  it('never uses engine words and claims no duration', () => {
+  it('never uses engine words; without an elapsed time it claims no duration at all', () => {
     for (const mode of ['live', 'replay'] as const) {
       const all = JSON.stringify(draftingView(gen({ mode })));
       expect(all).not.toMatch(/\b(gate|spec|property|fuzz|mutant|revision|pin)\b/i);
       expect(all).not.toMatch(/\d+(\.\d+)? ?(s|ms|sec|seconds)\b/);
     }
+  });
+  it('the elapsed counter: how long the viewer has waited, in whole seconds, in plain words', () => {
+    expect(elapsedText(0)).toBe('0 s');
+    expect(elapsedText(999)).toBe('0 s');
+    expect(elapsedText(4000)).toBe('4 s');
+    expect(elapsedText(4999)).toBe('4 s');
+    expect(elapsedText(59_999)).toBe('59 s');
+    expect(elapsedText(65_000)).toBe('1 min 5 s');
+    expect(elapsedText(-5)).toBe('0 s');
+    expect(elapsedText(Number.NaN)).toBe('0 s');
+    expect(draftingView(gen({}), 4000)!.runningText).toBe('drafting · 4 s');
+    expect(draftingView(gen({}), 0)!.runningText).toBe('drafting · 0 s');
+  });
+  it('in the demo the counter says it is a replay of the recorded draft, and that the seconds count the replay', () => {
+    const v = draftingView(gen({ mode: 'replay' }), 7000)!;
+    expect(v.runningText).toBe('replaying the recorded draft · 7 s');
+    expect(v.footer.text).toContain("Replaying the AI's recorded draft 1.");
+    expect(v.footer.text).toContain("The seconds count this replay, not the AI's own writing time.");
+    // never presented as a measured model time
+    expect(v.runningText).not.toMatch(/model|AI took|wrote in/i);
+    // live: the AI really is being waited for, so the plain "drafting"
+    expect(draftingView(gen({ mode: 'live' }), 7000)!.footer.text).not.toMatch(/seconds count/);
+  });
+  it('the counter is gone with the draft: no text for checking, a finished run or a re-check', () => {
+    expect(draftingView(gen({ phase: 'gating' }), 4000)).toBeNull();
+    expect(draftingView(gen({ phase: 'committed' }), 4000)).toBeNull();
+    expect(draftingView(gen({ kind: 'recheck' }), 4000)).toBeNull();
+  });
+  it('the words other than the counter carry no number: the spoken sentence and the footer are the same with or without it', () => {
+    const live = draftingView(gen({}), 4000)!;
+    expect(live.liveText).not.toMatch(/\d+ s\b/);
+    expect(live.footer.text).toBe(draftingView(gen({}))!.footer.text);
   });
 });

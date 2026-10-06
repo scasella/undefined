@@ -389,6 +389,10 @@ describe('session controller (fake engine)', () => {
     // the same words again select the same chip, not a second one
     expect(await s.addQuestion('how many orders were refunded?')).toBe(true);
     expect(s.questions.value).toHaveLength(4);
+    // ...however they are typed: no question mark, other case, extra spaces
+    expect(await s.addQuestion('  How many   orders were REFUNDED ')).toBe(true);
+    expect(s.questions.value).toHaveLength(4);
+    expect(s.questionId.value).toBe('own:howManyOrdersWereRefunded');
     expect(await s.ask()).toBe(true);
     expect(calls.slice(-2)).toEqual(['upsertSpec howManyOrdersWereRefunded', 'submit howManyOrdersWereRefunded(rows)']);
     const spec = state.value.program.functions.howManyOrdersWereRefunded!.spec;
@@ -400,6 +404,26 @@ describe('session controller (fake engine)', () => {
     // other data: typed questions belong to the table they were typed for
     await s.useSample('sales');
     expect(s.questions.value.some((q) => q.id.startsWith('own:'))).toBe(false);
+    s.dispose();
+  });
+
+  it("typing a suggestion's own words selects that chip: no duplicate chip, no new function (label or plain-words form; any case, spaces, ending punctuation)", async () => {
+    const { engine, calls } = fakeEngine('replay');
+    const s = createSession(engine, { recordings: async () => [ordersRecording()] });
+    await s.useSample('orders');
+    await s.selectQuestion('status');
+    const before = s.questions.value.map((q) => q.id);
+    for (const typed of ['Top 5 customers by revenue', 'Top 5 customers by revenue?', 'TOP 5  customers by revenue ', 'Who are our top customers by revenue?', 'who are our top customers by revenue']) {
+      expect(await s.addQuestion(typed), typed).toBe(true);
+      expect(s.questionId.value, typed).toBe('top');
+      expect(s.questions.value.map((q) => q.id), typed).toEqual(before);
+      await s.selectQuestion('status');
+    }
+    // nothing was written for a question that was already there
+    expect(calls.filter((c) => c.startsWith('upsertSpec') && !c.includes('topCustomersByRevenue'))).toEqual([]);
+    // a new question still becomes a new chip
+    expect(await s.addQuestion('What is the weather in Paris?')).toBe(true);
+    expect(s.questions.value.map((q) => q.id)).toEqual([...before, 'own:whatIsTheWeatherInParis']);
     s.dispose();
   });
 
@@ -521,6 +545,64 @@ describe('the shared session across a route change', () => {
     expect(c.questionId.value).toBe('top');
     expect(c.questions.value).toHaveLength(4);
     c.dispose();
+  });
+
+  it('the run travels too: the other page shows the answer (or the dead end) the first page showed, never "pending", and its next run has a new id', async () => {
+    const { engine } = fakeEngine('replay');
+    const a = sessionFor(engine);
+    await a.useSample('orders');
+    await a.selectQuestion('status');
+    expect(await a.ask()).toBe(true);
+    const ran = a.run.value!;
+    expect(a.outcome.value.kind).toBe('no-recording');
+    a.dispose();
+
+    const b = sessionFor(engine);
+    expect(b.run.value).toEqual({ ...ran, pending: false });
+    expect(b.outcome.value).toEqual({ kind: 'no-recording', onData: false, message: 'none' });
+    expect(b.askLabel.value).toBe('Ask again');
+    expect(b.busy.value).toBe(false);
+    // a run of its own does not reuse the id of the one it took over (RunPanel keys, telemetry and the page's follower read ids)
+    expect(await b.ask()).toBe(true);
+    expect(b.run.value!.id).toBeGreaterThan(ran.id);
+    b.dispose();
+  });
+
+  it('a run that was still pending when the page was left comes over as running by the engine\'s own state, not stuck pending', async () => {
+    const { engine } = fakeEngine('live');
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const real = engine.submit.bind(engine);
+    engine.submit = async () => {
+      await gate;
+      await real();
+    };
+    const a = sessionFor(engine);
+    await a.useSample('orders');
+    const ask = a.ask();
+    await vi.waitFor(() => expect(a.run.value?.pending).toBe(true));
+    a.dispose();
+    const b = sessionFor(engine);
+    expect(b.run.value?.id).toBe(a.run.value?.id);
+    expect(b.run.value?.pending).toBe(false);
+    release();
+    await ask;
+    b.dispose();
+  });
+
+  it('a new file clears the run: the next page does not show an answer about other data', async () => {
+    const { engine } = fakeEngine('replay');
+    const a = sessionFor(engine);
+    await a.useSample('orders');
+    await a.selectQuestion('status');
+    await a.ask();
+    await a.useSample('sales');
+    expect(a.run.value).toBeNull();
+    a.dispose();
+    const b = sessionFor(engine);
+    expect(b.run.value).toBeNull();
+    expect(b.outcome.value.kind).toBe('idle');
+    b.dispose();
   });
 
   it('own file: the rows travel too (zen\'s table and start\'s suggestions come from them)', async () => {

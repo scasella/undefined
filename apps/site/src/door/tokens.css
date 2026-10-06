@@ -106,6 +106,13 @@
   --fd-r-lg: 16px;
   --fd-r-xl: 20px;
 
+  /* type steps the ramp names beyond the headings (DESIGN.md): the 15px "row" for names and options in a list, and the
+     reading measure: 48ch is about 70 characters of Geist at any size (a Geist "0" is 0.66em, the average letter 0.46em;
+     the longest line then runs to about 75), where 70ch ran to 100 */
+  --fd-fs-row: 15px;
+  --fd-lh-row: 22px;
+  --fd-measure: 48ch;
+
   /* layout */
   --fd-max: 1296px;
   --fd-gutter: clamp(16px, 4vw, 48px);

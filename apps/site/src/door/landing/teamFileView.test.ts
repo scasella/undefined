@@ -4,7 +4,8 @@ import { ejectFiles } from '@scasella/undefined-engine/eject/eject';
 import type { FunctionRecord, FunctionSpec } from '@scasella/undefined-engine/types';
 import { DATASET_LIMITS } from '../../data/dataset';
 import { AGREEMENT_FN } from '../model/agreements';
-import { ejectFileNames, exampleCount, fmtMegabytes, honestLimits, teamFileView } from './teamFileView';
+import { STAGE_VERSION } from './stageData';
+import { ejectFileNames, exampleCount, fmtMegabytes, honestLimits, ownFileCta, teamFileView } from './teamFileView';
 
 async function record(name: string): Promise<FunctionRecord> {
   const spec: FunctionSpec = {
@@ -39,6 +40,11 @@ describe('teamFileView', () => {
     );
     expect(exampleCount()).toBe(6);
   });
+
+  it("says the stage example's version (the same one the answer's caption and the honesty bar say)", () => {
+    expect(teamFileView().items[0]!.desc).toBe(`Version ${STAGE_VERSION}, exactly as it passed the checks`);
+    expect(teamFileView().items[0]!.desc).toBe('Version 4, exactly as it passed the checks');
+  });
 });
 
 describe('honestLimits', () => {
@@ -51,5 +57,16 @@ describe('honestLimits', () => {
   it('only calls the site a demo in replay mode', () => {
     expect(honestLimits('replay')[1]).toMatch(/^This public site is a demo/);
     expect(honestLimits('live')[1]).not.toMatch(/demo/);
+  });
+});
+
+describe('ownFileCta', () => {
+  it('says plainly on the public demo that your own file needs the copy on your computer, and leads there', () => {
+    expect(ownFileCta('replay', 'hero')).toEqual({ label: 'Use your own file: run it on your computer', target: 'limits' });
+    expect(ownFileCta('replay', 'closing')).toEqual({ label: 'Use your own file: run it on your computer', target: 'readme' });
+  });
+  it('on a copy that already runs on your computer it just starts the walk-through', () => {
+    expect(ownFileCta('live', 'hero')).toEqual({ label: 'Use your own file', target: 'zen' });
+    expect(ownFileCta('live', 'closing')).toEqual({ label: 'Use your own file', target: 'zen' });
   });
 });

@@ -5,3 +5,6 @@
    three rows (about 683px and under), which pushes Ask toward the fold; below that width the rail drops under the
    column, as it already did on smaller screens. (sales-q3.csv's longer labels need ~740px for two rows.) */
 .fd-start__main { flex: 999 1 700px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+/* The run's wrapper: the trace and the answer are scrolled to (Start.tsx followRun), a little under the top edge. */
+.fd-start__run { display: contents; }
+.fd-start__run .fd-trace, .fd-start__run .fd-ac { scroll-margin-top: 16px; }

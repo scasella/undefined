@@ -50,14 +50,14 @@
 .fd-ac__unit { margin-left: 10px; font-family: var(--fd-sans); font-size: 16px; letter-spacing: 0; color: var(--fd-ink-3); }
 .fd-ac__lead-bar {
   margin-top: 8px; height: 4px; border-radius: var(--fd-r-xs); width: 100%;
-  background: var(--fd-indigo-wash); box-shadow: inset 0 0 0 1px var(--fd-line-2);
+  background: var(--fd-indigo);
 }
 
 /* bars */
 .fd-ac__track { display: block; height: 4px; border-radius: var(--fd-r-xs); background: var(--fd-surface-2); }
 .fd-ac__fill {
   display: block; height: 4px; border-radius: var(--fd-r-xs);
-  background: var(--fd-indigo-wash); box-shadow: inset 0 0 0 1px var(--fd-line-2);
+  background: var(--fd-indigo); /* 6:1 on the light track; the wash was 1.02:1, a bar nobody could see */
 }
 
 /* the rest of the list: landing (table) */
@@ -126,7 +126,7 @@
 .fd-ac__ledger-list li { display: flex; gap: 8px; align-items: flex-start; }
 .fd-ac__ledger-glyph { flex: none; margin-top: 2px; }
 
-.fd-ac__honest { margin: 16px 0 0; max-width: 70ch; font-size: 16px; line-height: 24px; color: var(--fd-ink-2); }
+.fd-ac__honest { margin: 16px 0 0; max-width: var(--fd-measure); font-size: 16px; line-height: 24px; color: var(--fd-ink-2); }
 
 /* actions: lock, see the calculation / add a house rule, help */
 .fd-ac__actions { margin-top: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
@@ -148,6 +148,8 @@
 .fd-ac__calc-toggle:hover { color: var(--fd-ink); }
 .fd-ac__rule-link { font-size: 14px; font-weight: 500; min-height: 44px; display: inline-flex; align-items: center; border-radius: var(--fd-r-sm); }
 .fd-ac__help { font-size: 13px; line-height: 19px; color: var(--fd-ink-3); }
+/* where a lock came from, right beside the Locked button (the rail's own sentence for anything saved with the demo file) */
+.fd-ac__lock-note { font-size: 13px; line-height: 19px; color: var(--fd-ink-3); }
 .fd-ac__calc {
   margin: 12px 0 0; padding: 16px; background: var(--fd-surface-2); border-radius: var(--fd-r-md); overflow-x: auto;
   font-size: 12px; line-height: 18px; color: var(--fd-ink-2);
@@ -190,7 +192,7 @@
 @media (max-width: 480px) {
   .fd-ac { padding: 20px 16px; }
   .fd-ac__seal { left: 16px; right: 16px; }
-  .fd-ac__lead-num { font-size: 44px; line-height: 48px; }
+  .fd-ac__lead-num { font-size: 40px; line-height: 44px; }
   .fd-ac__td-bar { width: 24%; }
   .fd-ac__track--row { flex-basis: 22%; }
   .fd-ac__amt, .fd-ac__td-amt { width: 92px; }

@@ -2,12 +2,13 @@
  * Bring a file (V3-Door-FirstRun 88-134): "Drop a file" / "Paste data" tabs and the two sample files. Every action
  * goes through the session (intakeFile, intakeText, useSample); problems are the engine's own words.
  *
- * On a phone, once a file is bound (the sample is bound on arrival) the tabs, drop zone and sample cards fold away
- * behind the file's one-line chip and a "Change" button, so "Ask a question" is not three screens down. That fold is
- * CSS-only below 720px (DataBringer.css); wider screens always show everything. It never hides the demo's own-file
- * note or a refusal: while either is showing, the picker stays open.
+ * At every width, once a file is bound (the sample is bound on arrival) the tabs, drop zone and sample cards fold away
+ * behind the file's one-line chip and a "Change" button, so the Ask card and the check trace are what the page shows
+ * (the fold itself is CSS, DataBringer.css; this file only decides when). "Change" opens the picker and moves focus
+ * into it; closing it, or picking a file, puts focus back on the button, so it never falls to the page. The fold never
+ * hides the demo's own-file note or a refusal: while either is showing, the picker stays open.
  */
-import { useRef, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import type { TargetedDragEvent, TargetedEvent, TargetedKeyboardEvent } from 'preact';
 import type { Engine } from '@scasella/undefined-engine/types';
 import { Button } from '../components/LinkButton';
@@ -38,6 +39,10 @@ export function DataBringer({ engine }: { engine: Engine }) {
   const [open, setOpen] = useState(false);
   const depth = useRef(0);
   const input = useRef<HTMLInputElement>(null);
+  const picker = useRef<HTMLDivElement>(null);
+  const changeBtn = useRef<HTMLButtonElement>(null);
+  // "Change" was pressed: once the picker is on screen, focus goes into it (on its selected tab)
+  const wantFocus = useRef(false);
   const radios = useRef<Array<HTMLButtonElement | null>>([]);
 
   const intake = s.intake.value;
@@ -47,13 +52,37 @@ export function DataBringer({ engine }: { engine: Engine }) {
   const ownNote = showOwnFileNote(source, mode);
   const samples = sampleFiles();
   const bound = source !== 'none';
-  // phones fold the picker away once something is bound, unless the note or a refusal below is what the viewer needs
-  const folded = bound && !open && !ownNote && !intake.problem;
+  // the picker folds away once something is bound, unless the note or a refusal below is what the viewer needs
+  const forced = ownNote || !!intake.problem;
+  const folded = bound && !open && !forced;
   const chip = s.fileChip.value ?? s.fileName.value;
-  // after a successful pick the picker closes again (a refusal keeps it open, with the problem under it)
+  // after a successful pick the picker closes again (a refusal keeps it open, with the problem under it). If focus was
+  // in the picker it goes to the "Change" button, which is still there: a hidden control cannot keep it.
   const settle = () => {
     setReading(null);
-    if (s.source.peek() !== 'none' && !s.intake.peek().problem) setOpen(false);
+    if (s.source.peek() === 'none' || s.intake.peek().problem) return;
+    const stays = showOwnFileNote(s.source.peek(), engine.state.peek().mode);
+    const active = document.activeElement;
+    const inside = active === document.body || !!picker.current?.contains(active);
+    setOpen(false);
+    if (inside && !stays) requestAnimationFrame(() => changeBtn.current?.focus());
+  };
+  useEffect(() => {
+    if (!open || !wantFocus.current) return;
+    wantFocus.current = false;
+    picker.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus();
+  }, [open]);
+  const onChange = () => {
+    if (!canChange) return;
+    if (folded) {
+      wantFocus.current = true;
+      setOpen(true);
+    } else if (forced && !open) {
+      // already on screen (the note or a refusal is showing): just move in
+      picker.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus();
+    } else {
+      setOpen(false);
+    }
   };
 
   const takeFile = (file: File | undefined | null) => {
@@ -116,18 +145,19 @@ export function DataBringer({ engine }: { engine: Engine }) {
           <FileGlyph size={18} lines class="fd-bring__bound-icon" />
           <span class="fd-bring__bound-text fd-mono">{chip}</span>
           <button
+            ref={changeBtn}
             type="button"
             class="fd-bring__change"
             aria-expanded={folded ? 'false' : 'true'}
             aria-controls={PICKER_ID}
             aria-disabled={canChange ? undefined : 'true'}
-            onClick={() => canChange && setOpen(!open)}
+            onClick={onChange}
           >
-            {open ? 'Close' : 'Change'}
+            {folded || forced ? 'Change' : 'Close'}
           </button>
         </div>
       )}
-      <div id={PICKER_ID} class="fd-bring__picker">
+      <div id={PICKER_ID} ref={picker} class="fd-bring__picker">
         <div class="fd-bring__card fd-card">
           <Segmented
             items={MODES}

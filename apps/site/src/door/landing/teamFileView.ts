@@ -9,9 +9,10 @@
  */
 import { DATASET_LIMITS } from '../../data/dataset';
 import { AGREEMENT_FN, AGREEMENT_TESTS, HOUSE_RULES, MADE_UP_TABLES } from '../model/agreements';
+import { STAGE_VERSION } from './stageData';
 
-/** The landing example's version (the same illustration as the honesty bar's "Version 3"). */
-export const EXAMPLE_VERSION = 3;
+/** The landing example's version: the stage's own (the same one the honesty bar and the answer's caption say). */
+export const EXAMPLE_VERSION = STAGE_VERSION;
 
 export interface ZipItem {
   /** Plain name: `The calculation` */
@@ -75,6 +76,22 @@ export function honestLimits(mode: 'live' | 'replay', limits: { maxRows: number;
       : 'This copy runs on your computer: the AI writes each calculation as you ask, and the checks run in your browser.',
     "Checks lower the chance of a wrong answer. They don't prove it's right, so every answer lists what was checked and what wasn't.",
   ];
+}
+
+/**
+ * The second landing button ("Use your own file"). The public demo plays back recorded answers, so a question about your
+ * own file needs the copy that runs on your computer: there the button says so and leads to how (`limits`: the honest
+ * limits card, which links on to the README's setup steps; `readme`: straight to those steps, for the closing card that
+ * sits right under that card). On a copy that already runs live it just starts the walk-through (`zen`).
+ */
+export type OwnFileTarget = 'zen' | 'limits' | 'readme';
+export interface OwnFileCta {
+  label: string;
+  target: OwnFileTarget;
+}
+export function ownFileCta(mode: 'live' | 'replay', place: 'hero' | 'closing'): OwnFileCta {
+  if (mode === 'live') return { label: 'Use your own file', target: 'zen' };
+  return { label: 'Use your own file: run it on your computer', target: place === 'hero' ? 'limits' : 'readme' };
 }
 
 /** The card's lead paragraph. The design said "every check"; the exported tests do not rerun the in-app speed and no-change check. */

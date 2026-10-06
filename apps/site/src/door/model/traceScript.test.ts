@@ -7,10 +7,13 @@ import {
   panelMotion,
   passScenario,
   scenarioView,
+  SCRIPT_SEAL,
+  SCRIPT_STRESS,
   scriptLaneView,
   stopScenario,
   suffix,
 } from './traceScript';
+import { sealWords, stressChecked, stressNotChecked } from './lanes';
 
 describe('suffix', () => {
   it('alternates a/b by run parity so a replay restarts every animation', () => {
@@ -39,6 +42,24 @@ describe('scenario tables (ported from the landing script)', () => {
     expect(passScenario.tRev).toBe(6.9);
     expect(passScenario.lanes.map((l) => l.link ?? null)).toEqual([null, 'ex', 'lock', 'rules', null, null]);
     expect(passScenario.ghost?.map((l) => [l.num, l.st])).toEqual([['01', 'pass'], ['02', 'pass'], ['03', 'fail']]);
+  });
+  it('the seal comes after lane 06 has ended, and says what the stress test came to (the live trace\'s words, illustrative numbers)', () => {
+    const end = (l: { start: number; dur: number }) => l.start + l.dur;
+    // every lane, the stress test included, is over before the header's verdict and the seal line appear
+    expect(Math.max(...passScenario.lanes.map(end))).toBe(end(passScenario.lanes[5]!));
+    expect(passScenario.tEnd).toBeGreaterThanOrEqual(end(passScenario.lanes[5]!));
+    // the card is revealed with the seal, not before it
+    expect(passScenario.tRev).toBeGreaterThanOrEqual(passScenario.tEnd);
+    expect(SCRIPT_SEAL).toBe('Passed every check · stress test caught 11 of 12');
+    expect(passScenario.header.verdict).toBe(`${SCRIPT_SEAL} ↓ see the list`);
+    expect(passScenario.liveText).toBe(`${SCRIPT_SEAL}. Showing the answer.`);
+    expect(passScenario.footer.text).toContain('stress test (caught 11 of 12)');
+    // the same definition as the live lane 06, the ledger line and the not-checked line
+    expect(SCRIPT_STRESS).toEqual({ kind: 'done', total: 12, caught: 11, missed: 1 });
+    expect(sealWords({ stress: SCRIPT_STRESS, ran: 5, of: 6 })).toBe(SCRIPT_SEAL);
+    expect(stressChecked(SCRIPT_STRESS)).toEqual({ text: '12-way stress test (11 caught)', ask: true });
+    expect(stressNotChecked(SCRIPT_STRESS)).toBe('1 of 12 deliberate breaks went unnoticed by your checks');
+    expect(scriptLaneView(passScenario.lanes[5]!).stress).toEqual(SCRIPT_STRESS);
   });
   it('stop: lane 04 stops, 05 and 06 never run, tEnd 2.7', () => {
     expect(stopScenario.lanes.map((l) => l.st)).toEqual(['pass', 'pass', 'pass', 'stop', 'wait', 'wait']);

@@ -3,7 +3,7 @@
 .zen__top { display: flex; align-items: center; gap: 10px; width: 100%; max-width: 760px; margin: 0 auto; padding: 8px var(--fd-gutter) 0; box-sizing: border-box; min-height: 56px; }
 .zen__home { display: flex; align-items: center; gap: 8px; min-height: 44px; color: var(--fd-ink); text-decoration: none; }
 .zen__home:hover { color: var(--fd-ink); }
-.zen__word { font-weight: 600; font-size: 15px; letter-spacing: -0.01em; }
+.zen__word { font-weight: 600; font-size: var(--fd-fs-row); letter-spacing: -0.01em; }
 /* the page's name, in the words the top bar's button uses (plain sentence case, not a label) */
 .zen__tag { min-width: 0; font-size: 14px; line-height: 20px; color: var(--fd-ink-3); }
 .zen__full { margin-left: auto; display: inline-flex; align-items: center; min-height: 44px; padding: 0 4px; font-size: 14px; font-weight: 500; text-decoration: none; }
@@ -14,7 +14,7 @@
 }
 .zen__loading { margin: 48px 0; text-align: center; color: var(--fd-ink-2); }
 .zen__foot {
-  max-width: calc(70ch + 2 * var(--fd-gutter)); margin: 0 auto; padding: 16px var(--fd-gutter) 24px; box-sizing: border-box;
+  max-width: calc(var(--fd-measure) + 2 * var(--fd-gutter)); margin: 0 auto; padding: 16px var(--fd-gutter) 24px; box-sizing: border-box;
   text-align: center; text-wrap: balance; font-size: 12px; line-height: 18px; color: var(--fd-ink-3);
 }
 
@@ -36,3 +36,5 @@
    would darken under the pointer while off. The reason it is off is the line under the selected question. */
 .zen__nav .fd-btn--primary[aria-disabled='true']:hover { background: var(--fd-indigo); }
 .zen__nav .fd-btn--secondary:active:not([aria-disabled='true']) { background: var(--fd-surface-2); }
+/* why Continue is off on the first pane: plain text above the buttons, in the body ink (the other panes say it under the question) */
+.zen__why { margin: 0; max-width: var(--fd-measure); font-size: 14px; line-height: 20px; color: var(--fd-ink); }

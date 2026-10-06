@@ -23,6 +23,9 @@ html { scroll-behavior: smooth; }
 }
 .fd-btn--ghost-link:hover { color: var(--fd-indigo-hover); text-decoration: underline; text-underline-offset: 3px; }
 
+/* a label that is a sentence wraps inside its button, with real padding, instead of running past the card it sits in */
+.fd-btn--wrap { max-width: 100%; padding-top: 10px; padding-bottom: 10px; white-space: normal; text-align: center; }
+
 /* boot: loading line and startup failure */
 .fd-boot { max-width: var(--fd-max); margin: 0 auto; padding: 48px var(--fd-gutter); box-sizing: border-box; }
 .fd-boot-line { margin: 0; font-size: 14px; line-height: 20px; color: var(--fd-ink-3); }

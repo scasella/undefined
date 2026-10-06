@@ -25,6 +25,7 @@ import {
   STAGE_ASSUMPTIONS,
   STAGE_NOT_CHECKED,
   STAGE_QUESTION,
+  STAGE_SEAL,
 } from './stageData';
 import './Stage.css';
 
@@ -117,12 +118,14 @@ export function Stage(_props: { engine?: Engine }) {
             heldCaption={stop ? HELD_CAPTION_WAITING : HELD_CAPTION_LANDING}
             reveal={{ delay: scenario.tRev, run }}
             level="full"
+            seal={STAGE_SEAL}
             locked={locked}
             onToggleLock={() => setLocked(!locked)}
             assumptions={STAGE_ASSUMPTIONS}
             confirmed={confirmed}
             onConfirm={(id) => setConfirmed(new Set([...confirmed, id]))}
             checked={data.checked}
+            checkedAsk={data.checkedAsk}
             notChecked={[...STAGE_NOT_CHECKED]}
             calc={{ open: calcOpen, onToggle: () => setCalcOpen(!calcOpen), source: CALC_SOURCE }}
           />

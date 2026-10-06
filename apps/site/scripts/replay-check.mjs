@@ -274,13 +274,32 @@ try {
     { chips, pre: { examples: pre.examples, houseRules: pre.houseRules, pins: pre.pins }, text: preText.slice(0, 500) },
   );
 
+  // the question with a recorded answer comes first, the two that need your computer after it, and one line says what 'needs live' means
+  const legend = await texts('.fd-ask__legend');
+  check(
+    chips.length === 3 && /^Top 5 customers by revenue /.test(chips[0]) && !/needs live/.test(chips[0]) && chips.slice(1).every((c) => /^(Count orders by status|Revenue by country) needs live$/.test(c)) && legend.length === 1 && legend[0].startsWith('needs live: this demo has recorded answers for one question; the others need the version on your computer.'),
+    "seeded: the question that has a recorded answer comes first, the two that need your computer after it are tagged 'needs live' alone (no 'Basic checks' claim), and one line says what 'needs live' means",
+    { chips, legend },
+  );
+
   await ask(null);
   const shown = await waitFor((n) => document.querySelector('.fd-ac__lead-name')?.innerText.includes(n), LEAD[0], 60000);
   const lead = (await texts('.fd-ac__lead-name, .fd-ac__lead-num')).join(' | ');
   const eyebrow = await texts('.fd-ac__eyebrow');
   const trace = norm(await body());
   check(shown && lead === `${LEAD[0]} | ${money(LEAD[1])}` && !consoleErrors.length, "'Top 5 customers by revenue' → Ask: Chef Ravioli Starbright $2,252.07 first", { shown, lead, errors: consoleErrors });
-  check(eyebrow.length === 1 && eyebrow[0] === 'PASSED EVERY CHECK' && !/BASIC CHECKS/i.test(await texts('.fd-ac').then((t) => t.join(' '))), "seeded: the answer says 'PASSED EVERY CHECK' (Full checks), not the basic seal", eyebrow);
+  // the seal arrives with the answer, after the stress test: its count is the engine's own mutation report (killed + killedByBound of total)
+  const report = await state(() => {
+    const m = window.__undefined.state.value.program.functions.topCustomersByRevenue?.artifact?.evidence?.mutation;
+    return m ? { total: m.total, caught: m.killed + m.killedByBound, missed: m.survived } : null;
+  });
+  const sealWords = report ? `Passed every check · stress test caught ${report.caught} of ${report.total}` : null;
+  const verdict = await texts('.fd-trace__hl-b');
+  check(
+    !!report && report.total > 0 && eyebrow.length === 1 && eyebrow[0] === sealWords.toUpperCase() && verdict.length === 1 && verdict[0].startsWith(sealWords + ' ') && !/BASIC CHECKS/i.test(await texts('.fd-ac').then((t) => t.join(' '))),
+    "seeded: the answer says 'PASSED EVERY CHECK · STRESS TEST CAUGHT N OF M' (Full checks, with N and M the engine's own stress-test report), the trace's verdict says the same, not the basic seal",
+    { eyebrow, verdict, report },
+  );
   check(
     trace.includes('Matches your 6 examples') && trace.includes('Matches your locked answer · Chef Ravioli Starbright = $2,252.07') && trace.includes('Follows your 2 house rules on 100 made-up tables') && trace.includes('Checked against: 6 examples · 1 locked answer · 2 house rules on 100 made-up tables'),
     'seeded: the check trace lists the 6 examples, the locked answer and the 2 house rules that ran',
@@ -336,6 +355,94 @@ try {
 
   await unrecorded('seeded');
   check(consoleErrors.length === 0, "seeded: '#/start' logs no console errors (besides the replay /generate/health 404)", consoleErrors);
+
+  // ── 3b. step by step (#/zen), the first-run path: the same session, checks and answer, one pane at a time ──
+  consoleErrors.length = 0;
+  try {
+    await openApp(p, srv.url + '#/zen');
+    const h1Is = (t, timeout = 60000) => waitFor((x) => document.querySelector('h1')?.innerText === x, t, timeout);
+    const cont = p.locator('#zen-continue');
+    const zenChips = () => texts('.zp__chip');
+    await waitFor(() => !!document.getElementById('zen-continue'), null, 15000);
+    const off = await p.evaluate(() => {
+      const c = document.getElementById('zen-continue');
+      return { disabled: c.getAttribute('aria-disabled'), by: c.getAttribute('aria-describedby'), why: document.getElementById('zen-why')?.innerText };
+    });
+    check(off.disabled === 'true' && off.by === 'zen-why' && off.why === 'Choose a sample or bring a file to continue.', "step by step 1: with no data Continue is off and says why ('Choose a sample or bring a file to continue.'), tied to the button", off);
+    await p.getByRole('button', { name: 'orders.csv', exact: true }).focus();
+    await p.keyboard.press('Enter');
+    check(await bindOrders(), 'step by step 1: a sample binds orders.csv (as rows)', (await body()).slice(0, 300));
+    check(await waitFor(() => document.activeElement?.id === 'zen-continue', null, 10000), 'step by step 1: choosing a sample leaves focus on Continue, not <body>', await p.evaluate(() => `${document.activeElement?.tagName}#${document.activeElement?.id}`));
+    await cont.click();
+    check(await h1Is('Ask a question'), 'step by step: Continue opens pane 2 (Ask a question)', await p.evaluate(() => document.querySelector('h1')?.innerText));
+    await waitFor(() => document.querySelectorAll('.zp__chip .zp__live').length === 2, null, 30000);
+    const geo = await p.evaluate(() => {
+      const r = document.getElementById('zen-continue').getBoundingClientRect();
+      const d = document.querySelector('.zp__data')?.getBoundingClientRect();
+      return { bottom: Math.round(r.bottom), vh: innerHeight, dataTop: d ? Math.round(d.top) : null };
+    });
+    check(geo.bottom <= geo.vh && geo.dataTop !== null && geo.dataTop > geo.bottom, "step by step 2: Continue is on screen without scrolling (1440x900) and 'Your data' comes after it", geo);
+    const c0 = await zenChips();
+    check(c0.length === 3 && /^Top 5 customers by revenue /.test(c0[0]) && c0.slice(1).every((c) => /^(Count orders by status|Revenue by country) needs live$/.test(c)), "step by step 2: the question with a recorded answer comes first, the ones that need live after it are tagged 'needs live' alone (no 'Basic checks' claim)", c0);
+    // typing a suggestion's own words selects it: no second chip
+    await p.locator('#zen-question').fill('top 5 customers by revenue?');
+    await p.getByRole('button', { name: 'Use this question' }).click();
+    await p.waitForTimeout(400);
+    const dup = await p.evaluate(() => ({ chips: document.querySelectorAll('.zp__chip').length, on: [...document.querySelectorAll('.zp__chip.is-on')].map((b) => b.innerText.replace(/\s+/g, ' ')), box: document.getElementById('zen-question').value }));
+    check(dup.chips === 3 && dup.on.length === 1 && dup.on[0].startsWith('Top 5 customers by revenue') && dup.box === '', "step by step 2: typing 'top 5 customers by revenue?' selects that chip and adds no second one", dup);
+    // a typed question the demo cannot answer: 'needs live' and no level claim; Continue stays off with the reason and a try-it button
+    await p.locator('#zen-question').fill('What is the weather in Paris?');
+    await p.getByRole('button', { name: 'Use this question' }).click();
+    await waitFor(() => document.querySelectorAll('.zp__chip').length === 4, null, 10000);
+    const wx = await p.evaluate(() => {
+      const chip = [...document.querySelectorAll('.zp__chip')].find((b) => /weather/.test(b.innerText));
+      const c = document.getElementById('zen-continue');
+      return { chip: chip?.innerText.replace(/\s+/g, ' '), disabled: c.getAttribute('aria-disabled'), why: document.getElementById('zen-why')?.innerText.replace(/\s+/g, ' '), tryIt: !!document.querySelector('#zen-why button'), link: document.querySelector('#zen-why a')?.href };
+    });
+    check(wx.chip === 'What is the weather in Paris? needs live' && !/checks/i.test(wx.chip) && wx.disabled === 'true' && /^In this demo, answers are recorded/.test(wx.why) && wx.tryIt && /#run-it-on-your-computer$/.test(wx.link ?? ''), "step by step 2: a typed question the demo cannot answer reads 'needs live' alone (no level), Continue is off, and the reason has a try-it button and the way to run it on your computer", wx);
+    await p.locator('#zen-why button').click();
+    const tried = await waitFor(() => document.activeElement?.id === 'zen-continue' && document.getElementById('zen-continue').getAttribute('aria-disabled') !== 'true', null, 10000);
+    check(tried, "step by step 2: 'try it' selects the question that has a recorded answer and makes Continue available (focus on it)", await p.evaluate(() => ({ active: document.activeElement?.id, picked: document.querySelector('.zp__picked')?.innerText })));
+    await cont.click();
+    check(await h1Is('What your answer must pass'), 'step by step: Continue opens pane 3', await p.evaluate(() => document.querySelector('h1')?.innerText));
+    const marks = await p.evaluate(() => ({ rows: document.querySelectorAll('.zp__check').length, dashed: document.querySelectorAll('.zp__ico circle[stroke-dasharray]').length, green: [...document.querySelectorAll('.zp__checks *')].filter((e) => /17A36B|33C793/i.test(`${e.getAttribute('fill')} ${e.getAttribute('stroke')}`) || /rgb\(23, 163, 107\)|rgb\(51, 199, 147\)/.test(`${getComputedStyle(e).color} ${getComputedStyle(e).backgroundColor}`)).length, sum: document.querySelector('.zp__sum')?.innerText }));
+    check(marks.rows === 6 && marks.dashed === 6 && marks.green === 0 && /^Full checks: all six apply\. The answer appears after all six have run/.test(marks.sum), 'step by step 3: six dashed will-run markers and nothing green before anything has run; the summary follows the seal rule', marks);
+    await waitFor(() => document.getElementById('zen-continue')?.getAttribute('aria-disabled') !== 'true', null, 15000);
+    await cont.click();
+    check(await h1Is('Your answer', 90000), "step by step: 'Run the checks' runs them and hands over to the answer", await p.evaluate(() => document.querySelector('h1')?.innerText));
+    await waitFor((n) => document.querySelector('.fd-ac__lead-name')?.innerText.includes(n), LEAD[0], 30000);
+    const rep = await state(() => {
+      const m = window.__undefined.state.value.program.functions.topCustomersByRevenue?.artifact?.evidence?.mutation;
+      return m ? { total: m.total, caught: m.killed + m.killedByBound } : null;
+    });
+    const want = rep ? `Passed every check · stress test caught ${rep.caught} of ${rep.total}` : '';
+    const five = await p.evaluate(() => ({
+      line: document.querySelector('.zpr__line')?.innerText,
+      btn: document.querySelector('.zpr__btn')?.innerText,
+      expanded: document.querySelector('.zpr__btn')?.getAttribute('aria-expanded'),
+      lanes: document.querySelectorAll('#zen-proof .fd-lane').length,
+      lockNote: document.querySelector('.fd-ac__lock-note')?.innerText,
+    }));
+    check(!!rep && five.line?.startsWith(want + ' · real run ') && /^Passed every check · stress test caught \d+ of \d+ · real run \d+\.\d\d s$/.test(five.line) && five.btn === 'See the checks' && five.expanded === 'false' && five.lanes === 0, "step by step 5: the answer keeps its proof: one collapsed line with the seal words (the engine's own count) and the real run, behind 'See the checks'", { want, five });
+    check(five.lockNote === 'Saved with this demo file from an earlier session.', "step by step 5: the answer that came with the demo's locked answer says so", five.lockNote);
+    await p.locator('.zpr__btn').focus();
+    await p.keyboard.press('Enter');
+    await p.waitForTimeout(300);
+    const open = await p.evaluate(() => ({ expanded: document.querySelector('.zpr__btn')?.getAttribute('aria-expanded'), lanes: document.querySelectorAll('#zen-proof .fd-lane').length, hidden: document.getElementById('zen-proof').hidden }));
+    await p.keyboard.press('Space');
+    await p.waitForTimeout(300);
+    const shut = await p.evaluate(() => ({ expanded: document.querySelector('.zpr__btn')?.getAttribute('aria-expanded'), hidden: document.getElementById('zen-proof').hidden, lanes: document.querySelectorAll('#zen-proof .fd-lane').length }));
+    check(open.expanded === 'true' && open.lanes === 6 && !open.hidden && shut.expanded === 'false' && shut.hidden && shut.lanes === 0, "step by step 5: 'See the checks' opens the six-check trace by keyboard (Enter) and closes it again (Space)", { open, shut });
+    // the session carries the run to the other page, and back: the answer is still there, and Step by step opens on it
+    await p.evaluate(() => (location.hash = '#/start'));
+    const carried = await waitFor((n) => document.querySelector('.fd-ac__lead-name')?.innerText.includes(n), LEAD[0], 20000);
+    await p.evaluate(() => (location.hash = '#/zen'));
+    const back = await h1Is('Your answer', 20000);
+    check(carried && back, "step by step <-> full view: the file, the question and the answer travel both ways (Step by step opens on 'Your answer')", await p.evaluate(() => document.querySelector('h1')?.innerText));
+    check(consoleErrors.length === 0, "step by step: '#/zen' logs no console errors (besides the replay /generate/health 404)", consoleErrors);
+  } catch (e) {
+    check(false, 'step by step flow', e.message.split('\n')[0]);
+  }
 
   // ── 4. seed off: no recording of the agreement (the recordings index is served without it), so the spec-less answer ──
   consoleErrors.length = 0;

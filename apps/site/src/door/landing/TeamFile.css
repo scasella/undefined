@@ -29,9 +29,9 @@
   background: var(--fd-surface-3); border-radius: var(--fd-r-lg); border: 1.5px dashed var(--fd-line-2); padding: 31px;
 }
 .fd-tf__limit-list {
-  margin: 12px 0 0; padding: 0 0 0 18px; font-size: 15px; line-height: 22px; color: var(--fd-ink-2);
+  margin: 12px 0 0; padding: 0 0 0 18px; font-size: var(--fd-fs-row); line-height: var(--fd-lh-row); color: var(--fd-ink-2);
   display: flex; flex-direction: column; gap: 8px;
 }
-.fd-tf__run { display: inline-flex; align-items: center; min-height: 44px; margin-top: 8px; font-size: 15px; font-weight: 500; }
+.fd-tf__run { display: inline-flex; align-items: center; min-height: 44px; margin-top: 8px; font-size: var(--fd-fs-row); font-weight: 500; }
 .fd-tf__claim { font-size: 28px; line-height: 32px; font-weight: 600; letter-spacing: -0.015em; }
 .fd-tf__ctas { margin-top: 20px; display: flex; flex-wrap: wrap; gap: 12px; }

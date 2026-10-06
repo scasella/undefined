@@ -8,7 +8,7 @@
  * Keyframe names end in 'a' or 'b' (`suffix(run)`): an identical inline animation does not restart, a renamed one does,
  * so alternating the suffix on every replay restarts the whole trace. CheckTrace.css registers both copies.
  */
-import type { LaneKind, LaneLink, LaneView } from './lanes';
+import { sealWords, type LaneKind, type LaneLink, type LaneView, type StressStatus } from './lanes';
 
 export type Sfx = 'a' | 'b';
 /** The keyframe-name suffix for replay number `run` (0, 2, 4… → 'a'; 1, 3, 5… → 'b'). */
@@ -84,6 +84,13 @@ export const ghostLanes: readonly ScriptLane[] = [
 /** In the scripted stop, the made-up table the house rules have no answer for (1-based), and the stress-test miss. */
 export const SCRIPT_STOP_AT = 47;
 export const SCRIPT_STRESS_CAUGHT = 11;
+/** What the illustrated stress test came to, in the live trace's own terms (model/lanes.ts StressStatus). */
+export const SCRIPT_STRESS: StressStatus = { kind: 'done', total: 12, caught: SCRIPT_STRESS_CAUGHT, missed: 12 - SCRIPT_STRESS_CAUGHT };
+/**
+ * The seal the playback ends on: the live trace's words once its stress test has finished. The seal is drawn only after
+ * lane 06 has ended (`passScenario.tEnd` is later than the stress lane's end), as it is on #/start: never before.
+ */
+export const SCRIPT_SEAL = sealWords({ stress: SCRIPT_STRESS, ran: 5, of: 6 });
 
 const TRACE_LEFT = 'CHECK TRACE · {draft} · Top 5 customers by revenue · orders.csv · 332 rows';
 
@@ -94,12 +101,12 @@ export const passScenario: Scenario = {
   tEnd: 6.7,
   tRev: 6.9,
   draftName: 'DRAFT 2',
-  header: { left: TRACE_LEFT.replace('{draft}', 'DRAFT 2'), verdict: 'Passed every check ↓ see the list', right: '0.41 s', tone: 'pass' },
+  header: { left: TRACE_LEFT.replace('{draft}', 'DRAFT 2'), verdict: `${SCRIPT_SEAL} ↓ see the list`, right: '0.41 s', tone: 'pass' },
   footer: {
-    text: 'Checked against: 6 examples · 1 locked answer · 2 house rules on 100 made-up tables · stress test · your data untouched.',
+    text: `Checked against: 6 examples · 1 locked answer · 2 house rules on 100 made-up tables · stress test (caught ${SCRIPT_STRESS_CAUGHT} of 12) · your data untouched.`,
     meta: 'Slowed down so you can watch · real run 0.41 s · 6 checks · 1 draft thrown out',
   },
-  liveText: 'Passed every check. Showing the answer.',
+  liveText: `${SCRIPT_SEAL}. Showing the answer.`,
 };
 
 export const stopScenario: Scenario = {
@@ -158,6 +165,7 @@ export function scriptLaneView(o: ScriptLane): LaneView {
       line2: `${missed} missed`,
       line2Tone: 'ask',
       missed,
+      stress: SCRIPT_STRESS,
       aria: `${o.label}: ${SCRIPT_STRESS_CAUGHT} of ${n} caught, ${missed} missed`,
     };
   }

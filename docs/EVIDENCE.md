@@ -25,7 +25,7 @@ artifact after the fact. It is not part of any hash, so recording it never inval
 ## Mutation testing
 
 **Mutation testing** asks whether the checks actually check anything. Once the program has been idle for a few
-seconds after a commit (never sooner than 10 s after you pressed Enter, and any new call or edit cancels it), up to 12
+seconds after a commit (the front door waits 600 ms of idle instead of the default; never sooner than 10 s after you pressed Enter, and any new call or edit cancels it), up to 12
 *broken copies* of the committed function are made. Each one changes one small thing in the compiled code, such as `<`
 to `<=`, `+` to `-`, a constant `0` to `1`, or a condition negated. Every copy is run against the same tests,
 properties and pins, with at most 1 s per call and a 6 s time box for the whole check. Each copy lands in one of four

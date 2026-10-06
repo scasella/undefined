@@ -2,9 +2,10 @@
   display: inline-flex; flex-wrap: wrap; padding: 3px; gap: 2px; border-radius: var(--fd-r-md); background: var(--fd-surface-2);
   max-width: 100%; box-sizing: border-box;
 }
-/* design: 40px; the contract asks for a 44px target */
+/* design: 40px; the contract asks for a 44px target. The height is a minimum with real padding (10px, so one line is
+   still 44px), so a label that wraps to two lines grows the control instead of touching its edge. */
 .fd-seg__item {
-  min-height: 44px; padding: 0 14px; border: 0; border-radius: var(--fd-r-sm);
+  min-height: 44px; padding: 10px 14px; border: 0; border-radius: var(--fd-r-sm);
   font-family: inherit; font-size: 14px; line-height: 20px; font-weight: 500; cursor: pointer;
   background: transparent; color: var(--fd-ink-2); transition: background-color 120ms ease, color 120ms ease;
 }

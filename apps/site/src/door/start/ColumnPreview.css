@@ -15,5 +15,6 @@
 .fd-cols__table tbody tr:last-child td { border-bottom: 0; }
 .fd-cols__table .is-r { text-align: right; }
 .fd-cols__table td.is-empty { color: var(--fd-ink-3); }
-.fd-cols__empty { margin: 12px 0 0; max-width: 70ch; font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
-.fd-cols__foot { margin: 10px 0 0; max-width: 70ch; font-size: 13px; line-height: 19px; color: var(--fd-ink-3); }
+.fd-cols__note { margin: 12px 0 0; max-width: var(--fd-measure); font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
+.fd-cols__empty { margin: 12px 0 0; max-width: var(--fd-measure); font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
+.fd-cols__foot { margin: 10px 0 0; max-width: var(--fd-measure); font-size: 13px; line-height: 19px; color: var(--fd-ink-3); }

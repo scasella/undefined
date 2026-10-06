@@ -170,4 +170,62 @@ describe('AnswerCard', () => {
     expect(render({ ...base, mode: 'live' }).text).toContain('You checked it; we hold every later version to it.');
     expect(render({ ...base, variant: 'landing' }).text).toContain('You checked it; we hold every later version to it.');
   });
+  describe('the seal says what the stress test came to', () => {
+    const eyebrow = (r: Flat) => r.nodes.find((n) => String(n.props.class ?? '').startsWith('fd-ac__eyebrow'))!;
+    const arcs = (r: Flat) => r.nodes.filter((n) => String(n.props.class ?? '').includes('fd-ac__ring-arc'));
+    it('finished: the green disc and "Passed every check · stress test caught N of M" in capitals', () => {
+      const r = render({ ...base, seal: { text: 'Passed every check · stress test caught 11 of 12', ran: 5, of: 6, complete: true } });
+      expect(r.text).toContain('PASSED EVERY CHECK · STRESS TEST CAUGHT 11 OF 12');
+      expect(eyebrow(r).props.class).toBe('fd-ac__eyebrow');
+      expect(arcs(r)).toHaveLength(0);
+    });
+    it('not finished: never green, never "every check": a ring of the checks that apply, the ran ones solid', () => {
+      const r = render({ ...base, seal: { text: "Passed 5 of 6 checks · stress test didn't run", ran: 5, of: 6, complete: false } });
+      expect(r.text).toContain("PASSED 5 OF 6 CHECKS · STRESS TEST DIDN'T RUN");
+      expect(r.text).not.toMatch(/EVERY CHECK/);
+      expect(eyebrow(r).props.class).toBe('fd-ac__eyebrow fd-ac__eyebrow--basic');
+      expect(arcs(r)).toHaveLength(6);
+      expect(arcs(r).filter((n) => String(n.props.class).includes('--ran'))).toHaveLength(5);
+      // fewer checks apply: the ring follows
+      expect(arcs(render({ ...base, seal: { text: 'x', ran: 3, of: 4, complete: false } }))).toHaveLength(4);
+    });
+    it('no seal given: the level\'s own words, as before; basic ignores a seal', () => {
+      expect(render(base).text).toContain('PASSED EVERY CHECK');
+      expect(render({ ...base, level: 'basic', seal: null }).text).toContain('PASSED 2 BASIC CHECKS · NOTHING ELSE CHECKED YET');
+      expect(render({ ...base, level: 'basic', seal: { text: 'Passed every check', ran: 5, of: 6, complete: true } }).text).toContain('PASSED 2 BASIC CHECKS');
+    });
+  });
+
+  it('Checked against: the amber diamond (not the green disc) for a line that missed or did not finish', () => {
+    const items = ['your 6 examples', '12-way stress test (8 caught)'];
+    const marked = render({ ...base, checked: items, checkedAsk: ['12-way stress test (8 caught)'] });
+    const plain = render({ ...base, checked: items, checkedAsk: [] });
+    const none = render({ ...base, checked: items });
+    // the diamond carries its own "?" (an svg <text>), the disc is a circle: one more of the first, one fewer of the second
+    const count = (r: Flat, type: string) => r.nodes.filter((n) => n.type === type).length;
+    expect(count(marked, 'text')).toBe(count(plain, 'text') + 1);
+    expect(count(marked, 'circle')).toBe(count(plain, 'circle') - 1);
+    expect(count(none, 'text')).toBe(count(plain, 'text'));
+    expect(marked.text).toContain('12-way stress test (8 caught)');
+  });
+
+  it('a lock that came with the demo file says so next to the Locked button, only when locked', () => {
+    const note = 'Saved with this demo file from an earlier session.';
+    const r = render({ ...base, locked: true, lockNote: note });
+    expect(r.text).toContain(note);
+    const at = (flat: Flat, cls: string) => flat.nodes.findIndex((n) => String(n.props.class ?? '').split(' ').includes(cls));
+    expect(at(r, 'fd-ac__lock-note')).toBeGreaterThan(at(r, 'fd-ac__lock'));
+    expect(at(r, 'fd-ac__lock-note')).toBeLessThan(at(r, 'fd-ac__help'));
+    expect(render({ ...base, locked: false, lockNote: note }).text).not.toContain(note);
+    expect(render({ ...base, locked: true }).text).not.toContain(note);
+    expect(render({ ...base, locked: true, lockNote: '' }).nodes.some((n) => String(n.props.class ?? '').includes('fd-ac__lock-note'))).toBe(false);
+  });
+
+  it('"Confirm" says what it confirms to assistive tech, without changing what it shows', () => {
+    const r = render(base);
+    const btn = r.nodes.find((n) => n.type === 'button' && n.props.class === 'fd-ac__confirm')!;
+    expect(btn.props['aria-label']).toBe('Confirm this assumption: Revenue = quantity × unit price, after discount.');
+    expect(String(btn.props['aria-label'])).toContain('Confirm');
+    expect(btn.props.children).toBe('Confirm');
+  });
 });

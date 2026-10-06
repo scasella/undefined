@@ -10,7 +10,7 @@ import type { AnswerView } from '../model/answer';
 import { lockedRowsPhrase } from '../model/answer';
 import type { AssumptionList } from '../model/assumptions';
 import { lockedHelp, type CheckMode } from '../model/agreement';
-import { CheckDisc, Lock, NotChecked } from '../icons';
+import { AskDiamond, CheckDisc, Lock, NotChecked } from '../icons';
 import './AnswerCard.css';
 
 export const HELD_CAPTION_START = 'Held until every check passes. Ask to start the checks.';
@@ -39,6 +39,12 @@ export interface AnswerCardProps {
   reveal?: { delay: number; run: number } | null;
   /** 'full': PASSED EVERY CHECK; 'basic': PASSED 2 BASIC CHECKS · NOTHING ELSE CHECKED YET. */
   level: 'full' | 'basic';
+  /**
+   * The seal in the engine's own words for a Full-checks answer (derive.ts AnswerSeal), replacing PASSED EVERY CHECK:
+   * 'Passed every check · stress test caught 11 of 12', or, when the stress test did not finish, "Passed 5 of 6 checks ·
+   * stress test didn't run" with a partial ring instead of the green disc. Omitted: the level's own words.
+   */
+  seal?: { text: string; ran: number; of: number; complete: boolean } | null;
   locked: boolean;
   /**
    * The lock confirmation to show instead of the card's own words (derive.ts AnswerProps.lockHelp: the honest replay
@@ -56,7 +62,11 @@ export interface AnswerCardProps {
   confirmed: ReadonlySet<string>;
   onConfirm: (id: string) => void;
   checked: string[];
+  /** Items of `checked` that take the amber glyph instead of the green disc (the stress test, when it missed or did not finish). */
+  checkedAsk?: readonly string[];
   notChecked: string[];
+  /** Said next to the lock button when it is locked and the lock came with the demo file ('Saved with this demo file from an earlier session.'). */
+  lockNote?: string;
   /** Landing only: the 'See the calculation' toggle and the code it reveals. */
   calc?: { open: boolean; onToggle: () => void; source: ComponentChildren };
   /** Start page: where 'Add a house rule' goes. */
@@ -157,6 +167,10 @@ function Body(props: AnswerCardProps & { view: AnswerView; variant: 'landing' | 
   const help = props.lockHelp || lockHelpText({ locked, variant, level, view, ...(props.mode ? { mode: props.mode } : {}) });
   // the caveat that decides whether the number is right sits right under the number, not only in the list far below
   const line = decisiveCaveat(props.notChecked);
+  // the green disc says every check that applies finished and passed; a partial ring says how much of it did
+  const seal = props.seal ?? null;
+  const whole = level === 'full' && (!seal || seal.complete);
+  const sealText = level === 'full' ? (seal ? seal.text.toUpperCase() : LEVEL_FULL) : LEVEL_BASIC;
   const caveat = line && (
     <p class="fd-ac__caveat fd-ac__ri" style={vars({ '--fd-ri': '0.2s' })}>
       <NotChecked size={16} />
@@ -168,9 +182,9 @@ function Body(props: AnswerCardProps & { view: AnswerView; variant: 'landing' | 
   return (
     <div class="fd-ac__body" inert={held} aria-hidden={held ? true : undefined}>
       <div class="fd-ac__fig">{view.fig}</div>
-      <div class={`fd-ac__eyebrow${level === 'full' ? '' : ' fd-ac__eyebrow--basic'}`}>
-        {level === 'full' ? <CheckDisc size={16} /> : <CoverageRing ran={BASIC_CHECKS} total={TOTAL_CHECKS} />}
-        {level === 'full' ? LEVEL_FULL : LEVEL_BASIC}
+      <div class={`fd-ac__eyebrow${whole ? '' : ' fd-ac__eyebrow--basic'}`}>
+        {whole ? <CheckDisc size={16} /> : <CoverageRing ran={seal && level === 'full' ? seal.ran : BASIC_CHECKS} total={seal && level === 'full' ? seal.of : TOTAL_CHECKS} />}
+        {sealText}
       </div>
       {!lead && caveat}
 
@@ -208,7 +222,7 @@ function Body(props: AnswerCardProps & { view: AnswerView; variant: 'landing' | 
                       Confirmed by you
                     </span>
                   ) : (
-                    <button type="button" class="fd-ac__confirm" onClick={(e) => {
+                    <button type="button" class="fd-ac__confirm" aria-label={`Confirm this assumption: ${a.text}`} onClick={(e) => {
                         const li = e.currentTarget.closest('li');
                         props.onConfirm(a.id);
                         requestAnimationFrame(() => li?.querySelector<HTMLElement>('.fd-ac__confirmed')?.focus());
@@ -230,7 +244,7 @@ function Body(props: AnswerCardProps & { view: AnswerView; variant: 'landing' | 
           <ul class="fd-ac__ledger-list">
             {props.checked.map((t) => (
               <li key={t}>
-                <CheckDisc size={16} class="fd-ac__ledger-glyph" />
+                {props.checkedAsk?.includes(t) ? <AskDiamond size={16} solid class="fd-ac__ledger-glyph" /> : <CheckDisc size={16} class="fd-ac__ledger-glyph" />}
                 <span>{t}</span>
               </li>
             ))}
@@ -264,6 +278,7 @@ function Body(props: AnswerCardProps & { view: AnswerView; variant: 'landing' | 
             {locked ? 'Locked' : 'Does this look right? Lock this answer'}
           </button>
         )}
+        {props.onToggleLock && locked && props.lockNote && <span class="fd-ac__lock-note">{props.lockNote}</span>}
         {props.calc && (
           <button type="button" class="fd-ac__calc-toggle" aria-expanded={props.calc.open} onClick={props.calc.onToggle}>
             See the calculation

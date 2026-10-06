@@ -11,7 +11,13 @@ import {
   OFF_NOTES,
   parsePropertiesSummary,
   parseTestsSummary,
+  sealOfLanes,
+  sealWords,
+  stressChecked,
+  stressNotChecked,
+  stressStatus,
   type LaneFacts,
+  type StressStatus,
 } from './lanes';
 
 // ───── fixtures in the exact shapes and summary formats the gate executor produces ─────
@@ -239,12 +245,18 @@ describe('liveLanes', () => {
   describe('lane 06: the lazy mutation check, after the commit', () => {
     const a = attempt(1, 'accepted', [compileOk, testsOk, propsOk, invOk]);
     const committed = gen([a], 'committed', { revision: 3 });
+    const waiting = { fn: 'topCustomers', phase: 'waiting' as const, done: 0, total: 0 };
     it('waiting after commit, then running with the engine progress, never touching 01–05', () => {
-      const before = liveLanes({ generation: committed, facts: full, run: 'done' });
-      expect(before[5]).toMatchObject({ state: 'waiting', idle: 'Waiting' });
+      const before = liveLanes({ generation: committed, facts: full, run: 'done', mutation: waiting });
+      expect(before[5]).toMatchObject({ state: 'waiting', idle: 'Waiting', stress: { kind: 'pending', phase: 'waiting' } });
       const runningLanes = liveLanes({ generation: committed, facts: full, run: 'done', mutation: { fn: 'topCustomers', phase: 'running', done: 5, total: 12 } });
       expect(runningLanes[5]).toMatchObject({ state: 'running', progress: { done: 5, total: 12 }, label: 'Stress test: we broke it 12 small ways on purpose' });
       expect(runningLanes.slice(0, 5)).toEqual(before.slice(0, 5));
+    });
+    it('before the commit it is only ready (never waiting on, or running for, a draft that is still being checked)', () => {
+      const checking = gen([attempt(1, 'generating', [])], 'gating');
+      expect(liveLanes({ generation: checking, facts: full, run: 'running', mutation: waiting })[5]).toMatchObject({ state: 'ready', idle: 'Ready' });
+      expect(liveLanes({ generation: null, facts: full, run: 'idle', mutation: { ...waiting, phase: 'running', done: 3, total: 12 } })[5]?.state).toBe('ready');
     });
     it('done: k of N caught + m missed', () => {
       const lanes = liveLanes({ generation: committed, facts: full, run: 'done', mutation: { fn: 'topCustomers', phase: 'done', done: 12, total: 12 }, mutationReport: report(11, 1) });
@@ -255,17 +267,146 @@ describe('liveLanes', () => {
         missed: 1,
         label: 'Stress test: we broke it 12 small ways on purpose',
         aria: 'Stress test: we broke it 12 small ways on purpose: 11 of 12 caught, 1 missed',
+        stress: { kind: 'done', total: 12, caught: 11, missed: 1 },
       });
       const clean = liveLanes({ generation: committed, facts: full, run: 'done', mutationReport: report(12, 0) });
       expect(clean[5]).toMatchObject({ done: '12 of 12 caught', glyph: 'pass' });
       expect(clean[5]?.line2).toBeUndefined();
     });
-    it('ignores another function’s mutation progress; a skipped report is off', () => {
-      const other = liveLanes({ generation: committed, facts: full, run: 'done', mutation: { fn: 'median', phase: 'running', done: 1, total: 9 } });
-      expect(other[5]?.state).toBe('waiting');
-      const skipped: MutationReport = { ...report(0, 0), skipped: 'no tests yet: nothing could kill a mutant' };
-      expect(liveLanes({ generation: committed, facts: full, run: 'done', mutationReport: skipped })[5]?.state).toBe('off');
+    it('a stale report is not the result while the engine is on the stress test again', () => {
+      expect(liveLanes({ generation: committed, facts: full, run: 'done', mutation: waiting, mutationReport: report(11, 1) })[5]?.state).toBe('waiting');
     });
+    it('ignores another function’s mutation progress', () => {
+      const other = liveLanes({ generation: committed, facts: full, run: 'done', mutation: { fn: 'median', phase: 'running', done: 1, total: 9 }, mutationReport: report(11, 1) });
+      expect(other[5]).toMatchObject({ state: 'passed', done: '11 of 12 caught' });
+    });
+    it('a skipped report with nothing run is not "needs your rules first" when there are rules: it did not run', () => {
+      const skipped: MutationReport = { ...report(0, 0), skipped: 'mutation check failed: boom' };
+      const lane = liveLanes({ generation: committed, facts: full, run: 'done', mutationReport: skipped })[5]!;
+      expect(lane).toMatchObject({ state: 'off', offNote: OFF_NOTES.stressNotRun, stress: { kind: 'not-run' } });
+      expect(lane.aria).toBe("Stress test: small breaks on purpose: didn't run, so this answer was not stress-tested.");
+      // committed, and nothing at all about it: the engine is not going to run it
+      expect(liveLanes({ generation: committed, facts: full, run: 'done' })[5]).toMatchObject({ state: 'off', offNote: OFF_NOTES.stressNotRun });
+      // nothing was set when it was checked: the old words
+      const noRules = attempt(1, 'accepted', [compileOk, g('tests', 'skipped', 'no tests yet'), g('properties', 'skipped', 'no properties yet'), invOk]);
+      expect(liveLanes({ generation: gen([noRules], 'committed'), facts: basic, run: 'done', mutationReport: { ...report(0, 0), skipped: 'no tests yet: nothing could kill a mutant' } })[5]?.offNote).toBe(OFF_NOTES.stress);
+    });
+    it('a time-boxed report reads as what it is: k of the copies that ran, and that it ran out of time', () => {
+      const partial: MutationReport = { ...report(4, 1), skipped: 'time box reached after 5 of 12 mutants' };
+      const lane = liveLanes({ generation: committed, facts: full, run: 'done', mutationReport: partial })[5]!;
+      expect(lane).toMatchObject({ state: 'passed', done: '4 of 5 caught', line2: '1 missed · ran out of time', stress: { kind: 'partial', planned: 12 } });
+      expect(lane.aria).toContain('ran out of time');
+      expect(liveLanes({ generation: committed, facts: full, run: 'done', mutationReport: { ...report(5, 0), skipped: 'time box reached after 5 of 12 mutants' } })[5]?.line2).toBe('ran out of time');
+    });
+    it('the page stopped waiting: it did not run, whatever the engine reports later', () => {
+      const lane = liveLanes({ generation: committed, facts: full, run: 'done', mutation: waiting, stressGaveUp: true })[5];
+      expect(lane).toMatchObject({ state: 'off', offNote: OFF_NOTES.stressNotRun });
+      expect(liveLanes({ generation: committed, facts: full, run: 'done', mutationReport: report(11, 1), stressGaveUp: true })[5]?.state).toBe('off');
+    });
+  });
+});
+
+describe('the stress test, in one place', () => {
+  const rep = (o: Partial<MutationReport> = {}): MutationReport => ({ ...report(8, 4), ...o });
+  const waiting = { fn: 'f', phase: 'waiting' as const, done: 0, total: 0 };
+  it('total is the copies that ran (stillborn ones are not taken off again); caught = killed + stopped by the time limit; missed = survived', () => {
+    expect(stressStatus({ expected: true, report: rep({ stillborn: 3, killedByBound: 1, killed: 7 }), fn: 'f' })).toEqual({ kind: 'done', total: 12, caught: 8, missed: 4 });
+  });
+  it('nothing to hold it against: none, whatever the engine says', () => {
+    expect(stressStatus({ expected: false, report: rep(), mutation: waiting, fn: 'f' })).toEqual({ kind: 'none' });
+  });
+  it('pending while the engine has it waiting or running for this function (a stale report does not count), done when it says so', () => {
+    expect(stressStatus({ expected: true, report: rep(), mutation: waiting, fn: 'f' })).toEqual({ kind: 'pending', phase: 'waiting', done: 0, total: 0 });
+    expect(stressStatus({ expected: true, mutation: { ...waiting, phase: 'running', done: 6, total: 12 }, fn: 'f' })).toEqual({ kind: 'pending', phase: 'running', done: 6, total: 12 });
+    expect(stressStatus({ expected: true, report: rep(), mutation: { ...waiting, phase: 'done' }, fn: 'f' }).kind).toBe('done');
+    expect(stressStatus({ expected: true, report: rep(), mutation: waiting, fn: 'g' }).kind).toBe('done');
+  });
+  it('not-run: no report, or one with nothing run (it failed, nothing to break, baseline failed), or the page gave up', () => {
+    expect(stressStatus({ expected: true, fn: 'f' })).toEqual({ kind: 'not-run' });
+    for (const skipped of ['mutation check failed: boom', 'nothing to mutate: no operators, integer literals, conditions or returns', 'no mutant compiled', 'time box reached after 0 of 12 mutants']) {
+      expect(stressStatus({ expected: true, report: { ...rep({ total: 0, killed: 0, killedByBound: 0, survived: 0 }), skipped }, fn: 'f' })).toEqual({ kind: 'not-run' });
+    }
+    expect(stressStatus({ expected: true, report: rep(), mutation: waiting, fn: 'f', gaveUp: true })).toEqual({ kind: 'not-run' });
+  });
+  it('partial: a time-boxed report, with the planned count when the engine says it', () => {
+    expect(stressStatus({ expected: true, report: rep({ total: 7, killed: 5, survived: 2, skipped: 'time box reached after 7 of 12 mutants' }), fn: 'f' })).toEqual({ kind: 'partial', total: 7, caught: 5, missed: 2, planned: 12 });
+    expect(stressStatus({ expected: true, report: rep({ skipped: 'something else' }), fn: 'f' })).toMatchObject({ kind: 'partial', planned: null });
+  });
+
+  const done = (caught: number, total = 12): StressStatus => ({ kind: 'done', total, caught, missed: total - caught });
+  it('the seal: "every check" only when the stress test finished, with its own count', () => {
+    expect(sealWords({ stress: done(11), ran: 5, of: 6 })).toBe('Passed every check · stress test caught 11 of 12');
+    expect(sealWords({ stress: done(12), ran: 5, of: 6 })).toBe('Passed every check · stress test caught 12 of 12');
+    expect(sealWords({ stress: { kind: 'not-run' }, ran: 5, of: 6 })).toBe("Passed 5 of 6 checks · stress test didn't run");
+    // counts the checks that apply, never a fixed "5 of 6"
+    expect(sealWords({ stress: { kind: 'not-run' }, ran: 3, of: 4 })).toBe("Passed 3 of 4 checks · stress test didn't run");
+    expect(sealWords({ stress: { kind: 'partial', total: 5, caught: 4, missed: 1, planned: 12 }, ran: 5, of: 6 })).toBe('Passed 5 of 6 checks · stress test ran out of time');
+    for (const st of [{ kind: 'not-run' }, { kind: 'partial', total: 5, caught: 4, missed: 1, planned: 12 }] as const) {
+      expect(sealWords({ stress: st, ran: 5, of: 6 })).not.toMatch(/every check/);
+    }
+  });
+  it('the checked line takes the amber glyph when anything was missed or unfinished, and the not-checked line says what', () => {
+    expect(stressChecked(done(12))).toEqual({ text: '12-way stress test (12 caught)', ask: false });
+    expect(stressChecked(done(8))).toEqual({ text: '12-way stress test (8 caught)', ask: true });
+    expect(stressChecked({ kind: 'not-run' })).toBeNull();
+    expect(stressNotChecked(done(12))).toBeNull();
+    expect(stressNotChecked(done(8))).toBe('4 of 12 deliberate breaks went unnoticed by your checks');
+    for (const st of [done(8), { kind: 'not-run' }, { kind: 'partial', total: 5, caught: 4, missed: 1, planned: 12 }] as const) {
+      expect(`${stressChecked(st)?.text ?? ''} ${stressNotChecked(st) ?? ''} ${sealWords({ stress: st, ran: 5, of: 6 })}`).not.toMatch(/mutant|mutation|fuzz|gate|spec\b|revision/i);
+    }
+  });
+  it('the lane, the header, the footer and the live sentence all say the same thing', () => {
+    const a = attempt(1, 'accepted', [compileOk, testsOk, propsOk, invOk]);
+    const generation = gen([a], 'committed');
+    const base = { question: 'Top 5 customers by revenue', file: 'orders.csv', rows: 332 };
+    for (const [mutationReport, seal] of [
+      [report(8, 4), 'Passed every check · stress test caught 8 of 12'],
+      [report(12, 0), 'Passed every check · stress test caught 12 of 12'],
+      [{ ...report(0, 0), skipped: 'mutation check failed: boom' }, "Passed 5 of 6 checks · stress test didn't run"],
+    ] as const) {
+      const lanes = liveLanes({ generation, facts: full, run: 'done', mutationReport });
+      expect(sealOfLanes(lanes)).toBe(seal);
+      const h = headerFor({ ...base, generation, lanes, run: 'done' });
+      expect(h.verdict?.startsWith(seal)).toBe(true);
+      expect(h).toMatchObject({ done: true, tone: 'pass' });
+      expect(liveTextFor(h, lanes)).toBe(`${seal}. Showing the answer.`);
+    }
+  });
+  it('held: no verdict, no seal, until the stress test has finished; the other checks stay as they are', () => {
+    const a = attempt(1, 'accepted', [compileOk, testsOk, propsOk, invOk]);
+    const generation = gen([a], 'committed');
+    const base = { question: 'Top 5 customers by revenue', file: 'orders.csv', rows: 332 };
+    for (const [phase, right, meta] of [['waiting', 'stress test next…', 'stress test next…'], ['running', 'stress test running…', 'stress test running…']] as const) {
+      const lanes = liveLanes({ generation, facts: full, run: 'running', mutation: { fn: 'topCustomers', phase, done: 3, total: 12 } });
+      const h = headerFor({ ...base, generation, lanes, run: 'running' });
+      expect(h).toEqual({ left: 'CHECK TRACE · DRAFT 1 · Top 5 customers by revenue · orders.csv · 332 rows', right, running: true, stress: phase });
+      expect(h.verdict).toBeUndefined();
+      expect(h.done).toBeUndefined();
+      const f = footerFor(lanes, h);
+      expect(f.meta).toBe(meta);
+      expect(f.text).toMatch(/^The other checks passed\./);
+      expect(f.text).not.toMatch(/passed every check|checked against/i);
+      expect(liveTextFor(h, lanes)).toBe('The other checks passed. Running the stress test before showing the answer.');
+    }
+  });
+  it('the footer after it finished: the same numbers; a stress test that gave no result says so', () => {
+    const a = attempt(1, 'accepted', [compileOk, testsOk, propsOk, invOk]);
+    const generation = gen([a], 'committed');
+    const base = { question: 'q', file: 'orders.csv', rows: 332 };
+    const foot = (mutationReport: MutationReport) => {
+      const lanes = liveLanes({ generation, facts: full, run: 'done', mutationReport });
+      return footerFor(lanes, headerFor({ ...base, generation, lanes, run: 'done' })).text;
+    };
+    expect(foot(report(8, 4))).toBe('Checked against: 6 examples · 1 locked answer · 2 house rules on 100 made-up tables · stress test (caught 8 of 12) · your data untouched.');
+    expect(foot({ ...report(0, 0), skipped: 'mutation check failed: boom' })).toBe("Checked against: 6 examples · 1 locked answer · 2 house rules on 100 made-up tables · your data untouched. The stress test didn't run.");
+  });
+  it('basic checks are untouched: no stress test, no hold, the same words', () => {
+    const a = attempt(1, 'accepted', [compileOk, g('tests', 'skipped', 'no tests yet'), g('properties', 'skipped', 'no properties yet'), invOk]);
+    const generation = gen([a], 'committed');
+    const lanes = liveLanes({ generation, facts: basic, run: 'done', mutation: waiting });
+    const h = headerFor({ question: 'q', file: 'orders.csv', rows: 332, generation, lanes, run: 'done' });
+    expect(h.verdict).toBe("Passed 2 basic checks ↓ see what wasn't checked");
+    expect(h.running).toBeUndefined();
   });
 });
 
@@ -364,12 +505,18 @@ describe('headerFor / footerFor / liveTextFor', () => {
     const generation = gen([attempt(1, 'rejected', []), a], 'committed');
     const lanes = liveLanes({ generation, facts: full, run: 'done', mutationReport: report(11, 1) });
     const h = headerFor({ ...base, generation, lanes, run: 'done' });
-    expect(h).toMatchObject({ left: 'CHECK TRACE · DRAFT 2 · Top 5 customers by revenue · orders.csv · 332 rows', right: '0.41 s', verdict: 'Passed every check ↓ see the list', done: true, tone: 'pass' });
+    expect(h).toMatchObject({
+      left: 'CHECK TRACE · DRAFT 2 · Top 5 customers by revenue · orders.csv · 332 rows',
+      right: '0.41 s',
+      verdict: 'Passed every check · stress test caught 11 of 12 ↓ see the list',
+      done: true,
+      tone: 'pass',
+    });
     expect(footerFor(lanes, h)).toEqual({
-      text: 'Checked against: 6 examples · 1 locked answer · 2 house rules on 100 made-up tables · stress test · your data untouched.',
+      text: 'Checked against: 6 examples · 1 locked answer · 2 house rules on 100 made-up tables · stress test (caught 11 of 12) · your data untouched.',
       meta: 'real run 0.41 s',
     });
-    expect(liveTextFor(h, lanes)).toBe('Passed every check. Showing the answer.');
+    expect(liveTextFor(h, lanes)).toBe('Passed every check · stress test caught 11 of 12. Showing the answer.');
   });
   it('basic checks only', () => {
     const a = attempt(1, 'accepted', [compileOk, g('tests', 'skipped', 'no tests yet'), g('properties', 'skipped', 'no properties yet'), invOk]);

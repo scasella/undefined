@@ -11,7 +11,7 @@
 .fd-ev-ticks--stress > span { height: 10px; }
 .fd-ev-ticks--stress > span.is-missed {
   background: transparent; box-shadow: inset 0 0 0 1.5px var(--fd-amber);
-  font-size: 8px; line-height: 10px; text-align: center; font-weight: 700; color: var(--fd-amber-ink);
+  display: flex; align-items: center; justify-content: center; color: var(--fd-amber-ink);
 }
 
 /* 10 × 10 made-up tables. Each dot is DRAWN 6×6 (ringed 12×12 when picked), as the design has it; its button is the
@@ -37,7 +37,7 @@
 
 .fd-ev-badge {
   display: inline-block; margin-top: 10px; font-family: var(--fd-mono); font-size: 12px; line-height: 17px; font-weight: 500;
-  color: var(--fd-ink-3); border: 1px dashed var(--fd-line-2); border-radius: var(--fd-r-sm); padding: 2px 6px;
+  color: var(--fd-ink-3); border: 1px dashed var(--fd-line-2); border-radius: var(--fd-r-sm); padding: 5px 8px;
 }
 .fd-ev-sub + .fd-ev-badge { margin-top: 8px; }
 
@@ -76,7 +76,7 @@
   margin-top: 16px; background: var(--fd-amber-wash); border-radius: var(--fd-r-lg); padding: 20px;
   display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center;
 }
-.fd-ev-missed p { margin: 0; flex: 1 1 420px; min-width: 0; font-size: 15px; line-height: 22px; color: var(--fd-ink); }
+.fd-ev-missed p { margin: 0; flex: 1 1 420px; min-width: 0; font-size: var(--fd-fs-row); line-height: var(--fd-lh-row); color: var(--fd-ink); }
 .fd-ev-missed__lead { color: var(--fd-amber-ink); font-weight: 600; }
 .fd-ev-add {
   min-height: 44px; padding: 0 20px; border-radius: var(--fd-r-md); font-family: inherit; font-size: 14px; line-height: 20px; font-weight: 500;

@@ -1,9 +1,17 @@
-/** The landing hero (V3-Door-Landing 81-95): the claim, what it means, and the two ways in (both start the step-by-step walk-through). */
+/**
+ * The landing hero (V3-Door-Landing 81-95): the claim, what it means, and the two ways in. "Try the demo" starts the
+ * step-by-step walk-through. The second button is about your own file, and the public demo cannot answer questions about
+ * one (recorded answers only), so there it says that and leads to how to run it on your computer (`#own-file`, the
+ * limits card, which links to the README's setup steps); on a copy that already runs live it starts the walk-through.
+ */
 import { LinkButton } from '../components/LinkButton';
 import { ROUTE_PATHS } from '../router';
+import { engineRef } from '../state';
+import { ownFileCta } from './teamFileView';
 import './Hero.css';
 
 export function Hero() {
+  const own = ownFileCta(engineRef.value?.state.value.mode ?? 'replay', 'hero');
   return (
     <section aria-labelledby="hero-h" class="fd-hero">
       <div class="fd-wrap">
@@ -20,8 +28,8 @@ export function Hero() {
             <LinkButton href={ROUTE_PATHS.zen} variant="primary" icon="arrow">
               Try the demo
             </LinkButton>
-            <LinkButton href={ROUTE_PATHS.zen} variant="secondary">
-              Run it on your own file
+            <LinkButton href={own.target === 'zen' ? ROUTE_PATHS.zen : '#own-file'} variant="secondary" class="fd-btn--wrap">
+              {own.label}
             </LinkButton>
           </div>
         </div>

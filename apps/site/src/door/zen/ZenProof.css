@@ -1,0 +1,13 @@
+/* Step by step · the one-line proof under the answer, and the trace it opens. */
+.zpr { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; min-width: 0; }
+.zpr__line { margin: 0; max-width: var(--fd-measure); font-size: 14px; line-height: 20px; color: var(--fd-ink-2); overflow-wrap: anywhere; }
+.zpr .zpr__btn { gap: 10px; }
+/* a plain chevron drawn with two borders; it turns when the trace is open (the turn is skipped under reduced motion) */
+.zpr__chev {
+  flex: none; width: 7px; height: 7px; margin-top: -3px; border-right: 1.6px solid currentColor; border-bottom: 1.6px solid currentColor;
+  transform: rotate(45deg); transition: transform 160ms var(--fd-ease), margin-top 160ms var(--fd-ease);
+}
+.zpr__btn[aria-expanded='true'] .zpr__chev { transform: rotate(-135deg); margin-top: 3px; }
+@media (prefers-reduced-motion: reduce) { .zpr__chev { transition: none; } }
+.zpr__body { width: 100%; min-width: 0; }
+.zpr__body[hidden] { display: none; }

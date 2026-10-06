@@ -1,4 +1,8 @@
-/** The sticky bottom bar: "Checked, not proven." and the version line, with a link to the receipt on the landing. */
+/**
+ * The sticky bottom bar: "Checked, not proven." and the version line, with a link to the receipt on the landing. On
+ * phones (480px and under) the three pieces run on as one paragraph with no separator dot (HonestyBar.css), so the
+ * bar is two or three lines rather than four, and nothing is dropped.
+ */
 import type { EngineState } from '@scasella/undefined-engine/types';
 import { useRoute, type Route } from '../router';
 import { formatDay } from '../state';
@@ -54,6 +58,12 @@ export function versionText({ version, date, example = false }: HonestyBarProps)
   return example ? `Example answer: ${v}` : v;
 }
 
+/**
+ * The version line as it is drawn: the dot inside it is bound to its neighbours by no-break spaces, so a wrapped line
+ * never ends or starts on a lone "·". (versionText itself, which the tests pin, keeps plain spaces.)
+ */
+export const bound = (text: string): string => text.replace(/ · /g, '\u00a0·\u00a0');
+
 export function HonestyBar({ version, date, example }: HonestyBarProps) {
   const route = useRoute();
   const link = receiptLink(route);
@@ -61,11 +71,18 @@ export function HonestyBar({ version, date, example }: HonestyBarProps) {
   return (
     <div class="fd-honesty">
       <div class="fd-honesty__in fd-mono">
-        <span>Checked, not proven. We show you exactly what was checked.</span>
+        <span class="fd-honesty__claim">Checked, not proven. We show you exactly what was checked.</span>{' '}
         {(text || link) && (
-          <span>
-            {text}
-            {text && link && ' · '}
+          <span class="fd-honesty__meta">
+            {text && bound(text)}
+            {text && link && (
+              <span class="fd-honesty__sep">
+                {' '}
+                <span aria-hidden="true" class="fd-honesty__dot">
+                  ·
+                </span>{' '}
+              </span>
+            )}
             {link && <a href={link.href}>See the receipt</a>}
           </span>
         )}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { NOT_RERUN } from '../model/agreement';
 import { OFF_NOTES } from '../model/lanes';
-import { canContinue, CONTINUE_WHY_ID, continueReason, isTypedQuestion, paneOf, zenChecks, zenChecksSummary } from './flow';
+import { canContinue, CONTINUE_WHY_ID, continueReason, isTypedQuestion, NEEDS_DATA_REASON, NEEDS_QUESTION_REASON, openingStep, paneOf, ZEN_CONTINUE_ID, zenChecks, zenChecksSummary } from './flow';
 
 const agr = (examples: number, locks: number, rules: number, seeded = false) => ({ n: { examples, locks, rules }, seeded });
 const FULL = { level: 'full', mode: 'live' } as const;
@@ -35,8 +35,55 @@ describe('continueReason', () => {
     expect(continueReason(2, { question: true, needsLive: true }, why)).toBe(why);
     expect(continueReason(3, { question: true, needsLive: true }, why)).toBe(why);
     expect(continueReason(2, { question: true, needsLive: false }, why)).toBe('');
-    expect(continueReason(2, { question: false, needsLive: true }, why)).toBe('');
+    expect(continueReason(2, { question: false, needsLive: true }, why)).not.toBe(why);
     expect(continueReason(1, { question: true, needsLive: true }, why)).toBe('');
+  });
+  it('the first pane says what it needs while there is no data, and nothing once there is', () => {
+    expect(continueReason(1, { question: false, needsLive: false, bound: false }, '')).toBe('Choose a sample or bring a file to continue.');
+    expect(NEEDS_DATA_REASON).toBe('Choose a sample or bring a file to continue.');
+    expect(continueReason(1, { question: false, needsLive: false, bound: true }, '')).toBe('');
+    expect(continueReason(1, { question: false, needsLive: false }, '')).toBe('');
+    // it is a reason for exactly the cases canContinue refuses on the first pane
+    expect(canContinue(1, { bound: false, question: false, busy: false })).toBe(false);
+    expect(canContinue(1, { bound: true, question: false, busy: false })).toBe(true);
+  });
+  it('the second pane says so when nothing is picked', () => {
+    expect(continueReason(2, { question: false, needsLive: false, bound: true }, why)).toBe(NEEDS_QUESTION_REASON);
+    expect(continueReason(2, { question: false, needsLive: false, bound: false }, why)).toBe('');
+    expect(continueReason(3, { question: false, needsLive: false, bound: true }, why)).toBe('');
+  });
+});
+
+describe('the Continue button is a place focus can be sent to', () => {
+  it('has one id (the data pane sends focus there once the picker it was pressed in has closed)', () => {
+    expect(ZEN_CONTINUE_ID).toBe('zen-continue');
+  });
+});
+
+describe('openingStep: where Step by step opens when the shared session already holds something', () => {
+  it('no data: the first pane', () => {
+    expect(openingStep({ bound: false, outcome: 'idle', answerShown: false })).toBe(1);
+    // a run cannot outlive its file: nothing bound wins over whatever the outcome says
+    expect(openingStep({ bound: false, outcome: 'committed', answerShown: true })).toBe(1);
+  });
+  it('a file but nothing asked: the question', () => {
+    expect(openingStep({ bound: true, outcome: 'idle', answerShown: false })).toBe(2);
+  });
+  it('an answer that is committed (or answered from the version on file) and shown: the answer', () => {
+    expect(openingStep({ bound: true, outcome: 'committed', answerShown: true })).toBe(5);
+    expect(openingStep({ bound: true, outcome: 'cached', answerShown: true })).toBe(5);
+  });
+  it('an answer that is not shown yet is not step 5 (the seal and the answer arrive together, after the stress test)', () => {
+    expect(openingStep({ bound: true, outcome: 'committed', answerShown: false })).toBe(2);
+    expect(openingStep({ bound: true, outcome: 'cached', answerShown: false })).toBe(2);
+  });
+  it('a run still going: the live trace, which hands over by itself', () => {
+    expect(openingStep({ bound: true, outcome: 'running', answerShown: false })).toBe(4);
+  });
+  it('a run that ended without an answer: the question again (the way to ask is there; the reasons were on the page that ran it)', () => {
+    for (const outcome of ['thrown-out', 'stopped', 'declined', 'no-recording', 'service', 'error'] as const) {
+      expect(openingStep({ bound: true, outcome, answerShown: false })).toBe(2);
+    }
   });
 });
 
@@ -93,6 +140,12 @@ describe('zenChecks', () => {
   });
   it('the level that will run decides: full level keeps Applies', () => {
     expect(zenChecks(agr(0, 1, 0), FULL)[2]).toMatchObject({ state: 'applies', tag: 'Applies' });
+  });
+  it('Full checks: the answer comes after all six have run, and the stress test reports a count instead of passing or failing (no "only if every one passes")', () => {
+    const s = zenChecksSummary('full');
+    expect(s).toBe('Full checks: all six apply. The answer appears after all six have run: the first five must pass, and the stress test reports how many of its deliberate breaks your checks caught.');
+    expect(s).not.toMatch(/only if every one passes/);
+    expect(s).not.toMatch(/gate|spec|property|fuzz|mutant|revision|pin/i);
   });
   it('summarises the level honestly', () => {
     expect(zenChecksSummary('full')).toMatch(/Full checks/);

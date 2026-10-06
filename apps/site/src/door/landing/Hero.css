@@ -6,5 +6,5 @@
 }
 .fd-hero__accent { color: var(--fd-indigo); }
 .fd-hero__row { margin-top: 24px; display: flex; flex-wrap: wrap; gap: 24px 48px; align-items: flex-end; }
-.fd-hero__p { flex: 999 1 520px; margin: 0; max-width: 680px; font-size: 16px; line-height: 24px; color: var(--fd-ink-2); }
+.fd-hero__p { flex: 999 1 520px; margin: 0; max-width: var(--fd-measure); font-size: 16px; line-height: 24px; color: var(--fd-ink-2); }
 .fd-hero__ctas { flex: 1 1 320px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: flex-start; }

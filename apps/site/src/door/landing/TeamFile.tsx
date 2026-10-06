@@ -4,20 +4,22 @@
  * ones (./teamFileView.ts). The limits' middle line follows the engine's mode. `#own-file` (where the first run's
  * "How to run it on your computer" links land) is the limits card, which links to the README's setup steps: the
  * zip card above it is about handing a result to a team, not about running the app.
- * Both closing buttons start the step-by-step walk-through.
+ * The closing card's "Try the demo" starts the step-by-step walk-through; its second button is about your own file and,
+ * on the public demo, goes straight to the README's setup steps (ownFileCta).
  */
 import { FileGlyph } from '../icons';
 import { LinkButton } from '../components/LinkButton';
 import { RUN_LOCALLY_URL } from '../components/DemoNote';
 import { ROUTE_PATHS } from '../router';
 import { engineRef } from '../state';
-import { honestLimits, TEAM_FILE_LEAD, teamFileView } from './teamFileView';
+import { honestLimits, ownFileCta, TEAM_FILE_LEAD, teamFileView } from './teamFileView';
 import './TeamFile.css';
 
 export function TeamFile() {
   const mode = engineRef.value?.state.value.mode ?? 'replay';
   const zip = teamFileView();
   const limits = honestLimits(mode);
+  const own = ownFileCta(mode, 'closing');
 
   return (
     <section aria-labelledby="file-h" class="fd-tf">
@@ -60,9 +62,16 @@ export function TeamFile() {
               <LinkButton href={ROUTE_PATHS.zen} icon="arrow">
                 Try the demo
               </LinkButton>
-              <LinkButton href={ROUTE_PATHS.zen} variant="secondary">
-                Run it on your own file
-              </LinkButton>
+              {own.target === 'readme' ? (
+                <LinkButton href={RUN_LOCALLY_URL} variant="secondary" class="fd-btn--wrap" target="_blank" rel="noopener">
+                  {own.label}
+                  <span class="fd-sr"> (the README on GitHub, opens in a new tab)</span>
+                </LinkButton>
+              ) : (
+                <LinkButton href={ROUTE_PATHS.zen} variant="secondary" class="fd-btn--wrap">
+                  {own.label}
+                </LinkButton>
+              )}
             </div>
           </div>
         </div>

@@ -28,12 +28,14 @@ import type {
   Program,
   ReplEntry,
 } from '@scasella/undefined-engine/types';
+import { signal } from '@preact/signals';
 import { DECIDED_PREFIX, decisionsOf } from '@scasella/undefined-engine/decide/decisions';
 import { listTestNames } from '@scasella/undefined-engine/shared/specInfo';
 import { canonicalJson } from '../../data/dataset';
 import { leadSummary, shapeAnswer, type AnswerView, type OutputEntry } from '../model/answer';
 import {
   assumptionsFromNote,
+  checkedAsk,
   checkedList,
   checkFactsFrom,
   dataFacts,
@@ -45,8 +47,8 @@ import {
   type CheckFacts,
   type DataFacts,
 } from '../model/assumptions';
-import { agreementOf, emptyAgreement, lockedHelp, type AgreementView, type CheckMode } from '../model/agreement';
-import { HOUSE_RULES } from '../model/agreements';
+import { agreementOf, emptyAgreement, lockedHelp, SEEDED_NOTE, type AgreementView, type CheckMode } from '../model/agreement';
+import { HOUSE_RULES, SEEDED_PIN_ID } from '../model/agreements';
 import {
   factsFromSpec,
   footerFor,
@@ -54,6 +56,7 @@ import {
   headerFor,
   liveLanes,
   liveTextFor,
+  sealWords,
   type GhostView,
   type HeaderView,
   type LaneFacts,
@@ -117,7 +120,11 @@ export function matchRun(state: Pick<EngineState, 'generation' | 'repl'>, run: R
 
 export type RunOutcome =
   | { kind: 'idle' }
-  | { kind: 'running' }
+  /**
+   * Checking. `stress` is set when only the stress test is left: the other checks passed (or the answer was certified
+   * earlier) but the stress test is still to come, so the answer, its seal and its lists are held until it has finished.
+   */
+  | { kind: 'running'; stress?: StressWait }
   /** A new answer: the function was written and passed every check this run. */
   | { kind: 'committed' }
   /** Answered by a function already certified: nothing was written or checked again. */
@@ -139,6 +146,37 @@ export type RunOutcome =
   /** The call itself failed (a fault in the function, a timeout, a syntax error): the error entry. */
   | { kind: 'error'; name: string; message: string };
 
+/** The stress test the run is waiting for: where it is, and whether the answer itself was certified earlier (nothing re-ran). */
+export interface StressWait {
+  phase: 'waiting' | 'running';
+  cached: boolean;
+}
+
+/**
+ * How long a run waits for its stress test before it stops waiting and says plainly that the stress test didn't run.
+ * The engine finishes in a few seconds (it starts after a short idle, runs for at most six seconds); this is only the
+ * valve so an answer is never held for good.
+ */
+export const STRESS_PATIENCE_MS = 60_000;
+
+/**
+ * Answers (their output entry ids) whose run stopped waiting for the stress test (RunPanel.tsx, after STRESS_PATIENCE_MS):
+ * they release with the stress test marked "didn't run", and nothing that arrives later changes them. A signal, so the
+ * session's computed views recompute when it changes.
+ */
+export const stressGaveUp = signal<ReadonlySet<string>>(new Set());
+export function giveUpOnStress(outputId: string): void {
+  if (!stressGaveUp.peek().has(outputId)) stressGaveUp.value = new Set([...stressGaveUp.peek(), outputId]);
+}
+const gaveUpOn = (output: OutputEntry | null): boolean => !!output && stressGaveUp.value.has(output.id);
+
+/** The stress test of this run's function is still waiting or running in the engine (state.mutation): hold the answer. */
+function stressWait(state: Pick<EngineState, 'mutation'>, run: RunRef, output: OutputEntry | null, cached: boolean): StressWait | null {
+  const m = state.mutation;
+  if (!m || m.fn !== run.fn || m.phase === 'done' || gaveUpOn(output)) return null;
+  return { phase: m.phase, cached };
+}
+
 const SERVICE_CODES = new Set(['codex_missing', 'not_logged_in', 'service_unreachable', 'codex_failed', 'timeout', 'bad_output', 'aborted']);
 
 /** The rejecting diagnostic of the last draft that carries `silentOn` (the very object in state: GapRef needs identity). */
@@ -156,10 +194,16 @@ export function silentDiagnostic(gen: GenerationView | null): Diagnostic | null 
  * What happened to the run. `canDecide(ref)` is engine.gapQuestion(ref) !== null (the controller passes it in): a
  * silent check that cannot be ruled on (no exact call) reads as thrown out, not as a question.
  */
-export function outcomeOf(state: Pick<EngineState, 'busy'>, run: RunRef | null, m: RunMatch, canDecide: (ref: GapRef) => boolean = () => true): RunOutcome {
+export function outcomeOf(state: Pick<EngineState, 'busy' | 'mutation'>, run: RunRef | null, m: RunMatch, canDecide: (ref: GapRef) => boolean = () => true): RunOutcome {
   if (!run) return { kind: 'idle' };
   const gen = m.generation;
   if (m.output) {
+    // The answer is only released once every check that will run has finished. The stress test runs last, after the
+    // commit, so while the engine still has it waiting or running for this function the run is still running: the
+    // answer stays veiled and the trace says nothing is passed yet. An answer certified earlier whose stress test is
+    // not queued (a second ask) is not held: nothing re-runs.
+    const wait = gen?.phase === 'committed' || !gen ? stressWait(state, run, m.output, !gen) : null;
+    if (wait) return { kind: 'running', stress: wait };
     // a decide's re-grow is followed by a plain ask that hits the new artifact: that is still this run's new answer
     if (gen && gen.phase === 'committed') return { kind: 'committed' };
     if (!gen && m.output.label === 'cached artifact') return { kind: 'cached' };
@@ -306,7 +350,9 @@ export function traceView(t: TraceInput): TraceView {
   const rec = t.fn ? (t.state.program.functions[t.fn] ?? null) : null;
   const spec = effectiveSpec(t.state.program, t.fn, t.pendingSeed);
   const run = runFlag(outcome);
-  const cached = outcome.kind === 'cached';
+  // only the stress test is left: the answer on screen is held, but its other checks (this run's, or a certificate) are in
+  const waiting = outcome.kind === 'running' ? (outcome.stress ?? null) : null;
+  const cached = outcome.kind === 'cached' || !!waiting?.cached;
   let generation = t.match.generation;
   let attempt: AttemptView | null = null;
   if (cached && rec) {
@@ -317,7 +363,7 @@ export function traceView(t: TraceInput): TraceView {
     }
   }
   // evidence only for an answer the function gave (committed now, or certified earlier)
-  const answered = outcome.kind === 'committed' || cached;
+  const answered = outcome.kind === 'committed' || cached || waiting !== null;
   const artifact = answered ? (rec?.artifact ?? null) : null;
   // the answer a call would get without writing anything: it was checked with the locks that existed then, not with
   // one set afterwards (pins are outside the hashes), so the idle lanes must not promise to run it
@@ -333,6 +379,7 @@ export function traceView(t: TraceInput): TraceView {
     mutationReport,
     ...(t.fn ? { fn: t.fn } : {}),
     run,
+    ...(gaveUpOn(t.match.output) ? { stressGaveUp: true } : {}),
   });
   const ghost = cached ? [] : ghostFromAttempts(run === 'idle' ? null : generation, facts, attempt);
   const header = headerFor({ question: t.label, file: t.file, rows: t.rows, generation, ...(attempt ? { attempt } : {}), lanes, run });
@@ -343,11 +390,24 @@ export function traceView(t: TraceInput): TraceView {
     footer = { text: FOOTER_NOTHING_DRAFTED, meta: '' };
     liveText = outcome.kind === 'declined' ? LIVE_DECLINED : LIVE_NOTHING_DRAFTED;
   }
-  if (cached) {
+  if (cached && !waiting) {
     footer = { ...footer, meta: cachedMeta(header.right) };
     liveText = LIVE_CACHED;
   }
   return { lanes, ghost, header, footer, liveText, run, cached, facts };
+}
+
+/**
+ * One line for a run that passed and is over: the verdict's words (the seal for Full checks, "Passed 2 basic checks"
+ * for Basic; the trace's "see the list" pointer left off) and the footer's own meta (`real run 0.08 s`; for an answer
+ * certified earlier, what that says). It is cut from the very view the trace is drawn from, so it can never disagree
+ * with it. null unless the run passed (step by step shows it above the collapsed trace on the answer pane).
+ */
+export function traceSummary(t: Pick<TraceView, 'header' | 'footer'>): string | null {
+  const h = t.header;
+  if (!h.done || h.tone !== 'pass' || !h.verdict) return null;
+  const words = h.verdict.replace(/\s*\u2193.*$/u, '');
+  return t.footer.meta ? `${words} · ${t.footer.meta}` : words;
 }
 
 // ───────────────────────── telemetry ─────────────────────────
@@ -386,16 +446,36 @@ export const HELD_NOTHING_RAN = 'Nothing was checked, so no answer is shown.';
 export const NO_RECORDING_OWN =
   'In this demo, answers are recorded, so questions about your own file need the version on your computer. Try a sample file for now.';
 
+/** The words of the invitation to try the question that has a recorded answer (the page makes them a button). */
+export const TRY_IT = 'try it';
+
+/**
+ * The no-recording sentence, in the pieces a page needs to draw `try it` as a real button: `before` + `action.text` +
+ * `after` is exactly noRecordingText. `action` is null when no question here can be tried (the sentence is whole).
+ */
+export interface NoRecordingView {
+  before: string;
+  /** The question to try: its id (session.selectQuestion), its label, and the words of the button. */
+  action: { id: string; label: string; text: typeof TRY_IT } | null;
+  after: string;
+}
+
+export function noRecordingView(ownData: boolean, other: { id?: string; label: string } | null): NoRecordingView {
+  if (ownData && !other) return { before: NO_RECORDING_OWN, action: null, after: '' };
+  const head = ownData
+    ? 'In this demo, answers are recorded, so questions about your own file need the version on your computer.'
+    : 'In this demo, answers are recorded, and this question has no recorded answer with these checks, so it needs the version on your computer.';
+  if (!other) return { before: head, action: null, after: '' };
+  return { before: `${head} “${other.label}” has one: `, action: { id: other.id ?? '', label: other.label, text: TRY_IT }, after: '.' };
+}
+
 /**
  * The no-recording sentence. Own file: the board's words. A sample question with no recording for these checks: say
  * that, and name a question that does have an answer here (or say it needs the version on your computer).
  */
-export function noRecordingText(ownData: boolean, other: { label: string } | null): string {
-  if (ownData && !other) return NO_RECORDING_OWN;
-  const head = ownData
-    ? 'In this demo, answers are recorded, so questions about your own file need the version on your computer.'
-    : 'In this demo, answers are recorded, and this question has no recorded answer with these checks, so it needs the version on your computer.';
-  return other ? `${head} “${other.label}” has one: try it.` : head;
+export function noRecordingText(ownData: boolean, other: { id?: string; label: string } | null): string {
+  const v = noRecordingView(ownData, other);
+  return v.before + (v.action?.text ?? '') + v.after;
 }
 
 /** What was counted, in the design's words, only when the house rules say so (the seeded agreement's two rules). */
@@ -435,10 +515,35 @@ export interface AnswerProps {
   lockHelp: string;
   /** The answer can be locked / unlocked now (a pinnable result, engine idle). */
   canLock: boolean;
+  /** Said next to the lock button when the lock came with the demo file ('' otherwise). */
+  lockNote: string;
   assumptions: AssumptionList;
   checked: string[];
+  /** The items of `checked` that take the amber glyph (a stress test that missed something or did not finish). */
+  checkedAsk: string[];
   notChecked: string[];
+  /** The seal in words, for a Full-checks answer (null for basic checks: the card's own words). */
+  seal: AnswerSeal | null;
   facts: CheckFacts;
+}
+
+/** The answer's seal when every check that applies passed: the words, and how much of the work they cover. */
+export interface AnswerSeal {
+  /** 'Passed every check · stress test caught 11 of 12' (sentence case; the card sets it in capitals). */
+  text: string;
+  /** The checks that applied (every check that ran, plus the stress test) and how many of them passed. */
+  ran: number;
+  of: number;
+  /** The stress test finished: the green disc. Otherwise a partial ring, never green. */
+  complete: boolean;
+}
+
+/** The seal of a Full-checks answer, from its facts (the trace's header says the same from its lanes). */
+export function sealOf(f: CheckFacts): AnswerSeal | null {
+  if (!hasAgreement(f)) return null;
+  // runs without errors and never changes your data always apply; examples, locked answers and house rules when they ran
+  const ran = 2 + (f.examples > 0 ? 1 : 0) + (f.locked > 0 ? 1 : 0) + (f.houseRules > 0 ? 1 : 0);
+  return { text: sealWords({ stress: f.stress, ran, of: ran + 1 }), ran, of: ran + 1, complete: f.stress.kind === 'done' };
 }
 
 export function heldCaptionFor(o: RunOutcome, noRecording?: string): string {
@@ -469,8 +574,7 @@ export function answerView(a: AnswerInput): AnswerProps {
   const out = shown ? a.match.output : null;
   const artifact = shown ? (rec?.artifact ?? null) : null;
   const spec = rec?.spec ?? null;
-  const mutationDone = !(a.state.mutation && a.fn && a.state.mutation.fn === a.fn && a.state.mutation.phase !== 'done');
-  const facts = checkFactsFrom({ artifact, spec, question: a.question, mutationDone });
+  const facts = checkFactsFrom({ artifact, spec, question: a.question, mutation: a.state.mutation, gaveUp: gaveUpOn(out) });
   const view = out
     ? shapeAnswer(out, {
         question: a.question,
@@ -483,6 +587,8 @@ export function answerView(a: AnswerInput): AnswerProps {
     : null;
   const level = hasAgreement(facts) ? 'full' : 'basic';
   const locked = !!out?.pinned;
+  // a lock that came with the demo file says so, in the rail's own words
+  const seededLock = locked && pinFor(a.state.program, out)?.id === SEEDED_PIN_ID;
   return {
     view,
     held: !out,
@@ -491,9 +597,12 @@ export function answerView(a: AnswerInput): AnswerProps {
     locked,
     lockHelp: lockedHelp({ locked, level, mode: a.mode ?? 'live', noun: view?.kind === 'ranked' ? 'list' : 'answer' }),
     canLock: !!out?.pinnable && !a.state.busy,
+    lockNote: seededLock ? SEEDED_NOTE : '',
     assumptions: assumptionsFromNote(noteFor(out?.note, artifact)),
     checked: out ? checkedList(facts) : [],
-    notChecked: notCheckedList({
+    checkedAsk: out ? checkedAsk(facts) : [],
+    // nothing is listed while the answer is held: the receipt arrives with the answer, whole
+    notChecked: !out ? [] : notCheckedList({
       fileName: a.fileName,
       question: a.question,
       facts,
@@ -503,6 +612,7 @@ export function answerView(a: AnswerInput): AnswerProps {
       // what the user has set now: a lock added after this answer was checked is not "nothing set"
       ...(a.fn && rec ? { set: agreementOf(a.state.program, a.fn).n } : {}),
     }),
+    seal: out ? sealOf(facts) : null,
     facts,
   };
 }

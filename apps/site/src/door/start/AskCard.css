@@ -8,8 +8,8 @@
 
 .fd-ask__chips { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px; }
 .fd-ask__chip {
-  display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; box-sizing: border-box;
-  border-radius: 999px; border: 0; background: var(--fd-surface); color: var(--fd-ink-2); box-shadow: var(--fd-sh-ring-2);
+  display: inline-flex; flex-wrap: wrap; align-items: center; min-height: 44px; padding: 6px 12px; box-sizing: border-box; max-width: 100%;
+  overflow-wrap: anywhere; border-radius: 999px; border: 0; background: var(--fd-surface); color: var(--fd-ink-2); box-shadow: var(--fd-sh-ring-2);
   font-family: inherit; font-size: 14px; line-height: 20px; font-weight: 500; text-align: left; cursor: pointer;
   transition: box-shadow 120ms ease, background-color 120ms ease;
 }
@@ -25,9 +25,15 @@
 .fd-ask__chip.is-on .fd-ask__tag { color: var(--fd-indigo-hover); }
 /* replay, nothing recorded: a quiet dashed marker (the trace's "not set up" look, on light) */
 .fd-ask__live {
-  margin-left: 6px; padding: 0 6px; border-radius: 4px; border: 1px dashed var(--fd-line-2);
+  margin-left: 6px; padding: 0 6px; border-radius: var(--fd-r-sm); border: 1px dashed var(--fd-line-2);
   font-family: var(--fd-mono); font-size: 12px; line-height: 17px; font-weight: 500; color: var(--fd-ink-3); white-space: nowrap;
 }
+
+/* what "needs live" means, once, under the chips (replay only) */
+.fd-ask__legend { margin: 10px 0 0; max-width: var(--fd-measure); font-size: 13px; line-height: 19px; color: var(--fd-ink-2); }
+.fd-ask__run { display: inline-block; position: relative; font-weight: 500; }
+/* a link in a sentence stays 19px of line; its touch area reaches 44px without moving the lines around it */
+.fd-ask__run::after { content: ''; position: absolute; inset: -13px -4px; }
 
 .fd-ask__row { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
 /* The selected question, read back as text: no border, no field chrome, nothing to focus (it is picked from the chips). */
@@ -48,3 +54,14 @@
 @media (max-width: 479px) {
   .fd-ask__go { flex: 1 1 100%; }
 }
+
+/* `try it` in the no-recording sentence: a real button that reads as the link it is (colour is never the only cue: underlined),
+   with a 44px touch area that does not change the line height */
+.fd-tryit {
+  display: inline; position: relative; margin: 0; padding: 0; border: 0; background: none; cursor: pointer;
+  font: inherit; font-weight: 500; color: var(--fd-indigo); text-decoration: underline; text-underline-offset: 3px;
+}
+.fd-tryit::after { content: ''; position: absolute; inset: -12px -6px; }
+.fd-tryit:where(:not([aria-disabled='true'])):hover { color: var(--fd-indigo-hover); }
+.fd-tryit:focus-visible { outline: 2px solid var(--fd-indigo); outline-offset: 2px; border-radius: 2px; }
+.fd-tryit[aria-disabled='true'] { cursor: progress; opacity: 0.55; }

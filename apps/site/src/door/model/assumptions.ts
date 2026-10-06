@@ -10,8 +10,9 @@
  *    something this answer was never checked against (a lock added afterwards: pins are outside the hashes).
  * Pure: no DOM, no engine calls.
  */
-import type { Artifact, Candidate, Decision, Evidence, FunctionSpec, GateResult, MutationReport, Pin } from '@scasella/undefined-engine/types';
+import type { Artifact, Candidate, Decision, EngineState, Evidence, FunctionSpec, GateResult, Pin } from '@scasella/undefined-engine/types';
 import { leadSummary, unitFromQuestion } from './answer';
+import { stressChecked, stressNotChecked, stressStatus, type StressStatus } from './lanes';
 
 // ───────────────────────── what the AI assumed ─────────────────────────
 
@@ -96,33 +97,32 @@ export interface CheckFacts {
   madeUpTables: number;
   /** Invariants gate passed (pure + bounded). */
   invariants: boolean;
-  /** Mutation check, only when it finished and was not skipped. */
-  stress: { total: number; caught: number } | null;
+  /**
+   * The stress test (the lazy mutation check) as model/lanes.ts defines it, the same for lane 06, the seal and these
+   * lists: 'none' when nothing ran that it could be held against, 'pending' while it is still to come.
+   */
+  stress: StressStatus;
 }
 
 export const EMPTY_FACTS: CheckFacts = {
-  compiled: false, examples: 0, locked: 0, lockedLabel: null, houseRules: 0, madeUpTables: 0, invariants: false, stress: null,
+  compiled: false, examples: 0, locked: 0, lockedLabel: null, houseRules: 0, madeUpTables: 0, invariants: false, stress: { kind: 'none' },
 };
-
-/** Stress test facts from a mutation report: N-way = total − stillborn, caught = killed + killedByBound. */
-export function stressFacts(report: MutationReport | undefined): CheckFacts['stress'] {
-  if (!report || report.skipped) return null;
-  const total = report.total - report.stillborn;
-  if (total <= 0) return null;
-  return { total, caught: report.killed + report.killedByBound };
-}
 
 const gatePassed = (gates: GateResult[] | undefined, id: GateResult['gate']): boolean => gates?.find((g) => g.gate === id)?.status === 'pass';
 
 /**
- * Facts from a committed artifact and its spec. `mutationDone` must be false while the engine's lazy mutation check
- * is still waiting/running for this function (state.mutation), so a stale report is never shown as this run's.
+ * Facts from a committed artifact and its spec. The stress test is read from `mutation` (state.mutation) and the
+ * artifact's report: while the engine's lazy check is still waiting or running for this function it is 'pending', so a
+ * stale report is never shown as this run's (`mutationDone: false` says the same without the state). `gaveUp`: the page
+ * stopped waiting, so the stress test is 'not-run' for good.
  */
 export function checkFactsFrom(input: {
   artifact: Artifact | null | undefined;
   spec: FunctionSpec | null | undefined;
   question?: string;
   mutationDone?: boolean;
+  mutation?: EngineState['mutation'];
+  gaveUp?: boolean;
 }): CheckFacts {
   const { artifact, spec } = input;
   const ev: Evidence | undefined = artifact?.evidence;
@@ -139,6 +139,14 @@ export function checkFactsFrom(input: {
   const lockedLabel = locked === 1 && pins.length === 1 ? leadSummary(pins[0]!.expected, input.question ?? '') : null;
   const houseRules = (testsRan || propsRan ? decisions.length : 0) + (propsRan ? authoredProps : 0);
   const madeUpTables = propsRan && ev.properties.length > 0 ? Math.max(...ev.properties.map((p) => p.runs)) : 0;
+  // the stress test is held against the checks that ran: with none, it has nothing to catch the breaks with
+  const stress = stressStatus({
+    expected: examples + locked + houseRules > 0,
+    report: ev.mutation,
+    mutation: input.mutation,
+    fn: spec?.name,
+    gaveUp: input.gaveUp,
+  });
   return {
     compiled: ev.compiled && gatePassed(gates, 'compile'),
     examples,
@@ -147,7 +155,7 @@ export function checkFactsFrom(input: {
     houseRules,
     madeUpTables,
     invariants: gatePassed(gates, 'invariants'),
-    stress: input.mutationDone === false ? null : stressFacts(ev.mutation),
+    stress: input.mutationDone === false && stress.kind !== 'none' ? { kind: 'pending', phase: 'waiting', done: 0, total: 0 } : stress,
   };
 }
 
@@ -170,9 +178,16 @@ export function checkedList(f: CheckFacts): string[] {
     const rules = f.houseRules === 1 ? 'your house rule' : `your ${f.houseRules} house rules`;
     out.push(f.madeUpTables > 0 ? `${rules} on ${plural(f.madeUpTables, 'made-up table', 'made-up tables')}` : rules);
   }
-  if (f.stress) out.push(`${f.stress.total}-way stress test (${f.stress.caught} caught)`);
+  const stress = stressChecked(f.stress);
+  if (stress) out.push(stress.text);
   if (f.invariants) out.push('never changes your data', 'finishes fast');
   return out;
+}
+
+/** The items of `checkedList` that take the amber glyph instead of the green one: a stress test that missed or did not finish. */
+export function checkedAsk(f: CheckFacts): string[] {
+  const stress = stressChecked(f.stress);
+  return stress && stress.ask ? [stress.text] : [];
 }
 
 // ───────────────────────── not checked ─────────────────────────
@@ -305,6 +320,9 @@ export function notCheckedList(input: NotCheckedInput): string[] {
   }
   if (input.fileName) out.push(`whether ${input.fileName} is the complete export`);
   out.push('whether this was the right question');
+  // what the stress test left unsaid (breaks your checks did not notice, or a stress test that gave no result)
+  const stress = stressNotChecked(input.facts.stress);
+  if (stress) out.push(stress);
   const set = input.set ?? { examples: input.facts.examples, locks: input.facts.locked, rules: input.facts.houseRules };
   const lateSet = setAfterCheck(set, input.facts);
   const late = yourParts(lateSet);

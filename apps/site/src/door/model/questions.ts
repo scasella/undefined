@@ -112,6 +112,31 @@ export function customQuestion(text: string, dataset: Pick<DatasetRef, 'name'>, 
   return { id: `own:${fn}`, label: t, text: t, call: `${fn}(${dataset.name})`, fn, level: 'basic', doc: t };
 }
 
+/** A question the viewer typed (session.addQuestion ids start `own:`): the only ones that can be removed. */
+export const isTypedQuestion = (id: string): boolean => id.startsWith('own:');
+
+/** Characters that carry no meaning at the end of a question: spaces, sentence punctuation and quote marks. */
+const TRAILING = /[\s?.!…,;:"'“”‘’«»]+$/u;
+const LEADING = /^[\s"'“”‘’«»]+/u;
+
+/**
+ * A question as it is compared: lowercase, extra spaces collapsed, no quote marks around it and no ending punctuation,
+ * so `Top 5 customers  by revenue?`, `“top 5 customers by revenue”` and `top 5 customers by revenue.` read the same.
+ */
+export function normalizeQuestion(text: string): string {
+  return text.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').replace(LEADING, '').replace(TRAILING, '');
+}
+
+/**
+ * The question already on the list that `typed` says again (by its button label or its plain-words form, compared as
+ * normalizeQuestion reads them), or null. Typing a suggestion's own words selects that chip; it never adds a second one.
+ */
+export function matchQuestion<Q extends Pick<SuggestedQuestion, 'label' | 'text'>>(typed: string, questions: readonly Q[]): Q | null {
+  const want = normalizeQuestion(typed);
+  if (want === '') return null;
+  return questions.find((q) => normalizeQuestion(q.label) === want || normalizeQuestion(q.text) === want) ?? null;
+}
+
 /** The contract the model reads for a typed question: no checks of its own, so it is held to the basic ones. */
 export function customSpec(q: SuggestedQuestion, dataset: Pick<DatasetRef, 'name' | 'typeName' | 'typeDecl'>): FunctionSpec {
   return {

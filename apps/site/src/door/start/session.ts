@@ -88,7 +88,7 @@ import { seedAgreement, SEEDED_PIN_ID, type SeededAgreement } from '../model/agr
 import type { AgreementView } from '../model/agreement';
 import type { DataRow } from '../model/figures';
 import { lastSentPrompt, privacyView, type PrivacyView } from '../model/privacy';
-import { customQuestion, customSpec, DEFAULT_QUESTION_ID, suggestedQuestions, type SuggestedQuestion } from '../model/questions';
+import { customQuestion, customSpec, DEFAULT_QUESTION_ID, matchQuestion, suggestedQuestions, type SuggestedQuestion } from '../model/questions';
 import { sampleFile, sampleIdFor, type SampleId } from '../model/samples';
 import { recordChecks, session as telemetry, shellFileChip, shellRunning } from '../state';
 import {
@@ -209,6 +209,15 @@ interface Carry {
   bound: Bound | null;
   questionId: string | null;
   typed: SuggestedQuestion[];
+  /**
+   * The run the page started (its answer and trace are the engine's own state, which stays), so the other page shows
+   * what this one showed. Never `pending` (the engine call it was waiting on belongs to a session that is gone: the
+   * run's outcome is read from the engine's state), and with the run ids already counted in telemetry, so the new
+   * session neither counts them twice nor reuses the id.
+   */
+  run: RunRef | null;
+  counted: readonly number[];
+  stressCounted: readonly number[];
 }
 
 /** The carry of the shared session of `engine` that was disposed last. */
@@ -225,7 +234,7 @@ export function createSession(engine: Engine, config: Partial<SessionConfig> = {
   const bound = signal<Bound | null>(resume?.bound ?? null);
   const intake = signal<IntakeState>(EMPTY_INTAKE);
   const questionId = signal<string | null>(resume?.questionId ?? null);
-  const run = signal<RunRef | null>(null);
+  const run = signal<RunRef | null>(resume?.bound ? (resume.run ?? null) : null);
   const seedState = signal<'none' | 'installing' | 'installed' | 'failed'>('none');
   const working = signal(false);
   const recordings = signal<Recording[] | null>(null);
@@ -235,7 +244,7 @@ export function createSession(engine: Engine, config: Partial<SessionConfig> = {
   const seedChecks = new Map<string, Promise<boolean>>();
   let recordingsP: Promise<Recording[]> | null = null;
   const installedOnce = new Set<string>();
-  let runSeq = 0;
+  let runSeq = run.peek()?.id ?? 0;
   let intakeSeq = 0;
   let disposed = false;
 
@@ -394,8 +403,8 @@ export function createSession(engine: Engine, config: Partial<SessionConfig> = {
     }),
   );
   // telemetry once per run (the checks that ran, real gate ms), then +1 when its stress test finishes
-  const counted = new Set<number>();
-  const stressCounted = new Set<number>();
+  const counted = new Set<number>(resume?.counted ?? []);
+  const stressCounted = new Set<number>(resume?.stressCounted ?? []);
   stops.push(
     effect(() => {
       const r = run.value;
@@ -663,7 +672,8 @@ export function createSession(engine: Engine, config: Partial<SessionConfig> = {
     const d = dataset.peek();
     if (!idle() || !d) return false;
     const have = questions.peek();
-    const same = have.find((q) => q.text.toLowerCase() === text.trim().replace(/\s+/g, ' ').toLowerCase());
+    // the words of a question already on the list (a suggestion's label or plain-words form, or one typed before) select it
+    const same = matchQuestion(text, have);
     if (same) return selectQuestion(same.id);
     const q = customQuestion(text, d, (fn) => have.some((x) => x.fn === fn) || program.peek().functions[fn] !== undefined);
     if (!q) return false;
@@ -792,7 +802,15 @@ export function createSession(engine: Engine, config: Partial<SessionConfig> = {
     shellFileChip.value = null;
     shellRunning.value = false;
     if (shared.get(engine) === api) {
-      carried.set(engine, { bound: bound.peek(), questionId: questionId.peek(), typed: typed.peek() });
+      const r = run.peek();
+      carried.set(engine, {
+        bound: bound.peek(),
+        questionId: questionId.peek(),
+        typed: typed.peek(),
+        run: r ? { ...r, pending: false } : null,
+        counted: [...counted],
+        stressCounted: [...stressCounted],
+      });
       shared.delete(engine);
     }
   }

@@ -3,6 +3,7 @@
  * column preview table, the replay note and the sample radiogroup's arrow keys. No DOM, no engine calls.
  */
 import type { DatasetRef } from '@scasella/undefined-engine/types';
+import { columnNote } from '../model/columnNotes';
 import type { DataRow } from '../model/figures';
 import { formatCount } from '../model/figures';
 import { describeColumns, previewCellsFor, sampleFile, type ColumnKind, type SampleId } from '../model/samples';
@@ -12,8 +13,6 @@ import { describeColumns, previewCellsFor, sampleFile, type ColumnKind, type Sam
 export interface IntroStep {
   n: string;
   text: string;
-  /** Step 3's number chip is dark (the check trace's colour) in every state, as the board draws it. */
-  lit: boolean;
 }
 
 export const INTRO_EYEBROW = 'START HERE · BRING A FILE, ASK IN PLAIN WORDS';
@@ -27,9 +26,9 @@ export const INTRO_TITLE = 'Ask a question about a file';
 
 export function introSteps(): IntroStep[] {
   return [
-    { n: '1', text: 'Bring a file. It stays in this browser.', lit: false },
-    { n: '2', text: 'Ask in plain words.', lit: false },
-    { n: '3', text: "Your rules check the AI's work before you see it.", lit: true },
+    { n: '1', text: 'Bring a file. It stays in this browser.' },
+    { n: '2', text: 'Ask in plain words.' },
+    { n: '3', text: "Your rules check the AI's work before you see it." },
   ];
 }
 
@@ -81,6 +80,8 @@ export interface PreviewModel {
   srCaption: string;
   columns: PreviewColumn[];
   cells: string[][];
+  /** Columns read as Text that look like numbers or dates (model/columnNotes.ts), in one plain sentence; null when none. */
+  note: string | null;
 }
 
 export interface PreviewInput {
@@ -102,6 +103,7 @@ export function previewModel({ sampleId, dataset, rows, fileName }: PreviewInput
       srCaption: `First 3 rows of ${f.filename}`,
       columns: f.columns.map((c) => ({ ...c, right: c.type === 'Number' })),
       cells: f.previewCells,
+      note: rows ? columnNote(f.columns, rows) : null,
     };
   }
   if (!dataset || !rows) return null;
@@ -114,8 +116,19 @@ export function previewModel({ sampleId, dataset, rows, fileName }: PreviewInput
     srCaption: k === 1 ? `First row of ${name}` : `First ${k} rows of ${name}`,
     columns: cols.map((c) => ({ ...c, right: c.type === 'Number' })),
     cells,
+    note: columnNote(cols, rows),
   };
 }
 
 export const PREVIEW_FOOTNOTE = 'Read in this browser. Nothing in your file is changed, and nothing is sent until you ask.';
 export const PREVIEW_EMPTY = 'No file yet. Drop one, paste rows, or start with a sample file.';
+
+// ───────────── following a run ─────────────
+
+/**
+ * Whether an element (its client rect) still has to be scrolled to be seen whole: some of it is above the top edge, or
+ * below the bottom edge less the sticky bar that covers `bottomInset` px of it.
+ */
+export function offScreen(rect: { top: number; bottom: number }, viewportHeight: number, bottomInset = 0): boolean {
+  return rect.top < 0 || rect.bottom > viewportHeight - bottomInset;
+}

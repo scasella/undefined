@@ -4,8 +4,10 @@
  * Everything comes from the session (start/session.ts): questions, availability, the agreement that will be checked.
  *
  * Focus: the Ask button and the chips use aria-disabled (not `disabled`) while the session is busy, so a click never
- * drops focus to <body>; focus stays on the button after asking and the check trace's aria-live says what happened.
- * A non-happy outcome (RunStates) moves focus to its own heading.
+ * drops focus to <body>. Pressing Ask moves focus on purpose: start/Start.tsx (followRun) scrolls the check trace into
+ * view and focuses it, and its aria-live says what happened. A non-happy outcome (RunStates) moves focus to its own
+ * heading. `try it` (the no-recording sentence's button) selects the question that has a recorded answer and puts
+ * focus on Ask, since the sentence it was in goes away.
  *
  * The selected question is shown as text ("Asking: …"), not in a read-only field: it is picked from the chips above, and
  * a field that looks like an input but does nothing when clicked was the thing people tried to type into.
@@ -14,7 +16,8 @@ import type { Engine } from '@scasella/undefined-engine/types';
 import { agreementPhrase, nextVersionLine, type AgreementView, type CheckMode } from '../model/agreement';
 import type { SuggestedQuestion } from '../model/questions';
 import { Arrow } from '../icons';
-import { noRecordingText } from './derive';
+import { RUN_LOCALLY_URL } from '../components/DemoNote';
+import { noRecordingView, type NoRecordingView } from './derive';
 import type { Availability } from './recorded';
 import { sessionFor, type Session } from './session';
 import './AskCard.css';
@@ -34,44 +37,117 @@ export { agreementPhrase };
  * recorded.ts levelFor): a function certified before a lock or rule was added still answers from that basic-checked
  * version, so an agreement alone does not make it Full checks, and asking again shows that answer. What happens next
  * is mode-specific (model/agreement.ts nextVersionLine): live keeps the engine's promise, the demo says it cannot
- * re-run. Then, when this page cannot answer the question (replay, nothing recorded), the same honest sentence the
- * no-recording outcome will show.
+ * re-run. When this page cannot answer the question (replay, nothing recorded) the line is instead the same honest
+ * sentence the no-recording outcome will show, and nothing about a level: that calculation will never run in the demo
+ * (`quiet`: the no-recording card below already says it, so the line says nothing).
  */
-export function levelLine(input: {
+export interface LevelLineInput {
   level: 'full' | 'basic';
   agreement: Pick<AgreementView, 'empty' | 'seeded' | 'n'>;
   availability: Availability | undefined;
   ownData: boolean;
-  recordedOther: Pick<SuggestedQuestion, 'label'> | null;
+  recordedOther: Pick<SuggestedQuestion, 'id' | 'label'> | Pick<SuggestedQuestion, 'label'> | null;
   mode: CheckMode;
-}): string {
+  /** The no-recording card (RunStates) is already on screen and says it: leave the line empty for such a question. */
+  quiet?: boolean;
+}
+
+/** The level sentence, and (replay, nothing recorded) the no-recording sentence in pieces so `try it` can be a button. */
+export interface LevelLineView {
+  head: string;
+  noRecording: NoRecordingView | null;
+}
+
+export function levelLineView(input: LevelLineInput): LevelLineView {
   const a = input.agreement;
-  let line: string;
+  if (input.availability === 'none') return { head: '', noRecording: input.quiet ? null : noRecordingView(input.ownData, input.recordedOther) };
+  let head: string;
   if (input.level === 'basic') {
-    line = a.empty
+    head = a.empty
       ? BASIC_LEVEL_LINE
       : `Basic checks: the answer on file was checked before ${a.seeded ? 'this demo file came with' : 'you set'} ${agreementPhrase(a.n)}. ${nextVersionLine(input.mode)}`;
-  } else if (a.seeded) line = `Full checks: this demo file comes with ${agreementPhrase(a.n)} for this question.`;
-  else line = `Full checks: you set ${agreementPhrase(a.n)} for this question.`;
-  if (input.availability === 'none') line += ' ' + noRecordingText(input.ownData, input.recordedOther);
-  return line;
+  } else if (a.seeded) head = `Full checks: this demo file comes with ${agreementPhrase(a.n)} for this question.`;
+  else head = `Full checks: you set ${agreementPhrase(a.n)} for this question.`;
+  return { head, noRecording: null };
+}
+
+export function levelLine(input: LevelLineInput): string {
+  const v = levelLineView(input);
+  const n = v.noRecording;
+  const rest = n ? n.before + (n.action?.text ?? '') + n.after : '';
+  return v.head && rest ? `${v.head} ${rest}` : v.head || rest;
 }
 
 export interface ChipView {
   id: string;
   label: string;
   pressed: boolean;
-  tag: 'Full checks' | 'Basic checks';
+  /** The level that will really run; none for a question that cannot be answered here (replay: needs live; no level is earned). */
+  tag: 'Full checks' | 'Basic checks' | null;
   /** Replay: nothing recorded for it (availability 'none'). Unknown availability is not 'none'. */
   needsLive: boolean;
 }
 
-/** The chips: every tag (the selected one too) is the level that will really run (session questions, levelFor). */
+/**
+ * The chips: every tag (the selected one too) is the level that will really run (session questions, levelFor); a
+ * question the demo cannot answer (replay, nothing recorded) carries "needs live" alone: its level will never run here. Questions this page can answer come first, the ones that
+ * need the version on the viewer's computer after them (each group in list order).
+ */
 export function chipsOf(questions: readonly SuggestedQuestion[], selected: string | null, availability: Record<string, Availability>): ChipView[] {
-  return questions.map((q) => {
-    const pressed = q.id === selected;
-    return { id: q.id, label: q.label, pressed, tag: q.level === 'full' ? 'Full checks' : 'Basic checks', needsLive: availability[q.id] === 'none' };
+  const chips = questions.map((q): ChipView => {
+    const needsLive = availability[q.id] === 'none';
+    const tag = needsLive ? null : q.level === 'full' ? 'Full checks' : 'Basic checks';
+    return { id: q.id, label: q.label, pressed: q.id === selected, tag, needsLive };
   });
+  return [...chips.filter((c) => !c.needsLive), ...chips.filter((c) => c.needsLive)];
+}
+
+/**
+ * What "needs live" means, said once near the chips whenever any chip carries it (replay only: live mode answers every
+ * question). The number of questions with an answer here is counted, not typed in; null when there is nothing to explain.
+ */
+export function needsLiveLegend(chips: ReadonlyArray<Pick<ChipView, 'needsLive'>>, mode: 'live' | 'replay'): string | null {
+  if (mode !== 'replay' || !chips.some((c) => c.needsLive)) return null;
+  const n = chips.filter((c) => !c.needsLive).length;
+  if (n === 0) return 'needs live: this demo has no recorded answers for these questions; they need the version on your computer.';
+  return `needs live: this demo has recorded answers for ${n === 1 ? 'one question' : `${n} questions`}; the others need the version on your computer.`;
+}
+
+/**
+ * The legend with its way forward: the README's steps, in a new tab so the page and what was picked stay as they are.
+ * `link` false leaves the link out where the same link is already on screen (step by step's dead-end message).
+ */
+export function NeedsLiveLegend({ text, class: cls, link = true }: { text: string; class: string; link?: boolean }) {
+  return (
+    <p class={cls}>
+      {text}
+      {link && (
+        <>
+          {' '}
+          <a class="fd-ask__run" href={RUN_LOCALLY_URL} target="_blank" rel="noopener">
+            How to run it on your computer
+            <span class="fd-sr"> (the README on GitHub, opens in a new tab)</span>
+          </a>
+        </>
+      )}
+    </p>
+  );
+}
+
+/** The no-recording sentence with `try it` as a real button (it selects the question that has a recorded answer). */
+export function NoRecordingSentence({ view, onTry, busy = false }: { view: NoRecordingView; onTry: (id: string) => void; busy?: boolean }) {
+  const a = view.action;
+  return (
+    <>
+      {view.before}
+      {a && (
+        <button type="button" class="fd-tryit" aria-disabled={busy || undefined} onClick={() => !busy && onTry(a.id)}>
+          {a.text}
+        </button>
+      )}
+      {view.after}
+    </>
+  );
 }
 
 export function AskCard({ engine, session }: { engine: Engine; session?: Session }) {
@@ -85,13 +161,27 @@ export function AskCard({ engine, session }: { engine: Engine; session?: Session
   const chips = chipsOf(s.questions.value, s.questionId.value, avail);
   // once the no-recording card below says it, the level line does not repeat it
   const said = s.outcome.value.kind === 'no-recording';
+  const mode = engine.state.value.mode;
   const line = q
-    ? levelLine({ level: q.level, agreement, availability: said ? undefined : avail[q.id], ownData: s.source.value === 'own', recordedOther: s.recordedOther.value, mode: engine.state.value.mode })
-    : '';
+    ? levelLineView({
+        level: q.level,
+        agreement,
+        availability: avail[q.id],
+        ownData: s.source.value === 'own',
+        recordedOther: s.recordedOther.value,
+        mode,
+        quiet: said,
+      })
+    : null;
+  const legend = needsLiveLegend(chips, mode);
 
   const pick = (id: string) => {
     if (!canChange) return;
     void s.selectQuestion(id);
+  };
+  // `try it`: the sentence it sits in goes away once the other question is selected, so focus goes to Ask
+  const tryOther = (id: string) => {
+    void s.selectQuestion(id).then(() => document.getElementById(ASK_BUTTON_ID)?.focus());
   };
   const ask = () => {
     if (!canAsk) return;
@@ -115,11 +205,12 @@ export function AskCard({ engine, session }: { engine: Engine; session?: Session
             onClick={() => pick(c.id)}
           >
             {c.label}
-            <span class="fd-ask__tag">{c.tag}</span>
+            {c.tag && <span class="fd-ask__tag">{c.tag}</span>}
             {c.needsLive && <span class="fd-ask__live">{NEEDS_LIVE}</span>}
           </button>
         ))}
       </div>
+      {legend && <NeedsLiveLegend text={legend} class="fd-ask__legend" />}
       <div class="fd-ask__row">
         <p id={ASK_BOX_ID} class={`fd-ask__picked${q ? '' : ' is-empty'}`}>
           {q ? (
@@ -136,7 +227,13 @@ export function AskCard({ engine, session }: { engine: Engine; session?: Session
           <Arrow />
         </button>
       </div>
-      {line && <p class="fd-ask__level">{line}</p>}
+      {line && (line.head || line.noRecording) && (
+        <p class="fd-ask__level">
+          {line.head}
+          {line.head && line.noRecording ? ' ' : ''}
+          {line.noRecording && <NoRecordingSentence view={line.noRecording} onTry={tryOther} busy={!canChange} />}
+        </p>
+      )}
     </div>
   );
 }

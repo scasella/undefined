@@ -1,14 +1,13 @@
-/* The first run's top (V3-Door-FirstRun 65-79): eyebrow, a task h1, the three steps in a row. Kept short on purpose. */
+/* The first run's top (V3-Door-FirstRun 65-79): eyebrow, a task h1, the three steps in a row. Kept short on purpose.
+   The step numbers are plain Recess Grey chips: none is filled or tinted, so none reads as "you are here". */
 .fd-intro { padding: 32px 0 8px; }
 .fd-intro__h {
   margin: 8px 0 0; max-width: 860px;
-  font-size: clamp(26px, 2.6vw, 32px); line-height: 1.15; font-weight: 600; letter-spacing: -0.025em; color: var(--fd-ink);
+  font-size: clamp(26px, 3vw, 36px); line-height: 1.15; font-weight: 600; letter-spacing: -0.025em; color: var(--fd-ink);
 }
 .fd-intro__steps { margin: 12px 0 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 4px 24px; }
 .fd-intro__step { display: flex; align-items: center; gap: 8px; font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
 .fd-intro__num {
   flex: none; width: 22px; height: 22px; border-radius: 999px; display: flex; align-items: center; justify-content: center;
-  font-size: 12px; font-weight: 500; background: var(--fd-indigo-wash); color: var(--fd-indigo-hover);
-  transition: background-color 200ms ease, color 200ms ease;
+  font-size: 12px; font-weight: 500; background: var(--fd-surface-2); color: var(--fd-ink-2);
 }
-.fd-intro__step.is-lit .fd-intro__num { background: var(--tr-bg); color: var(--tr-text); }

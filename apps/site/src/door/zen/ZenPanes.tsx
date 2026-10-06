@@ -1,8 +1,11 @@
 /** Step by step · the panes that are not already a shared component: the question (2) and "what your answer must pass" (3). */
 import { useRef, useState } from 'preact/hooks';
 import type { Engine } from '@scasella/undefined-engine/types';
-import { CheckDisc, NotChecked } from '../icons';
-import { chipsOf } from '../start/AskCard';
+import { NotChecked } from '../icons';
+import { matchQuestion } from '../model/questions';
+import { chipsOf, NeedsLiveLegend, needsLiveLegend, NoRecordingSentence } from '../start/AskCard';
+import { RUN_LOCALLY_URL } from '../components/DemoNote';
+import type { NoRecordingView } from '../start/derive';
 import { sessionFor } from '../start/session';
 import { CONTINUE_WHY_ID, isTypedQuestion, zenChecks, zenChecksSummary, type ZenCheck } from './flow';
 import { ZenTable } from './ZenTable';
@@ -22,19 +25,40 @@ const OWN_REPLAY_NOTE = 'In this demo, answers are recorded, so a question you t
 
 /**
  * Why Continue / Run is off, said where the cause is: right under the selected question (a status region that exists
- * before it has text, so the change is spoken; the buttons point at it with aria-describedby). Replay only: in live
- * mode no question needs the version on the viewer's computer, so there is nothing to say and nothing is drawn.
+ * before it has text, so the change is spoken; the buttons point at it with aria-describedby). `view` is the
+ * no-recording sentence in pieces (its `try it` is a real button) followed by the way to run it on the viewer's
+ * computer; `text` is any other reason ("Pick a question to continue."). Replay only for the first: in live mode no
+ * question needs the version on the viewer's computer, so there is nothing to say and nothing is drawn.
  */
-function Why({ text, replay }: { text: string; replay: boolean }) {
-  if (!replay) return null;
+function Why({ text, view, replay, onTry }: { text: string; view: NoRecordingView | null; replay: boolean; onTry: (id: string) => void }) {
+  if (!replay && !text) return null;
   return (
     <p id={CONTINUE_WHY_ID} class="zp__why" role="status">
-      {text}
+      {view ? (
+        <>
+          <NoRecordingSentence view={view} onTry={onTry} />{' '}
+          <a class="fd-ask__run" href={RUN_LOCALLY_URL} target="_blank" rel="noopener">
+            How to run it on your computer
+            <span class="fd-sr"> (the README on GitHub, opens in a new tab)</span>
+          </a>
+        </>
+      ) : (
+        text
+      )}
     </p>
   );
 }
 
-export function ZenQuestion({ engine, why = '' }: { engine: Engine; why?: string }) {
+export interface WhyProps {
+  /** The reason in plain words (flow.ts continueReason), '' when there is none. */
+  why?: string;
+  /** The reason as the no-recording sentence with its button, when that is the reason. */
+  whyView?: NoRecordingView | null;
+  /** `try it`: select the question that has a recorded answer (and put focus on the forward button). */
+  onTry?: (id: string) => void;
+}
+
+export function ZenQuestion({ engine, why = '', whyView = null, onTry = () => undefined }: { engine: Engine } & WhyProps) {
   const s = sessionFor(engine);
   const q = s.question.value;
   const canChange = s.canChange.value;
@@ -42,9 +66,11 @@ export function ZenQuestion({ engine, why = '' }: { engine: Engine; why?: string
   const chips = chipsOf(s.questions.value, s.questionId.value, avail);
   const [text, setText] = useState('');
   const group = useRef<HTMLDivElement>(null);
-  const dataset = s.dataset.value;
-  const rows = s.rows.value;
-  const replay = engine.state.value.mode === 'replay';
+  const mode = engine.state.value.mode;
+  const replay = mode === 'replay';
+  const legend = needsLiveLegend(chips, mode);
+  // the words of a question that is already on the list select it: nothing is added, so the note about a new one is not said
+  const already = text.trim().length >= 3 && matchQuestion(text, s.questions.value) !== null;
 
   const submit = (e?: Event) => {
     e?.preventDefault();
@@ -65,8 +91,8 @@ export function ZenQuestion({ engine, why = '' }: { engine: Engine; why?: string
               aria-disabled={!canChange || undefined}
               onClick={() => canChange && void s.selectQuestion(c.id)}
             >
-              {c.label}
-              <span class="zp__tag fd-mono">{c.tag}</span>
+              <span class="zp__q">{c.label}</span>
+              {c.tag && <span class="zp__tag fd-mono">{c.tag}</span>}
               {c.needsLive && <span class="zp__live fd-mono">needs live</span>}
             </button>
             {isTypedQuestion(c.id) && (
@@ -85,6 +111,8 @@ export function ZenQuestion({ engine, why = '' }: { engine: Engine; why?: string
           </div>
         ))}
       </div>
+      {/* the dead-end message below carries the same link: not twice */}
+      {legend && <NeedsLiveLegend text={legend} class="zp__legend" link={whyView === null} />}
       <form class="zp__form" onSubmit={submit}>
         <label for={ZEN_QUESTION_ID} class="zp__label">
           Or type your own question
@@ -104,27 +132,51 @@ export function ZenQuestion({ engine, why = '' }: { engine: Engine; why?: string
             Use this question
           </button>
         </div>
-        {replay && text.trim().length >= 3 && <p class="zp__note">{OWN_REPLAY_NOTE}</p>}
+        {replay && text.trim().length >= 3 && !already && <p class="zp__note">{OWN_REPLAY_NOTE}</p>}
       </form>
       {q && (
         <p class="zp__picked" role="status">
           Asking: <strong>{q.text}</strong>
         </p>
       )}
-      <Why text={why} replay={replay} />
-      {dataset && rows && (
-        <div class="zp__data">
-          <h2 class="zp__h2">Your data</h2>
-          <ZenTable dataset={dataset} rows={rows} name={s.fileName.value || dataset.name} />
-        </div>
-      )}
+      <Why text={why} view={whyView} replay={replay} onTry={onTry} />
+    </div>
+  );
+}
+
+/**
+ * "Your data", the whole table (scrollable). It comes AFTER the pane's buttons (Zen.tsx renders it under the nav): the
+ * table is reference, and above the buttons its 320px would push Continue below the fold.
+ */
+export function ZenYourData({ engine }: { engine: Engine }) {
+  const s = sessionFor(engine);
+  const dataset = s.dataset.value;
+  const rows = s.rows.value;
+  if (!dataset || !rows) return null;
+  return (
+    <div class="zp__data">
+      <h2 class="zp__h2">Your data</h2>
+      <ZenTable dataset={dataset} rows={rows} name={s.fileName.value || dataset.name} />
     </div>
   );
 }
 
 const TAG_CLASS: Record<ZenCheck['state'], string> = { always: 'is-on', applies: 'is-on', none: 'is-off', after: 'is-off', held: 'is-off' };
 
-export function ZenChecks({ engine, why = '' }: { engine: Engine; why?: string }) {
+/**
+ * A check that WILL run: a dashed ring (dashed = not established, drawn in the body ink) with a dot at its centre. Nothing
+ * has run on this pane, so nothing is green; the green disc is for a check that passed (the trace and the answer).
+ */
+function WillRun() {
+  return (
+    <svg aria-hidden="true" focusable="false" width="18" height="18" viewBox="0 0 16 16" class="zp__will">
+      <circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2.4 2" />
+      <circle cx="8" cy="8" r="2" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function ZenChecks({ engine, why = '', whyView = null, onTry = () => undefined }: { engine: Engine } & WhyProps) {
   const s = sessionFor(engine);
   const q = s.question.value;
   const agreement = s.agreement.value;
@@ -136,12 +188,12 @@ export function ZenChecks({ engine, why = '' }: { engine: Engine; why?: string }
       <p class="zp__lede">
         {q ? <>Before you see an answer to “{q.text}”, it has to pass these.</> : 'Pick a question first.'}
       </p>
-      <Why text={why} replay={mode === 'replay'} />
+      <Why text={why} view={whyView} replay={mode === 'replay'} onTry={onTry} />
       <ol class="zp__checks" aria-label="The six checks">
         {rows.map((c) => (
           <li key={c.num} class={'zp__check ' + TAG_CLASS[c.state]}>
             <span class="zp__num fd-mono">{c.num}</span>
-            <span class="zp__ico">{c.state === 'always' || c.state === 'applies' ? <CheckDisc size={18} /> : <NotChecked size={18} />}</span>
+            <span class="zp__ico">{c.state === 'always' || c.state === 'applies' ? <WillRun /> : <NotChecked size={18} />}</span>
             <span class="zp__body">
               <span class="zp__label">{c.label}</span>
               <span class="zp__note">{c.note}</span>

@@ -18,8 +18,8 @@ import { dayText } from '../model/agreement';
 import { ghostFromAttempts, type LaneFacts } from '../model/lanes';
 import { AskDiamond, CheckDisc, ThrownOut } from '../icons';
 import { Button } from '../components/LinkButton';
-import { ASK_BUTTON_ID } from './AskCard';
-import { matchRun, type RunOutcome } from './derive';
+import { ASK_BUTTON_ID, NoRecordingSentence } from './AskCard';
+import { matchRun, noRecordingView, type RunOutcome } from './derive';
 import { sessionFor, type Session } from './session';
 import './RunStates.css';
 
@@ -249,7 +249,10 @@ export function RunStates({ engine, session }: { engine: Engine; session?: Sessi
         <h3 class="fd-rs__no-h" tabIndex={-1} ref={headRef}>
           No recorded answer for this one.
         </h3>
-        <p class="fd-rs__p">{s.noRecording.value || o.message}</p>
+        <p class="fd-rs__p">
+          {/* the same sentence as ever, with `try it` a real button (it does what the button below does) */}
+          {s.noRecording.value ? <NoRecordingSentence view={noRecordingView(s.source.value === 'own', other)} onTry={tryOther} busy={busy} /> : o.message}
+        </p>
         <div class="fd-rs__actions">
           {other && (
             <Button variant="secondary" aria-disabled={busy || undefined} onClick={() => !busy && tryOther(other.id)}>

@@ -18,7 +18,7 @@ export function Intro() {
         </h1>
         <ol aria-label="How it works" class="fd-intro__steps">
           {steps.map((s) => (
-            <li key={s.n} class={'fd-intro__step' + (s.lit ? ' is-lit' : '')}>
+            <li key={s.n} class="fd-intro__step">
               <span class="fd-intro__num fd-mono" aria-hidden="true">
                 {s.n}
               </span>

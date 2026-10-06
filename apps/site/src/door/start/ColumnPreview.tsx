@@ -48,6 +48,7 @@ export function ColumnPreview({ engine }: { engine: Engine }) {
       ) : (
         <p class="fd-cols__empty">{PREVIEW_EMPTY}</p>
       )}
+      {m?.note && <p class="fd-cols__note">{m.note}</p>}
       <p class="fd-cols__foot">{PREVIEW_FOOTNOTE}</p>
     </div>
   );

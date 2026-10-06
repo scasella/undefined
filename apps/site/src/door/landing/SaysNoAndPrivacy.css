@@ -10,7 +10,7 @@
 /* request chips */
 .fd-sn__chips { margin-top: 20px; display: flex; flex-wrap: wrap; gap: 8px; }
 .fd-sn__chip {
-  min-height: 44px; padding: 0 14px; border-radius: 999px; border: 0; font-family: inherit; font-size: 14px; line-height: 20px;
+  min-height: 44px; padding: 10px 14px; border-radius: 999px; border: 0; font-family: inherit; font-size: 14px; line-height: 20px;
   font-weight: 500; cursor: pointer; transition: box-shadow 120ms ease;
   background: var(--fd-surface); color: var(--fd-ink-2); box-shadow: var(--fd-sh-ring-2);
 }
@@ -24,7 +24,7 @@
   color: var(--fd-ink-3);
 }
 .fd-sn__no-h { margin-top: 10px; font-size: 16px; line-height: 22px; font-weight: 600; }
-.fd-sn__no-p { margin: 6px 0 0; font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
+.fd-sn__no-p { margin: 6px 0 0; max-width: var(--fd-measure); font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
 .fd-sn__b { font-weight: 600; color: var(--fd-ink); }
 .fd-sn__saved { margin: 10px 0 0; font-size: 12px; line-height: 17px; font-weight: 500; color: var(--fd-ink-3); }
 
@@ -46,5 +46,5 @@
   background: var(--fd-surface-2); border-radius: var(--fd-r-sm); padding: 8px 10px; overflow-x: auto; white-space: nowrap;
 }
 .fd-sn__off { display: block; margin-top: 6px; font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
-.fd-sn__fine { margin: 16px 0 0; font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
+.fd-sn__fine { margin: 16px 0 0; max-width: var(--fd-measure); font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
 .fd-sn__link { display: inline-flex; align-items: center; margin-top: 6px; min-height: 44px; font-size: 14px; font-weight: 500; }

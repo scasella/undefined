@@ -105,6 +105,14 @@ function StressStrip() {
   );
 }
 
+/** The missed break's "?" in the stress strip, drawn (8px) rather than set in type, so the strip has no 8px text. */
+const QUESTION_MARK = (
+  <svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+    <path d="M2.2 2.6a1.8 1.8 0 1 1 2.6 1.6c-.6.3-.8.7-.8 1.3" />
+    <path d="M4 7.1v.01" />
+  </svg>
+);
+
 export function EvidenceStrip() {
   const [stress, setStress] = useState(false);
   const [why, setWhy] = useState(false);
@@ -126,7 +134,7 @@ export function EvidenceStrip() {
           <div class="fd-ev-tile">
             <Head t={tile('breaks')} />
             <div aria-hidden="true" class="fd-ev-ticks fd-ev-ticks--stress">
-              {ILLUSTRATIVE_BREAKS.map((_, i) => (i === MISSED ? <span key={i} class="is-missed">?</span> : <span key={i} />))}
+              {ILLUSTRATIVE_BREAKS.map((_, i) => (i === MISSED ? <span key={i} class="is-missed">{QUESTION_MARK}</span> : <span key={i} />))}
             </div>
             <button type="button" class="fd-ev-link fd-ev-link--block" aria-expanded={stress ? 'true' : 'false'} onClick={() => setStress(!stress)}>
               {stress ? `Hide the ${ILLUSTRATIVE_BREAKS.length} breaks` : `See all ${ILLUSTRATIVE_BREAKS.length} and the one they missed`}

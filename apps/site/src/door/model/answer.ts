@@ -38,7 +38,7 @@ export type AnswerKind = 'ranked' | 'scalar' | 'empty' | 'table' | 'raw';
 
 export interface AnswerView {
   kind: AnswerKind;
-  /** 'Fig. 1 · Top 5 customers by revenue · … · orders.csv · 332 rows · Version 3' */
+  /** 'Fig. 1 · Top 5 customers by revenue · … · orders.csv · 332 rows · Version 4' */
   fig: string;
   /** e.g. 'Top 5 customers by revenue' (used in the card's aria-label: 'Answer: ' + title). */
   title: string;

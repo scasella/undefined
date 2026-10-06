@@ -4,14 +4,14 @@
  * <AnswerCard variant="start"/>. Confirming an assumption is the viewer's own note on this answer (local state, reset
  * when a new run starts); locking is the engine's (session.toggleLock).
  */
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Engine, GenerationView } from '@scasella/undefined-engine/types';
 import { AnswerCard } from '../components/AnswerCard';
 import { CheckTrace } from '../components/CheckTrace';
 import { Button } from '../components/LinkButton';
 import { downloadBytes, HANDOFF_LABEL, handoffView, handoffZip, loadEject, type EjectModule } from '../model/handoff';
 import { LIVE_TIMING } from '../model/traceScript';
-import { matchRun } from './derive';
+import { giveUpOnStress, matchRun, STRESS_PATIENCE_MS } from './derive';
 import { RunStates } from './RunStates';
 import { sessionFor, type Session } from './session';
 import './RunPanel.css';
@@ -31,30 +31,61 @@ export interface DraftingView {
   liveText: string;
 }
 
+/** '4 s', '1 min 5 s': whole seconds, the way the counter under the trace reads. */
+export function elapsedText(ms: number): string {
+  const total = Math.max(0, Math.floor((Number.isFinite(ms) ? ms : 0) / 1000));
+  return total < 60 ? `${total} s` : `${Math.floor(total / 60)} min ${total % 60} s`;
+}
+
 /**
  * While the AI is still writing a draft (the engine's generation phase 'generating': the model's writing time, replayed
  * from the recording in the demo) no check has run on that draft, so the trace must not say "checking…". Returns the
  * words for that wait, or null once the checks are running (phase 'gating') or the run is over. The phase is the
- * engine's own. No duration and no "recorded pace" is claimed: the replay compresses a recording longer than its cap
- * (core/generator.ts ReplayGenerator), the view cannot say whether that happened, and the recorded duration is only
- * known after the attempt (Candidate.generationMs).
+ * engine's own.
+ *
+ * `elapsedMs` is how long this wait has lasted on the viewer's clock (the run panel counts it from the moment the draft
+ * began), shown as a counter so the wait is not a still picture. It is the time the viewer has waited, never a measured
+ * model time: in the demo the draft is replayed from the recording (which the replay may compress, core/generator.ts
+ * ReplayGenerator), so the words say it is a replay and that the seconds count the replay. The recorded duration itself
+ * is only known after the attempt (Candidate.generationMs), so none is claimed. Without `elapsedMs` there is no counter.
  */
-export function draftingView(gen: Pick<GenerationView, 'phase' | 'mode' | 'kind' | 'attempt'> | null): DraftingView | null {
+export function draftingView(gen: Pick<GenerationView, 'phase' | 'mode' | 'kind' | 'attempt'> | null, elapsedMs?: number): DraftingView | null {
   if (!gen || gen.phase !== 'generating' || gen.kind === 'recheck') return null;
   const draft = gen.attempt > 0 ? `draft ${gen.attempt}` : 'a draft';
   const trust = 'Nothing it writes is trusted until it passes the checks.';
+  const secs = elapsedMs === undefined ? null : elapsedText(elapsedMs);
   if (gen.mode === 'replay') {
     return {
-      runningText: 'drafting · from the recording',
-      footer: { text: `Replaying the AI's recorded ${draft}. The checks on it start next. ${trust}`, meta: 'drafting · checks start next' },
+      runningText: secs === null ? 'drafting · from the recording' : `replaying the recorded draft · ${secs}`,
+      footer: {
+        text: `Replaying the AI's recorded ${draft}. The checks on it start next. ${trust}${secs === null ? '' : " The seconds count this replay, not the AI's own writing time."}`,
+        meta: 'drafting · checks start next',
+      },
       liveText: `Replaying the recorded ${draft}. Checking starts when it is done.`,
     };
   }
   return {
-    runningText: 'drafting…',
+    runningText: secs === null ? 'drafting…' : `drafting · ${secs}`,
     footer: { text: `The AI is writing ${draft}. The checks on it start next. ${trust}`, meta: 'drafting · checks start next' },
     liveText: `The AI is writing ${draft}. Checking starts when it is done.`,
   };
+}
+
+/**
+ * Milliseconds since `key` first became active (0 while inactive), re-read every second while it is. The count restarts
+ * when the key changes (a new draft) and the interval is gone as soon as the draft is, so nothing ticks after checking
+ * starts. Text only: no animation, so reduced motion needs nothing.
+ */
+function useElapsed(active: boolean, key: string): number {
+  const since = useRef<{ key: string; at: number } | null>(null);
+  const [, tick] = useState(0);
+  if (active && since.current?.key !== key) since.current = { key, at: performance.now() };
+  useEffect(() => {
+    if (!active) return;
+    const id = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, [active, key]);
+  return active && since.current ? performance.now() - since.current.at : 0;
 }
 
 export function RunPanel({
@@ -77,7 +108,16 @@ export function RunPanel({
   const o = s.outcome.value;
   const run = s.run.value;
   const key = confirmKey(run);
-  const drafting = o.kind === 'running' ? draftingView(matchRun(s.engine.state.value, run).generation) : null;
+  const match = run ? matchRun(s.engine.state.value, run) : null;
+  const draftGen = o.kind === 'running' ? (match?.generation ?? null) : null;
+  const drafting = draftingView(draftGen, useElapsed(draftingView(draftGen) !== null, `${run?.id ?? 0}:${draftGen?.id ?? ''}:${draftGen?.attempt ?? 0}`));
+  // only the stress test is left and the answer is held for it: stop waiting after STRESS_PATIENCE_MS, so it is never held for good
+  const stressOutputId = o.kind === 'running' && o.stress ? (match?.output?.id ?? null) : null;
+  useEffect(() => {
+    if (stressOutputId === null) return;
+    const id = setTimeout(() => giveUpOnStress(stressOutputId), STRESS_PATIENCE_MS);
+    return () => clearTimeout(id);
+  }, [stressOutputId]);
   const [confirmed, setConfirmed] = useState<{ key: string; ids: ReadonlySet<string> }>({ key, ids: new Set() });
   const ids = confirmed.key === key ? confirmed.ids : new Set<string>();
   useEffect(() => {
@@ -108,8 +148,10 @@ export function RunPanel({
         heldCaption={a.heldCaption}
         reveal={o.kind === 'committed' && run ? { delay: LIVE_TIMING.dur, run: run.id } : null}
         level={a.level}
+        seal={a.seal}
         locked={a.locked}
         lockHelp={a.lockHelp}
+        {...(a.lockNote ? { lockNote: a.lockNote } : {})}
         mode={s.engine.state.value.mode}
         {...(lockable ? { onToggleLock: () => void s.toggleLock() } : {})}
         // not `disabled` while busy: that would drop focus to <body> on click; session.toggleLock ignores a busy click
@@ -118,6 +160,7 @@ export function RunPanel({
         confirmed={ids}
         onConfirm={(id) => setConfirmed({ key, ids: new Set([...ids, id]) })}
         checked={a.checked}
+        checkedAsk={a.checkedAsk}
         notChecked={a.notChecked}
         {...(zen ? {} : { houseRuleHref: HOUSE_RULE_HREF })}
       />}

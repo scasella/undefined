@@ -7,6 +7,14 @@
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px 16px;
   font-size: 12px; line-height: 17px; color: var(--fd-ink-2);
 }
+/* Phones: the claim, the version line and the link run on as one paragraph (each piece is inline), and the "·" between
+   the version and the link is dropped, since it would hang on the end of a line when they wrap. Four lines become three
+   on the landing and two on the first run; every word is still there. */
+@media (max-width: 480px) {
+  .fd-honesty__in { display: block; }
+  .fd-honesty__claim, .fd-honesty__meta { display: inline; }
+  .fd-honesty__dot { display: none; }
+}
 /* The link is a 44px target around its 12px text: 14px of padding each way, taken back by the same negative margin, so
    neither the line nor the bar grows (the target overlaps the bar's own padding, and may reach a couple of px past it). Being
    inline-block it also moves to the next line whole instead of breaking in two. The focus ring is pulled in to hug the text. */

@@ -19,7 +19,51 @@ spacing, colours, motion, a11y attributes), translated into Preact + CSS files w
 |---|---|---|
 | `#/` (default) | Landing: telemetry bar, hero claim, live example stage (check trace + answer + agreement rail), evidence strip, order-of-work, definition ladder, "agree once", "it asks", "says no" + privacy, team file + honest limits, footer, honesty bar | `V3-Door-Landing` |
 | `#/start` | The full first run, for people who want everything on one page (reached from the landing's footer, "Full view of the demo", and from the step-by-step page's "Full view"): a short task heading, bring a file (drop / paste / sample), ask a question, live check trace, answer, the file's columns, right rail (what the AI will see, your agreement, demo note). Not redirected; `scripts/record-door.mjs` and `replay-check.mjs` open it | `V3-Door-FirstRun` |
-| `#/zen` | **Step by step** (the route is still `#/zen`): where first-time visitors are sent (every "Try the demo" / "Run it on your own file" button, and the top bar's "Step by step" button). A five-pane walk-through in a bare single column (1 bring data · 2 ask · 3 what the answer must pass, the six checks each tagged in the check trace's own words: `Always` (01 and 05) or `Applies` (the other four, when they will run), `No examples yet` / `Nothing locked yet` / `No house rules yet` / `Needs your rules first` (the stress test) when there is nothing to run it on, and `Not re-run` when the agreement holds it but the answer on file was checked before it was set (`zen/flow.ts` `zenChecks`, `model/lanes.ts` `OFF_NOTES`) · 4 the live check trace, which starts the run and hands over by itself once it commits · 5 the answer, download, ask again). Same session and components as `#/start`; nothing scripted | (no board; `src/door/zen/`) |
+| `#/zen` | **Step by step** (the route is still `#/zen`): where first-time visitors are sent (the landing's "Try the demo" buttons and the top bar's "Step by step" button; in the demo the landing's second hero button reads "Use your own file: run it on your computer" and goes to `#own-file` instead, `landing/teamFileView.ts` `ownFileCta`, and only on a live copy does it lead here). A five-pane walk-through in a bare single column (1 bring data · 2 ask · 3 what the answer must pass, the six checks each tagged in the check trace's own words: `Always` (01 and 05) or `Applies` (the other four, when they will run), `No examples yet` / `Nothing locked yet` / `No house rules yet` / `Needs your rules first` (the stress test) when there is nothing to run it on, and `Not re-run` when the agreement holds it but the answer on file was checked before it was set (`zen/flow.ts` `zenChecks`, `model/lanes.ts` `OFF_NOTES`) · 4 the live check trace, which starts the run and hands over by itself once it commits · 5 the answer, its one-line proof, download, ask again). Same session and components as `#/start`; nothing scripted. What each pane does is under "Step by step, pane by pane" below | (no board; `src/door/zen/`) |
+
+## Step by step, pane by pane (`src/door/zen/`)
+
+- **Where it opens** (`zen/flow.ts` `openingStep`). The shared session (`start/session.ts`) carries the file, the selected
+  and typed questions and the run from `#/start` to `#/zen` and back, so a visitor who comes over is put where they were:
+  pane 5 when an answer is shown, pane 4 while a run is still going, pane 2 when a file is bound and nothing was asked, pane 1
+  with no data. The carried run is never `pending` (the engine's own state says whether it is still going), and its id is
+  not reused or counted twice in the telemetry.
+- **1 · Bring your data.** Continue is aria-disabled until data is bound and says why next to it ("Choose a sample or bring a
+  file to continue."), tied to the button with `aria-describedby`. Binding closes the picker and the button that was pressed
+  with it, so focus is sent to Continue on purpose (`ZEN_CONTINUE_ID`) and a screen reader hears "<file> is ready.".
+- **2 · Ask a question.** In this order: the suggestion chips, one line saying what "needs live" means (replay only, when any
+  chip carries it), the typed-question field, the "Asking:" line, the reason Continue is off (id `zen-why`), Back / Continue,
+  and only then "Your data" (the whole table, scrollable, with the plain note about columns read as text,
+  `model/columnNotes.ts`). The table is reference and 320px tall: above the buttons it pushed Continue off the screen
+  (y 970 at 1440x900, 1062 at 390x844; it is now at 650 and 693).
+- **3 · What your answer must pass.** The six checks as a list. Nothing has run on this pane, so none of them is green: a
+  check that will run (`Always` / `Applies`) carries a neutral dashed ring with a dot, a check that will not run keeps the
+  plain dashed ring and its tag (`No examples yet` …). Green appears only after a pass (the trace, the answer). The sentence
+  under the list follows the seal rule: for Full checks the answer appears after all six have run, the first five must pass,
+  and the stress test reports how many of its deliberate breaks the checks caught.
+- **4 · Checking** is the live trace and hands over to pane 5 by itself once it commits.
+- **5 · Your answer** keeps the proof: under the answer, one line cut from the trace's own header and footer (`start/derive.ts`
+  `traceSummary`: `Passed every check · stress test caught 8 of 12 · real run 0.08 s`, `Passed 2 basic checks · real run
+  0.08 s`, or, for an answer certified earlier, what the footer says, never "real run"), and a "See the checks" button
+  (`aria-expanded` / `aria-controls`, collapsed by default) that opens the full check trace of that run, the same component
+  and props as pane 4 (`zen/ZenProof.tsx`). Nothing plays when it opens, so reduced motion needs nothing.
+
+### Suggested and typed questions (`#/start` and `#/zen`)
+
+- **Order.** Chips this page can answer come first (a recording, or an answer already on file), the ones that need the
+  version on your computer after them, each group in its own order (`start/AskCard.tsx` `chipsOf`). Until what can be
+  answered is known nothing moves.
+- **"needs live"** is defined once, next to the chips, whenever any chip carries it in replay: "needs live: this demo has
+  recorded answers for one question; the others need the version on your computer." (the number is counted) with the "How
+  to run it on your computer" link (`RUN_LOCALLY_URL`, the README). Step by step's dead-end message carries the same link.
+- **Typing a suggestion's own words** (a label or its plain-words form, any case, spaces, ending punctuation or quote marks)
+  selects that chip and adds nothing (`model/questions.ts` `matchQuestion`).
+- **A question the demo cannot answer** (typed or suggested, replay only) is tagged "needs live" alone: no level is claimed
+  for a calculation that will never run here, and the line under Ask is just the no-recording sentence. In live mode, and for
+  questions that can be answered (recorded, or Full checks), tags and wording are as before.
+- **`try it`** in the no-recording sentence ("“Top 5 customers by revenue” has one: try it.") is a real button that selects
+  that question and moves focus to the way forward (Ask on `#/start`, Continue on `#/zen`). The sentence is the same plain
+  text (`start/derive.ts` `noRecordingText`); `noRecordingView` gives it in pieces.
 
 ## Vocabulary map (the design's words are plain-language names for engine features)
 
@@ -31,14 +75,16 @@ spacing, colours, motion, a11y attributes), translated into Preact + CSS files w
 | 04 Follows your house rules on 100 made-up tables | Properties gate (fast-check, `numRuns`); decisions placed as properties are house rules too |
 | 05 Never changes your data · finishes fast | Invariants gate (pure + bounded) |
 | 06 Stress test: we broke it 12 small ways | Mutation check (`Engine.runMutation`, `state.mutation`, `Evidence.mutation`) |
-| Version N | Revision `rN` an accepted draft was committed at (`Artifact.revision`; the answer card's caption and the honesty bar). NOT `state.headRevision`, which also counts binding a file, installing the demo's agreement, locking and rulings; the first run's bar shows no version until one is committed, and the landing's reads "Example answer: Version 3" |
+| Version N | Revision `rN` an accepted draft was committed at (`Artifact.revision`; the answer card's caption and the honesty bar). NOT `state.headRevision`, which also counts binding a file, installing the demo's agreement, locking and rulings; the first run's bar shows no version until one is committed, and the landing's reads "Example answer: Version 4" (`STAGE_VERSION`, pinned by a test that replays the bundled recording) |
 | Lock this answer | `Engine.pinResult(entryId)` |
 | Draft thrown out | A rejected `AttemptView` / `Candidate` |
 | A question only you can answer | A rejection whose diagnostic carries `silentOn` → `Engine.gapQuestion(ref)` → `Engine.decide(ref, choice, {reason})` |
 | It says no | `GenerationView.declined` (decline protocol: `cannot-be-pure`, `needs-spec`) |
 | What the AI will see / 3 example rows | `Engine.previewDataset().sampleText`, `typeDecl`, `Engine.setSendSamples`, `Candidate.prompt` |
 | Hand your data team a file | Eject (the engine's `eject/eject.ts`, called by `model/handoff.ts`) |
-| How to run it on your computer | The README's "Run it on your computer" section; the landing's HONEST LIMITS card (`#own-file`) links to it |
+| How to run it on your computer | The README's "Run it on your computer" section; the landing's HONEST LIMITS card (`#own-file`) links to it, and so does the demo's second hero button ("Use your own file: run it on your computer") |
+| needs live | Replay mode, a question with no bundled recording for the spec it would run against (`Availability` 'none'): it can only be answered by the version on your computer |
+| See the checks (step 5) | The check trace of the run that gave the answer, collapsed under the answer (`start/derive.ts` `traceSummary`, `zen/ZenProof.tsx`). Not "See the calculation", which on the landing opens the example's code |
 | "Demo · recorded answers, real checks" | `state.mode === 'replay'` (the top bar's mode pill: a disclosure whose note says what runs where and what leaves the browser) |
 | "Step by step" | The `#/zen` walk-through (the UI never says "Zen") |
 | Basic checks vs Full checks | A spec-less call (only Compile + Invariants gate it) vs a spec with tests/properties/pins |
@@ -76,6 +122,12 @@ from the data by `model/figures.ts`, never typed in twice, and `figures.test.ts`
 4. Checked, not proven. The honesty bar and the "Not checked" list are always present.
 5. Privacy copy states exactly what leaves the browser; the example-rows switch is wired to `Engine.setSendSamples`
    (and, in replay mode, nothing is ever sent; say that).
+6. The seal appears only when every check that will run has finished, and the ledger never changes after the reveal. The
+   stress test (check 06) runs last, after the commit, so the answer and the trace's verdict stay held until it has
+   finished (`start/derive.ts` `outcomeOf`) and are then revealed together: the seal reads `Passed every check · stress
+   test caught N of M` (N and M from the engine's mutation report, the same count lane 06 shows, `model/lanes.ts`
+   `stressStatus`); misses are listed under Not checked, and a stress test that did not run is said so (`Passed 5 of 6
+   checks · stress test didn't run`), never as "every check".
 
 ## Source layout (all new code under `apps/site/src/door/`)
 

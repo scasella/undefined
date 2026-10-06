@@ -76,6 +76,12 @@ typography:
     fontWeight: 400
     lineHeight: "24px"
     letterSpacing: "normal"
+  row:
+    fontFamily: "Geist Variable, Geist, ui-sans-serif, system-ui, sans-serif"
+    fontSize: "15px"
+    fontWeight: 400
+    lineHeight: "22px"
+    letterSpacing: "normal"
   body-sm:
     fontFamily: "Geist Variable, Geist, ui-sans-serif, system-ui, sans-serif"
     fontSize: "14px"
@@ -184,13 +190,13 @@ components:
     textColor: "{colors.ink-2}"
     typography: "{typography.control}"
     rounded: "{rounded.sm}"
-    padding: "0 14px"
+    padding: "10px 14px"
     height: "44px"
   segmented-item-selected:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.ink}"
   switch-off:
-    backgroundColor: "{colors.line-2}"
+    backgroundColor: "{colors.ink-3}"
     rounded: "{rounded.pill}"
     width: "40px"
     height: "24px"
@@ -304,7 +310,7 @@ A cool, near-neutral paper palette with one electric indigo, three verdict hues 
 - **Recess Grey** (#F0F2F6): recessed fills: segmented-control track, the veil over a held answer, pressed states, read-back question, code blocks.
 - **Lifted Paper** (#FBFBFD): the faintest step above white: table heads, the "Not checked" panel, secondary-button hover.
 - **Hairline** (#E3E6EC): the 1px ring of cards and dividers.
-- **Control Edge** (#CDD2DB): the 1px ring of buttons and chips, input borders, dashed edges, off-state switch tracks.
+- **Control Edge** (#CDD2DB): the 1px ring of buttons and chips, input borders, dashed edges. (The off-state switch track is not a Control Edge: it is Quiet Slate, so the control reads at 3:1 or better.)
 
 ### Verdict Colors (tertiary, functional)
 - **Passed Green** (#17A36B): the passed disc, ticks and the live-mode dot; **Passed Ink** (#0B6B43) for green text; **Passed Wash** (#E7F6EE) behind a saved house rule.
@@ -318,9 +324,9 @@ A cool, near-neutral paper palette with one electric indigo, three verdict hues 
 ### Named Rules
 **The One Voice Rule.** Indigo is the only accent. A second accent hue would read as a second claim; verdict hues are outcomes, not decoration.
 
-**The Instrument Rule.** Dark is the check trace and the surfaces that quote it. It is never a theme, a page background or a card background. The build quotes the trace in the Fig. 3 version board, the order-of-work "check" step, and the lit step numeral; pen-lime appears on light only as the pulsing mode dot.
+**The Instrument Rule.** Dark is the check trace and the surfaces that quote it. It is never a theme, a page background or a card background. The build quotes the trace in the Fig. 3 version board and the order-of-work "check" step; pen-lime appears on light only as the pulsing mode dot. The first run's three "How it works" numerals are plain Recess Grey chips, none filled dark or tinted, so none reads as the current step.
 
-**The Honest Seal Rule.** Coverage is encoded in the seal, never by colour alone. Full checks: a solid green disc with a check, with the words PASSED EVERY CHECK. Basic checks: a neutral ink ring of six arcs with two drawn and four empty, in ink not green, with PASSED 2 BASIC CHECKS · NOTHING ELSE CHECKED YET. On the trace each lane's verdict is a word beside a drawn glyph: Passed, Thrown out, Not checked.
+**The Honest Seal Rule.** Coverage is encoded in the seal, never by colour alone, and the seal waits for every check that will run. While the stress test is still to come the answer stays veiled and the trace says "stress test next…" or "stress test running…". Full checks: a solid green disc with a check, with the words PASSED EVERY CHECK · STRESS TEST CAUGHT 8 OF 12, revealed together with the answer. If the stress test could not finish, the disc is a partial ring and the words say what ran ("Passed 5 of 6 checks · stress test didn't run" or "… ran out of time"); the seal never says "every check" then. Basic checks: a neutral ink ring of six arcs with two drawn and four empty, in ink not green, with PASSED 2 BASIC CHECKS · NOTHING ELSE CHECKED YET. Deliberate breaks the checks missed are named under Not checked ("4 of 12 deliberate breaks went unnoticed by your checks") and a missed-break line in Checked against uses the amber diamond, not the green disc. After the reveal nothing in the ledger changes. On the trace each lane's verdict is a word beside a drawn glyph: Passed, Thrown out, Not checked.
 
 ## Typography
 
@@ -334,11 +340,12 @@ Both families are self-hosted through @fontsource-variable (latin and latin-ext 
 
 ### Hierarchy
 - **Display** (600, clamp(40px, 5.2vw, 64px), 1.04, -0.035em): the landing headline only.
-- **Headline** (600, clamp(26px, 3vw, 36px), 1.15, -0.025em): landing section titles; the first-run title uses the same shape at clamp(26px, 2.6vw, 32px).
+- **Headline** (600, clamp(26px, 3vw, 36px), 1.15, -0.025em): landing section titles, and the first-run page title (the same step, not a smaller copy of it).
 - **Title Large** (600, 28px, 34px, -0.02em): the step-by-step pane heading; the answer's lead name and the closing claim use 28px/32px at -0.015em.
-- **Title** (600, 22px, 28px, -0.015em): outcome card headings (a question only you can answer, saved house rule), and the privacy and limits cards.
-- **Title Small** (600, 16px, 22px): card and panel headings, "Checked against", "Not checked", "What the AI assumed".
-- **Body** (400, 16px, 24px): reading text in ink-2 or ink; lede and long copy hold to 70ch.
+- **Title** (600, 22px, 28px, -0.015em): outcome card headings (a question only you can answer, saved house rule), the privacy and limits cards, and the ladder's "#1 under these rules" name. There is no 20px or 18px step: a heading is a Title (22) or a Title Small (16).
+- **Title Small** (600, 16px, 22px): card and panel headings, "Checked against", "Not checked", "What the AI assumed", and the drop zone's instruction line.
+- **Body** (400, 16px, 24px): reading text in ink-2 or ink; lede and long copy hold to 48ch (see Layout).
+- **Row** (400 or 500, 15px, 22px; `--fd-fs-row` / `--fd-lh-row`): the one step between Body and Body Small, for a name or an amount in a list row (the answer's ranked rows), a radio option, a list of limits, and the top bar's wordmark (600). It is a list-row size, not a paragraph size: running text is Body or Body Small.
 - **Body Small** (400, 14px, 20px): supporting lines, list items, notes, trace lane labels.
 - **Caption** (400, 13px, 19px): figure captions, helper text, footers, in ink-3 or ink-2.
 - **Control** (500, 14px, 20px): the label of every button, chip, segmented item and text link.
@@ -353,14 +360,14 @@ Both families are self-hosted through @fontsource-variable (latin and latin-ext 
 
 ## Layout
 
-A single-column document that opens into two columns only where there is something to hold beside the main flow. Content sits in a centred wrap of at most 1296px with a fluid gutter of clamp(16px, 4vw, 48px); the top bar's inner row runs wider, to 1440px with 16px padding, so on very wide screens its edge is outside the content edge. Reading measure is held to 70ch. Spacing is an observed rhythm of literals rather than a token set: 4, 8, 12, 16, 20, 24, 32, 48 and 72px (cards pad 20 or 24px, 32px on the landing's two-up cards; sections breathe 48px, and the landing's larger breaks 72px).
+A single-column document that opens into two columns only where there is something to hold beside the main flow. Content sits in a centred wrap of at most 1296px with a fluid gutter of clamp(16px, 4vw, 48px); the top bar's inner row runs wider, to 1440px with 16px padding, so on very wide screens its edge is outside the content edge. Reading measure is held to 48ch (`--fd-measure`): Geist's "0" is 0.66em wide and an average letter 0.46em, so 48ch is about 70 characters a line and the longest line runs to about 75 (the old 70ch ran to 100). Spacing is an observed rhythm of literals rather than a token set: 4, 8, 12, 16, 20, 24, 32, 48 and 72px (cards pad 20 or 24px, 32px on the landing's two-up cards; sections breathe 48px, and the landing's larger breaks 72px).
 
 - **Landing:** hero, then the stage (question row, trace, answer card in the main column; the agreement rail beside it), then an auto-fit evidence grid (`minmax(240px, 1fr)`, 24px gap), full-width bands on white separated by hairlines, and two-up cards (`minmax(min(360px, 100%), 1fr)`). The stage goes two-column from about 1115px (640px main plus a 360px rail plus 24px gap).
-- **Start (Full view):** the left column (data, ask, run, columns) is at least 700px beside a 360px rail; the two columns begin at about 1180px (measured: stacked at 1178px, side by side at 1180px).
+- **Start (Full view):** the left column (file chip, ask, run, columns) is at least 700px beside a 360px rail; the two columns begin at about 1180px (measured: stacked at 1178px, side by side at 1180px). Once a file is bound the bring-a-file panel (tabs, drop zone, sample cards) folds to a one-line file chip with a "Change" button at every width, so the Ask card and the trace are what the page shows (measured at 1440 by 900: Ask at y 262, the trace header at y 562; it was 568 and 868). Pressing Ask scrolls the trace to 16px under the top edge and focuses it (smooth, instant under reduced motion); a shown answer scrolls into view only if its figure is not already on screen.
 - **Step by step:** one centred column, 760px, 24px between panes, with a five-segment step rail above.
 - **Top bar:** wordmark, file chip, mode pill, then (right) the privacy phrase, check counter and the "Step by step" button. Secondary items drop out as the screen narrows, widest first: the privacy phrase under 1360px, the counter under 1200px, the file chip under 860px; under 640px the bar is two rows (wordmark and button, then the mode pill).
 - **Container-driven trace:** the trace lays out by its own width, not the viewport's. At 678px and wider a lane is one row (label, cells, 132px verdict column); under 678px the label sits over the cells with the verdict on the right; under 466px the verdict rises beside the label and the cells take the full row below. The stage's question row switches at 480px of its column, and the file-bring samples sit under or beside the drop card at 640px of their column.
-- **Narrow:** works down to 390px with no horizontal page scroll (measured on the landing, step by step and start). Controls become full-width at 480px and under; the honesty bar is sticky at the bottom and wraps rather than clips.
+- **Narrow:** works down to 390px with no horizontal page scroll (measured on the landing, step by step and start). Controls become full-width at 480px and under; the honesty bar is sticky at the bottom and wraps rather than clips (at 480px and under it runs its pieces on as one paragraph with no dot: 53px on the first run, 70px on the landing at 390).
 
 ## Elevation & Depth
 
@@ -396,6 +403,7 @@ The feel is quiet and exact: controls look like what they are, state is a ring o
 - **Secondary:** Card White fill with a Control Edge ring, ink text, 0 18px padding. Hover tints to Lifted Paper and darkens the ring to Quiet Slate.
 - **Ghost link:** transparent, indigo text, 0 4px padding, 44px tall. Hover turns Pressed Indigo and underlines (3px offset).
 - **Lock this answer:** the primary look with a 1px indigo border; once locked it becomes Indigo Wash with Pressed Indigo text.
+- **Long label:** a button whose label is a sentence (`fd-btn--wrap`, the landing's "Use your own file: run it on your computer") wraps inside it with 10px vertical padding and never runs past its card.
 - **Focus / disabled:** a visible 2px indigo outline with 2px offset on every focusable element. Disabled is 55% opacity with not-allowed (or progress while working) and no hover change.
 
 ### Chips
@@ -404,10 +412,16 @@ The feel is quiet and exact: controls look like what they are, state is a ring o
 - **Agreement lines:** 44px rows, 6px radius, ringed; hover darkens the ring; the selected line takes the Focus ring. A locked line carries a small padlock, and its mono meta line opens with "Locked" in indigo.
 
 ### Segmented control
-- Recess Grey track, 10px radius, 3px padding. Items are 44px tall, 6px radius; the selected item is Card White with a hairline ring and a soft 1px shadow; hover tints an unselected item.
+- Recess Grey track, 10px radius, 3px padding. Items are at least 44px tall (10px vertical padding, so a label that wraps grows the item instead of touching its edge), 6px radius; the selected item is Card White with a hairline ring and a soft 1px shadow; hover tints an unselected item.
 
 ### Switch
-- A 40 by 24px pill track (Control Edge off, Signal Indigo on) with an 18px white knob, set inside a 44 by 44px button so the target is full size while the drawn switch stays small. The focus outline hugs the track.
+- A 40 by 24px pill track (Quiet Slate off, 6:1 against white, Signal Indigo on) with an 18px white knob, set inside a 44 by 44px button so the target is full size while the drawn switch stays small. The focus outline hugs the track.
+
+### File chip (first run)
+- A 52px Card row at 16px left padding: a drawn file glyph, the file line in Geist Mono 13px (`orders.csv · 332 rows · 10 columns`), and a ghost "Change" text button (44px target, 12px padding, Indigo Press Tint when pressed). "Change" opens the bring-a-file panel under the chip and moves focus to its selected tab; it then reads "Close". Picking a file closes the panel and returns focus to the button. The panel stays open, and the button reads "Change", while a refusal or the demo's own-file note is showing.
+
+### Column note (first run)
+- Under the column preview, one plain Body Small sentence in Body Slate names the Text columns whose values look like numbers with separators, percents or dates ("Read as text, so questions about totals or dates can't use them as they are: Net Amt (USD), Tax %.") and says what to export instead. It is a note, not a warning: no colour, no icon, no panel, and it never changes how a file is read.
 
 ### Cards / Containers
 - **Corner Style:** 16px (20px for trace, answer and Fig. 3 board).
@@ -425,7 +439,7 @@ The feel is quiet and exact: controls look like what they are, state is a ring o
 ### Navigation
 - **Top bar:** Card White with a 1px Hairline underline; the wordmark is Geist 15px 600 (-0.01em) beside a rounded-square mark with an indigo tick. The file chip is a ringed 12px chip. The mode pill is a 13px 500 pill with a Control Edge border and a 6px Quiet Slate dot that pulses through lime while a check runs; it opens a note under it on Float (the note's own dot is green in live mode, Quiet Slate in the demo). Hover and open darken its border.
 - **Step rail (step by step):** five segments with a 3px top rule: Control Edge ahead, Soft Indigo done, Signal Indigo now; labels fall away at 480px and under.
-- **Honesty bar:** a sticky bar (at least 40px tall) at the bottom, Card White with a 1px Hairline top rule, 12px Body Slate mono text: "Checked, not proven." and the version line (marked "Example answer" on the landing).
+- **Honesty bar:** a sticky bar (at least 40px tall) at the bottom, Card White with a 1px Hairline top rule, 12px Body Slate mono text: "Checked, not proven." and the version line (marked "Example answer" on the landing). Wide, the claim sits left and the version and receipt link right, with a dot between; at 480px and under all three run on as one paragraph and the dot is dropped, so it can never hang at the end of a line.
 
 ### The Check Trace (signature)
 The dark instrument. Trace Night ground with the 8px pin-dot texture, 20px radius, Float shadow, 24px padding. A mono header (draft, question, file, timer), then lanes: Trace Lane rows of at least 44px (28px in the compact variant) with a numbered label, a cell strip and a right-aligned verdict column. A lane in progress carries a 1px Pen Lime ring and a lime pen (a 1px line with a 6px nub) sweeping its cells; a passed lane's cells are Trace Mint; a thrown-out draft's cell is Trace Fail with a red strike line and the word Thrown out; a lane that stopped to ask takes Trace Ask Wash with an amber pen and diamond; a lane that did not run is a dashed Trace Border 2 pill with a plain note. On a pass a 1px lime seal draws along the top. Every static style is the finished state, so with reduced motion it lands on the finished picture. Text the animation hides is also removed from the accessibility tree; an `aria-live` sentence states the result.

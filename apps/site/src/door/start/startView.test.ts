@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { INTRO_EYEBROW, INTRO_TITLE, introSteps, previewModel, radioKeyIndex, rememberedSample, showOwnFileNote } from './startView';
+import { INTRO_EYEBROW, INTRO_TITLE, introSteps, offScreen, previewModel, radioKeyIndex, rememberedSample, showOwnFileNote } from './startView';
 
 describe('the first run\'s heading', () => {
   it('is a task in plain words: not the landing\'s claim, and no promise about what this copy can answer', () => {
@@ -10,8 +10,8 @@ describe('the first run\'s heading', () => {
 });
 
 describe('introSteps', () => {
-  it("draws step 3's chip dark in every state, as the board does", () => {
-    expect(introSteps().map((s) => s.lit)).toEqual([false, false, true]);
+  it('lists the three steps in plain words; none is drawn as the current one', () => {
+    expect(introSteps().map((s) => Object.keys(s))).toEqual([['n', 'text'], ['n', 'text'], ['n', 'text']]);
     expect(introSteps().map((s) => s.text)).toEqual([
       'Bring a file. It stays in this browser.',
       'Ask in plain words.',
@@ -125,7 +125,48 @@ describe('previewModel', () => {
     ]);
   });
 
+  it('adds the column note for an own file whose numbers and dates were read as text, and none for the samples', () => {
+    const rows = [
+      { 'Net Amt (USD)': '1.234,50', 'Posting Date': '31/01/2024', vendor: 'Oslo' },
+      { 'Net Amt (USD)': '980,00', 'Posting Date': '01/02/2024', vendor: 'Lima' },
+    ];
+    const m = previewModel({
+      sampleId: null,
+      dataset: {
+        name: 'ledger',
+        filename: 'ledger.csv',
+        rowCount: 2,
+        columns: [
+          { name: 'Net Amt (USD)', type: 'string' },
+          { name: 'Posting Date', type: 'string' },
+          { name: 'vendor', type: 'string' },
+        ],
+      },
+      rows,
+      fileName: 'ledger.csv',
+    })!;
+    expect(m.note).toBe(
+      "Read as text, so questions about totals or dates can't use them as they are: Net Amt (USD), Posting Date. Export numbers as plain digits, like 1234.50, with no thousands separators or currency signs. Export dates as year-month-day, like 2024-01-31.",
+    );
+    expect(previewModel({ sampleId: 'orders', dataset: null, rows: null, fileName: '' })!.note).toBeNull();
+  });
+
   it('is null when nothing is bound', () => {
     expect(previewModel({ sampleId: null, dataset: null, rows: null, fileName: '' })).toBeNull();
+  });
+});
+
+describe('offScreen', () => {
+  it('is false for an element wholly above the bottom bar', () => {
+    expect(offScreen({ top: 100, bottom: 500 }, 900, 40)).toBe(false);
+    expect(offScreen({ top: 0, bottom: 860 }, 900, 40)).toBe(false);
+  });
+  it('is true when it starts above the top edge or ends under the bar', () => {
+    expect(offScreen({ top: -1, bottom: 300 }, 900, 40)).toBe(true);
+    expect(offScreen({ top: 568, bottom: 861 }, 900, 40)).toBe(true);
+    expect(offScreen({ top: 868, bottom: 1308 }, 900, 0)).toBe(true);
+  });
+  it('is true for an element taller than the screen, so it is brought to the top', () => {
+    expect(offScreen({ top: 16, bottom: 1400 }, 900, 40)).toBe(true);
   });
 });

@@ -15,7 +15,16 @@ async function boot(): Promise<void> {
     const { createEngine } = await import('../core/engine');
     // No location: the front door has no use for the engine's URL parameters. An old `?opener=<example>` link would
     // silently swap the program, and `?recording=<url>` would fetch a recording that nothing here offers; both are ignored.
-    engine = createEngine({ location: () => null });
+    //
+    // mutation.idleMs: the stress test (the engine's lazy mutation check) starts once the engine has been idle this long
+    // after a commit; the engine's default is 4 s, a REPL-era courtesy so a person typing a second call is not met by a
+    // check they did not ask for. Here the answer, its seal and the trace's verdict are held until the stress test has
+    // finished (start/derive.ts outcomeOf), so those 4 s were pure waiting before every reveal. It changes only WHEN the
+    // check starts, never what it does: the same mutants run against the same tests, properties and pins under the same
+    // 6 s time box (the run itself takes about 0.3 s), it still waits for every queued operation and still yields to any
+    // new one (a new operation cancels it and it re-runs after the next idle). quietMs (never within 10 s of an Enter)
+    // and timeBoxMs stay at the engine's defaults.
+    engine = createEngine({ location: () => null, mutation: { idleMs: 600 } });
   } catch (e) {
     renderError(e);
     return;

@@ -1,14 +1,19 @@
 /* The track is drawn 40×24 with an 18px knob; the button's own box is the 44×44 target around it. The negative margins
-   keep the layout footprint at the drawn 40×24, so neighbours sit exactly where they did. */
+   keep the layout footprint at the drawn 40×24, so neighbours sit exactly where they did.
+   Off is Quiet Slate (--fd-ink-3): 6.06:1 against the white cards every switch sits on, past the 3:1 a control's edge and
+   state need (the old Control Edge step was 1.52:1, a track you could not see). The white knob is 6.06:1 on it and 6.73:1 on
+   the indigo of the on state, so the knob reads in both. Hover steps each track one notch darker. */
 .fd-switch {
   flex: none; position: relative; box-sizing: border-box; width: 44px; height: 44px; margin: -10px -2px; padding: 0;
   border: 0; border-radius: 999px; background: transparent; cursor: pointer;
 }
 .fd-switch::before {
   content: ''; position: absolute; left: 2px; top: 10px; width: 40px; height: 24px; border-radius: 999px;
-  background: var(--fd-line-2); transition: background-color 120ms ease;
+  background: var(--fd-ink-3); transition: background-color 120ms ease;
 }
 .fd-switch.is-on::before { background: var(--fd-indigo); }
+.fd-switch:not(:disabled):hover::before { background: var(--fd-ink-2); }
+.fd-switch.is-on:not(:disabled):hover::before { background: var(--fd-indigo-hover); }
 .fd-switch:focus-visible { outline: none; }
 .fd-switch:focus-visible::before { outline: 2px solid var(--fd-indigo); outline-offset: 2px; }
 .fd-switch:disabled { cursor: not-allowed; opacity: 0.55; }

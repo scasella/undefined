@@ -37,6 +37,9 @@ export interface AgreementAssumption {
   confirmedMeta: string;
 }
 
+/** The plain note for anything that came with the demo file (the rail's, and the answer card's next to a seeded lock). */
+export const SEEDED_NOTE = 'Saved with this demo file from an earlier session.';
+
 export interface AgreementView {
   /** `6 examples · 1 locked answer · 2 house rules` */
   counts: string;

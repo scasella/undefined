@@ -13,12 +13,19 @@ import { AGREED, formatMoney, thrownOutDraft, topCustomers, type DataRow } from 
 import { shapeValue, type AnswerView } from '../model/answer';
 import type { AssumptionList } from '../model/assumptions';
 import { illustrativeAgreement, type AgreementView } from '../model/agreement';
-import { scenarios, scenarioView, type Scenario, type ScenarioId } from '../model/traceScript';
+import { stressChecked, stressNotChecked } from '../model/lanes';
+import { SCRIPT_SEAL, SCRIPT_STRESS, scenarios, scenarioView, type Scenario, type ScenarioId } from '../model/traceScript';
 
 export const STAGE_QUESTION = 'Who are our top customers by revenue?';
 export const STAGE_FILE = 'orders.csv';
-/** The example's version number (the landing's illustration is "Version 3", as the honesty bar says). */
-export const STAGE_VERSION = 3;
+/**
+ * The example's version number: "Version 4", the number a real replay run of this very example commits. It is the
+ * engine's own count, not something the recording holds: the first run's snapshots are 1 the initial image, 2 loading
+ * orders.csv, 3 installing the demo's agreement, so the first accepted draft is committed at 4 (`Artifact.revision`,
+ * which is what the answer card's caption and the honesty bar show). stageData.test.ts replays the bundled recording
+ * through the real engine and pins this number to what it commits.
+ */
+export const STAGE_VERSION = 4;
 
 /** The small mono caption under the trace: the playback is an illustration. */
 export const ILLUSTRATION_CAPTION = 'Illustrative playback of the example below, slowed down';
@@ -28,7 +35,7 @@ export const PASS_META = 'Illustrative · slowed down so you can watch · 6 chec
 export const PASS_TIMER = 'illustrative';
 
 /** The design's "See the calculation" code (LANDING 297-311), verbatim. */
-export const CALC_SOURCE = `// Top customers by revenue · Version 3
+export const CALC_SOURCE = `// Top customers by revenue · Version ${STAGE_VERSION}
 function topCustomersByRevenue(rows) {
   const seen = new Set();
   const totals = new Map();
@@ -54,11 +61,18 @@ export const STAGE_ASSUMPTIONS: AssumptionList = {
   empty: null,
 };
 
+/** What the illustrated stress test left unsaid, in the live answer's own words (model/lanes.ts, the same definition). */
+const STAGE_BREAKS_MISSED = stressNotChecked(SCRIPT_STRESS)!;
+
 export const STAGE_NOT_CHECKED: readonly string[] = [
   `whether ${STAGE_FILE} is the complete export`,
   'whether revenue should include tax or shipping',
   'whether this was the right question',
+  STAGE_BREAKS_MISSED,
 ];
+
+/** The seal the card wears once lane 06 has ended: Passed every check · stress test caught 11 of 12 (illustrative numbers). */
+export const STAGE_SEAL = { text: SCRIPT_SEAL, ran: 5, of: 6, complete: true } as const;
 
 /** The rail's stop-and-ask mini card (the stop scenario only). */
 export const MINI_QUESTION = {
@@ -80,6 +94,8 @@ export interface StageData {
   views: Record<ScenarioId, ReturnType<typeof scenarioView>>;
   answer: AnswerView;
   checked: string[];
+  /** The items of `checked` that take the amber glyph (the stress test missed one break). */
+  checkedAsk: string[];
   agreement: AgreementView;
 }
 
@@ -143,10 +159,11 @@ export function buildStage(rows: readonly DataRow[]): StageData {
       'your 6 examples',
       `your locked answer (${lockText})`,
       'your 2 house rules on 100 made-up tables',
-      '12-way stress test (11 caught)',
+      stressChecked(SCRIPT_STRESS)!.text,
       'never changes your data',
       'finishes fast',
     ],
+    checkedAsk: stressChecked(SCRIPT_STRESS)!.ask ? [stressChecked(SCRIPT_STRESS)!.text] : [],
     agreement,
   };
 }

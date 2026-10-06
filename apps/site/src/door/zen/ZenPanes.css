@@ -1,12 +1,13 @@
 /* Step by step · question and checklist panes. */
 .zp { display: flex; flex-direction: column; gap: 14px; }
-.zp__lede { margin: 0; max-width: 70ch; font-size: 15px; line-height: 22px; color: var(--fd-ink-2); }
+.zp__lede { margin: 0; max-width: var(--fd-measure); font-size: var(--fd-fs-row); line-height: var(--fd-lh-row); color: var(--fd-ink-2); }
 .zp__chips { display: flex; flex-direction: column; gap: 8px; }
-.zp__item { display: flex; align-items: stretch; gap: 6px; }
+/* a chip and its remove button: the button is the chip's own minimum height, at the top, so the cross sits level with the first line of a wrapped question */
+.zp__item { display: flex; align-items: flex-start; gap: 6px; }
 .zp__item .zp__chip { flex: 1 1 auto; min-width: 0; }
 /* remove a question the viewer typed: a 44 x 44 target beside the chip, quiet until hovered */
 .zp__remove {
-  flex: none; width: 44px; min-height: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  flex: none; width: 44px; height: 52px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
   border: 0; border-radius: var(--fd-r-lg); background: transparent; color: var(--fd-ink-2); cursor: pointer;
   transition: background-color 120ms ease, color 120ms ease;
 }
@@ -15,11 +16,13 @@
 .zp__remove[aria-disabled='true'] { cursor: progress; opacity: 0.55; }
 .zp__remove[aria-disabled='true']:hover { background: transparent; color: var(--fd-ink-2); }
 .zp__chip {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-height: 52px; padding: 8px 16px; box-sizing: border-box; text-align: left;
-  border: 0; border-radius: var(--fd-r-lg); cursor: pointer; font: inherit; font-size: 16px; font-weight: 500; color: var(--fd-ink);
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-height: 52px; min-width: 0; max-width: 100%; padding: 15px 16px; box-sizing: border-box; text-align: left;
+  border: 0; border-radius: var(--fd-r-lg); cursor: pointer; font: inherit; font-size: 16px; line-height: 22px; font-weight: 500; color: var(--fd-ink);
   background: var(--fd-surface); box-shadow: var(--fd-sh-card);
   transition: box-shadow 120ms ease, background-color 120ms ease;
 }
+/* the question's words wrap anywhere (300 characters with no space in them must not leave the chip) */
+.zp__q { flex: 0 1 auto; min-width: 0; overflow-wrap: anywhere; }
 /* (:where keeps these as quiet as a plain :hover, so .is-on below still wins; a locked chip does not react) */
 .zp__chip:where(:not([aria-disabled='true'])):hover { box-shadow: 0 0 0 1.5px var(--fd-ink-3); }
 .zp__chip:where(:not([aria-disabled='true'])):active { background: var(--fd-surface-2); }
@@ -28,10 +31,12 @@
 .zp__tag { margin-left: auto; font-size: 12px; line-height: 17px; font-weight: 500; color: var(--fd-ink-3); }
 .zp__chip.is-on .zp__tag { color: var(--fd-indigo-hover); }
 .zp__live { font-size: 12px; line-height: 17px; color: var(--fd-ink-3); border: 1px dashed var(--fd-line-2); border-radius: var(--fd-r-sm); padding: 0 5px; }
+/* what "needs live" means, once, under the chips (replay only) */
+.zp__legend { margin: 0; max-width: var(--fd-measure); font-size: 13px; line-height: 19px; color: var(--fd-ink-2); }
 .zp__form { display: flex; flex-direction: column; gap: 6px; }
 .zp__row { display: flex; flex-wrap: wrap; gap: 8px; }
 .zp__box {
-  flex: 1 1 240px; min-width: 0; box-sizing: border-box; min-height: 48px; padding: 0 14px; border-radius: var(--fd-r-md); border: 1px solid var(--fd-line-2);
+  flex: 1 1 180px; min-width: 0; box-sizing: border-box; min-height: 48px; padding: 0 14px; border-radius: var(--fd-r-md); border: 1px solid var(--fd-line-2);
   background: var(--fd-surface); font: inherit; font-size: 16px; color: var(--fd-ink);
 }
 .zp__box:focus-visible { outline: none; border-color: var(--fd-indigo); box-shadow: var(--fd-sh-focus); }
@@ -44,11 +49,11 @@
 .zp__add:where(:not([aria-disabled='true'])):active { background: var(--fd-surface-2); }
 .zp__add[aria-disabled='true'] { opacity: 0.55; cursor: not-allowed; }
 /* the demo's "typed questions need your computer" note: it matters, so it is in the body ink, at body measure */
-.zp__form > .zp__note { max-width: 70ch; font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
-.zp__picked { margin: 0; max-width: 70ch; font-size: 15px; line-height: 22px; color: var(--fd-ink-2); }
+.zp__form > .zp__note { max-width: var(--fd-measure); font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
+.zp__picked { margin: 0; max-width: var(--fd-measure); font-size: var(--fd-fs-row); line-height: var(--fd-lh-row); color: var(--fd-ink-2); overflow-wrap: anywhere; }
 .zp__picked strong { color: var(--fd-ink); font-weight: 600; }
 /* why Continue is off: plain text under the selected question, no box, no stripe; nothing (and no gap) when there is none */
-.zp__why { margin: 0; max-width: 70ch; font-size: 14px; line-height: 20px; color: var(--fd-ink); }
+.zp__why { margin: 0; max-width: var(--fd-measure); font-size: 14px; line-height: 20px; color: var(--fd-ink); }
 .zp__why:empty { margin: -7px 0; }
 .zp__data { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
 .zp__h2 { margin: 0; font-size: 16px; line-height: 22px; font-weight: 600; }
@@ -59,10 +64,12 @@
 .zp__check.is-off .zp__label { color: var(--fd-ink-2); }
 .zp__num { flex: none; width: 20px; padding-top: 2px; font-size: 12px; line-height: 17px; color: var(--fd-ink-3); }
 .zp__ico { flex: none; padding-top: 1px; display: flex; }
+/* will run: a dashed ring in the body ink (dashed = not established; nothing is green until a check passes). Not run / not set: the lighter dashed ring */
+.zp__will { color: var(--fd-ink-2); }
 .zp__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.zp__label { font-size: 15px; line-height: 20px; font-weight: 500; color: var(--fd-ink); }
+.zp__label { font-size: var(--fd-fs-row); line-height: var(--fd-lh-row); font-weight: 500; color: var(--fd-ink); }
 .zp__check .zp__note { font-size: 13px; line-height: 19px; color: var(--fd-ink-3); }
 /* tags are the trace's own words ("Nothing locked yet", "Needs your rules first"): they wrap rather than squeeze the label */
-.zp__state { flex: none; max-width: 9.5em; padding-top: 2px; font-size: 12px; line-height: 17px; font-weight: 500; color: var(--fd-green-ink); text-align: right; overflow-wrap: anywhere; }
+.zp__state { flex: none; max-width: 9.5em; padding-top: 2px; font-size: 12px; line-height: 17px; font-weight: 500; color: var(--fd-ink); text-align: right; overflow-wrap: anywhere; }
 .zp__check.is-off .zp__state { color: var(--fd-ink-3); }
-.zp__sum { margin: 0; max-width: 70ch; font-size: 14px; line-height: 20px; font-weight: 500; color: var(--fd-ink); }
+.zp__sum { margin: 0; max-width: var(--fd-measure); font-size: 14px; line-height: 20px; font-weight: 500; color: var(--fd-ink); }

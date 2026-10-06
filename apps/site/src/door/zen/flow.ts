@@ -9,6 +9,11 @@
  */
 import { agreementPhrase, isHeldBack, NOT_RERUN, type AgreementView, type CheckMode } from '../model/agreement';
 import { OFF_NOTES } from '../model/lanes';
+import { isTypedQuestion } from '../model/questions';
+import type { RunOutcome } from '../start/derive';
+
+/** A question the viewer typed (session.addQuestion ids start `own:`): the only ones that can be removed. */
+export { isTypedQuestion };
 
 export type ZenStep = 1 | 2 | 3 | 4 | 5;
 
@@ -45,16 +50,37 @@ export function canContinue(step: ZenStep, s: { bound: boolean; question: boolea
 /** The element that says why Continue / Run is off (it sits under the selected question; the buttons point at it). */
 export const CONTINUE_WHY_ID = 'zen-why';
 
+/** The Continue button (steps 1 and 2): focus goes here when what the viewer was pressing goes away (the picker closes once data is bound). */
+export const ZEN_CONTINUE_ID = 'zen-continue';
+
+/** Why Continue is off on the first pane, said next to it. */
+export const NEEDS_DATA_REASON = 'Choose a sample or bring a file to continue.';
+/** Why Continue is off on the second pane when nothing is picked. */
+export const NEEDS_QUESTION_REASON = 'Pick a question to continue.';
+
 /**
  * The words for why Continue is off, shown next to it (and read by assistive tech through aria-describedby), or '' when
- * there is nothing the viewer can act on. `text` is the same sentence the no-recording state gives (derive.ts noRecordingText).
+ * there is nothing the viewer can act on. `text` is the same sentence the no-recording state gives (derive.ts
+ * noRecordingText). `bound` (default: there is data) says whether the first pane has what it needs. A busy engine is
+ * not a reason: it says what it is doing on its own.
  */
-export function continueReason(step: ZenStep, s: { question: boolean; needsLive: boolean }, text: string): string {
+export function continueReason(step: ZenStep, s: { question: boolean; needsLive: boolean; bound?: boolean }, text: string): string {
+  if (step === 1) return s.bound === false ? NEEDS_DATA_REASON : '';
+  if (step === 2 && s.bound !== false && !s.question) return NEEDS_QUESTION_REASON;
   return (step === 2 || step === 3) && s.question && s.needsLive ? text : '';
 }
 
-/** A question the viewer typed (session.addQuestion ids start `own:`): the only ones that can be removed. */
-export const isTypedQuestion = (id: string): boolean => id.startsWith('own:');
+/**
+ * The pane Step by step opens at. The shared session carries the file, the question and the run from the other page
+ * (start/session.ts), so a visitor who comes back is put where they were: the answer if one is shown, the live trace if a
+ * run is still going, otherwise the question when there is data, and the first pane only when there is none.
+ */
+export function openingStep(s: { bound: boolean; outcome: RunOutcome['kind']; answerShown: boolean }): ZenStep {
+  if (!s.bound) return 1;
+  if ((s.outcome === 'committed' || s.outcome === 'cached') && s.answerShown) return 5;
+  if (s.outcome === 'running') return 4;
+  return 2;
+}
 
 /** 'always' and 'applies' will run; the rest will not (or not now). */
 export type ApplyState = 'always' | 'applies' | 'none' | 'after' | 'held';
@@ -114,10 +140,12 @@ export function zenChecks(a: Pick<AgreementView, 'n' | 'seeded'>, ctx: ZenContex
 
 /**
  * One sentence under the list: what the viewer is getting. `set` is the agreement's counts: with basic checks and
- * something set, it says that what they set is not re-run.
+ * something set, it says that what they set is not re-run. Full checks: the answer is shown once all six have run (the
+ * seal and the ledger arrive together after the stress test, start/derive.ts outcomeOf); the stress test reports how
+ * many of its deliberate breaks the checks caught, it does not pass or fail the answer.
  */
 export function zenChecksSummary(level: 'full' | 'basic', set?: AgreementView['n']): string {
-  if (level === 'full') return 'Full checks: all six apply. The answer is shown only if every one passes.';
+  if (level === 'full') return 'Full checks: all six apply. The answer appears after all six have run: the first five must pass, and the stress test reports how many of its deliberate breaks your checks caught.';
   const phrase = set ? agreementPhrase(set) : '';
   return phrase
     ? `Basic checks: the two that always run. Your agreement (${phrase}) isn't re-run: the answer on file was checked before it was added.`

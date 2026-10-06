@@ -9,13 +9,18 @@ import { HonestyBar, latestVersion } from './components/HonestyBar';
 import { SiteFooter } from './components/SiteFooter';
 import { TelemetryBar } from './components/TelemetryBar';
 import { Landing } from './landing/Landing';
+import { STAGE_VERSION } from './landing/stageData';
 import { installRouter, useRoute } from './router';
 import { Start } from './start/Start';
 import { Zen } from './zen/Zen';
 import { engineRef, shellFileChip, shellRunning } from './state';
 
-/** The landing's example is "Version 3 · 5 Oct 2026" (an illustration, see FRONT-DOOR.md honesty rule 2): the bar says so. */
-const LANDING_VERSION = { version: 3, date: '5 Oct 2026' } as const;
+/**
+ * The landing's example is "Version 4 · 5 Oct 2026" (an illustration, see FRONT-DOOR.md honesty rule 2): the bar says so.
+ * The number is the stage's own (landing/stageData.ts STAGE_VERSION, pinned there to what a real replay commits), so the
+ * bar, the answer's caption, the code header, the team file and the agreement table all say the same version.
+ */
+const LANDING_VERSION = { version: STAGE_VERSION, date: '5 Oct 2026' } as const;
 const LANDING_CHIP = 'orders.csv · 332 rows · 10 columns';
 
 export function App({ engine, initError }: { engine: Engine; initError?: string | null }) {

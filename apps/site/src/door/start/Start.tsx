@@ -8,9 +8,15 @@
  *
  * On first visit the sample orders.csv is bound (after a reload, the sample last picked) (once per session, unless something is bound already); leaving the
  * page disposes the session so the top bar's file chip and running pulse go with it.
+ *
+ * Pressing Ask must show something: when a run begins the page scrolls the check trace into view and focus moves to it
+ * (a labelled region: the trace's own aria-live sentence then speaks the result), and when the answer is shown the
+ * page brings the answer's figure into view if it is not already. Both follow the session's own signals
+ * (`run.id`, `answer.held`), not a timer, move smoothly unless the viewer asks for reduced motion, and never act on a
+ * run that was already there when the page opened.
  */
 import { effect } from '@preact/signals';
-import { useEffect } from 'preact/hooks';
+import { useEffect, useRef } from 'preact/hooks';
 import type { Engine } from '@scasella/undefined-engine/types';
 import { AskCard } from './AskCard';
 import { ColumnPreview } from './ColumnPreview';
@@ -19,7 +25,7 @@ import { Intro } from './Intro';
 import { RightRail } from './RightRail';
 import { RunPanel } from './RunPanel';
 import { sessionFor, type Session } from './session';
-import { rememberedSample, SAMPLE_KEY } from './startView';
+import { offScreen, rememberedSample, SAMPLE_KEY } from './startView';
 import './Start.css';
 
 /** Sessions that already tried the default sample (never twice: a failure leaves its problem on screen). */
@@ -67,11 +73,87 @@ export function bindDefaultSample(s: Session): () => void {
   };
 }
 
+const reducedMotion = (): boolean => typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+/** The sticky bar at the bottom covers this much of the viewport. */
+const bottomBar = (): number => document.querySelector('.fd-honesty')?.getBoundingClientRect().height ?? 0;
+
+/** Scroll `el` to the top of the viewport (smoothly unless reduced motion is asked for). */
+function scrollTo(el: HTMLElement): void {
+  el.scrollIntoView({ behavior: (reducedMotion() ? 'instant' : 'smooth') as ScrollBehavior, block: 'start' });
+}
+
+/**
+ * Make the trace a place focus can go (`tabindex=-1`, a labelled region) without touching components/CheckTrace: the
+ * element is found inside the run's wrapper.
+ */
+function traceIn(region: HTMLElement): HTMLElement | null {
+  const el = region.querySelector<HTMLElement>('.fd-trace');
+  if (!el) return null;
+  if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '-1');
+  if (!el.hasAttribute('role')) el.setAttribute('role', 'region');
+  if (!el.hasAttribute('aria-label')) el.setAttribute('aria-label', 'The checks, live');
+  return el;
+}
+
+/**
+ * Follow the session's run: a new run id scrolls the trace into view (unless all of it is already on screen) and
+ * focuses it; an answer that is shown (`answer.held` false, with a view) brings its figure into view (unless it is).
+ * Run ids that exist when this starts, and answers already shown, are not acted on. Both happen on the next frame, so
+ * the layout has settled, and one frame handles both: a cached answer, which is shown at once, scrolls only to the answer.
+ */
+export function followRun(s: Session, region: () => HTMLElement | null): () => void {
+  let seenRun = s.run.peek()?.id ?? 0;
+  const first = s.answer.peek();
+  let shownRun = !first.held && first.view !== null ? seenRun : -1;
+  let want: 'trace' | 'answer' | null = null;
+  let frame = 0;
+  const flush = () => {
+    frame = 0;
+    const box = region();
+    const act = want;
+    want = null;
+    if (!box || !act) return;
+    const inset = bottomBar();
+    if (act === 'trace') {
+      const trace = traceIn(box);
+      if (!trace) return;
+      if (offScreen(trace.getBoundingClientRect(), window.innerHeight, inset)) scrollTo(trace);
+      trace.focus({ preventScroll: true });
+      return;
+    }
+    const card = box.querySelector<HTMLElement>('.fd-ac');
+    const figure = box.querySelector<HTMLElement>('.fd-ac__lead-num') ?? card;
+    if (card && figure && offScreen(figure.getBoundingClientRect(), window.innerHeight, inset)) scrollTo(card);
+  };
+  const stop = effect(() => {
+    const id = s.run.value?.id ?? 0;
+    const a = s.answer.value;
+    const shown = !a.held && a.view !== null;
+    if (id !== seenRun) {
+      seenRun = id;
+      if (id > 0) want = want ?? 'trace';
+    }
+    if (shown && id > 0 && shownRun !== id) {
+      shownRun = id;
+      want = 'answer';
+    }
+    if (want && !frame) frame = requestAnimationFrame(flush);
+  });
+  return () => {
+    stop();
+    if (frame) cancelAnimationFrame(frame);
+  };
+}
+
 export function Start({ engine }: { engine: Engine }) {
+  const run = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const s = sessionFor(engine);
     const stop = bindDefaultSample(s);
+    const follow = followRun(s, () => run.current);
     return () => {
+      follow();
       stop();
       s.dispose();
     };
@@ -86,7 +168,9 @@ export function Start({ engine }: { engine: Engine }) {
             <h2 class="fd-sr">Bring a file</h2>
             <DataBringer engine={engine} />
             <AskCard engine={engine} />
-            <RunPanel engine={engine} />
+            <div ref={run} class="fd-start__run">
+              <RunPanel engine={engine} />
+            </div>
             <ColumnPreview engine={engine} />
           </div>
           <RightRail engine={engine} />

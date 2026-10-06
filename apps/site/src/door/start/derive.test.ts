@@ -17,22 +17,28 @@ import { bundledOrders } from '../../data/orders';
 import type { OutputEntry } from '../model/answer';
 import { dataFacts } from '../model/assumptions';
 import { OFF_NOTES } from '../model/lanes';
-import { seedAgreement } from '../model/agreements';
+import { seedAgreement, SEEDED_PIN_ID } from '../model/agreements';
+import { SEEDED_NOTE } from '../model/agreement';
 import type { DatasetRef } from '@scasella/undefined-engine/types';
 import {
   agreementFor,
   answerView,
   certifiedGeneration,
   countedFor,
+  giveUpOnStress,
   heldCaptionFor,
   lockInfo,
   matchRun,
   NO_RECORDING_OWN,
   noRecordingText,
+  noRecordingView,
   outcomeOf,
   runFlag,
+  sealOf,
   silentDiagnostic,
+  stressGaveUp,
   telemetryOf,
+  traceSummary,
   traceView,
   versionLine,
   type RunMatch,
@@ -490,7 +496,249 @@ describe('agreement, copy, version', () => {
       'In this demo, answers are recorded, and this question has no recorded answer with these checks, so it needs the version on your computer. “Count orders by status” has one: try it.',
     );
   });
+  it('the no-recording sentence in pieces: `try it` is the only part a page draws as a button, and the pieces read as the sentence', () => {
+    const own = noRecordingView(true, null);
+    expect(own).toEqual({ before: NO_RECORDING_OWN, action: null, after: '' });
+    const none = noRecordingView(false, null);
+    expect(none.action).toBeNull();
+    expect(none.before + none.after).toBe(noRecordingText(false, null));
+    const v = noRecordingView(false, { id: 'top', label: 'Top 5 customers by revenue' });
+    expect(v.action).toEqual({ id: 'top', label: 'Top 5 customers by revenue', text: 'try it' });
+    expect(v.before.endsWith('“Top 5 customers by revenue” has one: ')).toBe(true);
+    expect(v.after).toBe('.');
+    // the plain text is the same sentence it always was
+    for (const [ownData, other] of [[false, { id: 'top', label: 'Top 5 customers by revenue' }], [true, { id: 'top', label: 'Top 5 customers by revenue' }], [true, null], [false, null]] as const) {
+      const w = noRecordingView(ownData, other);
+      expect(w.before + (w.action?.text ?? '') + w.after).toBe(noRecordingText(ownData, other));
+    }
+    expect(noRecordingText(false, { label: 'Top 5 customers by revenue' })).toBe(
+      'In this demo, answers are recorded, and this question has no recorded answer with these checks, so it needs the version on your computer. “Top 5 customers by revenue” has one: try it.',
+    );
+    expect(noRecordingText(true, { label: 'How many rows per region' })).toBe(
+      'In this demo, answers are recorded, so questions about your own file need the version on your computer. “How many rows per region” has one: try it.',
+    );
+  });
   it('version line from the head revision', () => {
     expect(versionLine(state())).toBe('Version 4 · 5 Oct 2026');
+  });
+});
+
+// ───────────────────────── the stress test holds the seal and the answer ─────────────────────────
+
+describe('the stress test comes last: the answer, the seal and the lists are held for it', () => {
+  const pin = { id: 'pin1', label: CALL, args: pinnable.args, expected: pinnable.expected, pinnedAt: 2 };
+  const fullSpec: FunctionSpec = { ...specless([pin]), tests: 'test("a", () => {})', properties: 'property("b", [], () => {})' };
+  const mutationReport = (killed: number, survived: number, extra: Record<string, unknown> = {}) => ({ total: killed + survived, killed, killedByBound: 0, survived, stillborn: 0, survivors: [], ms: 1, at: 1, ...extra });
+  const fullArtifact = (mutation?: ReturnType<typeof mutationReport>): Artifact => {
+    const a = artifact(fullGates(), { unitTests: 7, pinnedTests: 1, properties: [{ name: 'b', runs: 100 }, { name: 'c', runs: 100 }] });
+    const { mutation: _drop, ...evidence } = a.evidence!;
+    return { ...a, evidence: { ...evidence, ...(mutation ? { mutation } : {}) } };
+  };
+  const mut = (phase: 'waiting' | 'running' | 'done', fn = FN): EngineState['mutation'] => ({ fn, phase, done: phase === 'running' ? 5 : 0, total: phase === 'waiting' ? 0 : 12 });
+  const fresh = (p: Partial<EngineState> = {}): EngineState =>
+    state({ program: program(record(fullSpec, fullArtifact())), generation: gen([att(1, 'accepted', fullGates())], 'committed', { revision: 4 }), repl: [...before, input, output({ pinned: true })], ...p });
+  const withReport = (m: ReturnType<typeof mutationReport> | undefined, mutation: EngineState['mutation']): EngineState =>
+    fresh({ program: program(record(fullSpec, fullArtifact(m))), ...(mutation ? { mutation } : {}) });
+  const ctx = { question: 'Who are our top customers by revenue?', fileName: 'orders.csv', rowCount: 332, fn: FN, data: null };
+  const views = (s: EngineState, r: RunRef = runRef()) => {
+    const m = matchRun(s, r);
+    const outcome = outcomeOf(s, r, m);
+    return {
+      outcome,
+      a: answerView({ ...ctx, state: s, match: m, outcome }),
+      t: traceView({ state: s, run: r, match: m, outcome, label: 'Top 5 customers by revenue', question: ctx.question, file: 'orders.csv', rows: 332, fn: FN, pendingSeed: null }),
+    };
+  };
+
+  describe('outcomeOf', () => {
+    const o = (s: EngineState, r: RunRef = runRef()) => outcomeOf(s, r, matchRun(s, r));
+    it('committed, but the engine still has the stress test waiting or running for this function: still running, and says which part', () => {
+      expect(o(withReport(undefined, mut('waiting')))).toEqual({ kind: 'running', stress: { phase: 'waiting', cached: false } });
+      expect(o(withReport(undefined, mut('running')))).toEqual({ kind: 'running', stress: { phase: 'running', cached: false } });
+      expect(runFlag(o(withReport(undefined, mut('waiting'))))).toBe('running');
+    });
+    it('released when it is done, when nothing is scheduled (it will not run), or when it is about another function', () => {
+      expect(o(withReport(mutationReport(8, 4), mut('done'))).kind).toBe('committed');
+      expect(o(withReport(undefined, undefined)).kind).toBe('committed');
+      expect(o(withReport(undefined, mut('waiting', 'other'))).kind).toBe('committed');
+    });
+    it('an answer certified earlier is held only when its stress test really is queued again; a second ask that re-runs nothing is not', () => {
+      const cachedState = (mutation?: EngineState['mutation']) =>
+        fresh({ generation: { ...gen([att(1, 'accepted', fullGates())], 'committed'), id: 'g1' }, repl: [...before, input, output({ label: 'cached artifact', pinned: true })], ...(mutation ? { mutation } : {}) });
+      expect(o(cachedState(mut('waiting')))).toEqual({ kind: 'running', stress: { phase: 'waiting', cached: true } });
+      expect(o(cachedState(mut('done'))).kind).toBe('cached');
+      expect(o(cachedState()).kind).toBe('cached');
+    });
+    it('a spec-less call has no stress test queued: nothing is held, basic checks as before', () => {
+      const s = state({ program: program(record(specless(), artifact(basicGates()))), generation: gen([att(1, 'accepted', basicGates())], 'committed'), repl: [...before, input, output()] });
+      expect(o(s).kind).toBe('committed');
+    });
+    it('the page stops waiting after a while (never held for good): released, and the stress test reads as not run', () => {
+      const s = withReport(undefined, mut('waiting'));
+      expect(o(s).kind).toBe('running');
+      giveUpOnStress('out1');
+      try {
+        expect(o(s).kind).toBe('committed');
+        const v = views(s);
+        expect(v.a.facts.stress).toEqual({ kind: 'not-run' });
+        expect(v.a.seal?.text).toBe("Passed 5 of 6 checks · stress test didn't run");
+        expect(v.t.lanes[5]).toMatchObject({ state: 'off', offNote: OFF_NOTES.stressNotRun });
+        // and whatever arrives later does not change it
+        expect(views(withReport(mutationReport(8, 4), mut('done'))).a.seal?.text).toBe("Passed 5 of 6 checks · stress test didn't run");
+      } finally {
+        stressGaveUp.value = new Set();
+      }
+    });
+  });
+
+  describe('while it is still to come', () => {
+    for (const phase of ['waiting', 'running'] as const) {
+      it(`${phase}: no seal, no answer, no lists; the trace says only the stress test is left`, () => {
+        const v = views(withReport(undefined, mut(phase)));
+        // the answer card
+        expect(v.a.held).toBe(true);
+        expect(v.a.view).toBeNull();
+        expect(v.a.heldCaption).toBe('Held until every check passes.');
+        expect(v.a.checked).toEqual([]);
+        expect(v.a.notChecked).toEqual([]);
+        expect(v.a.seal).toBeNull();
+        expect(v.a.canLock).toBe(false);
+        // the trace: lanes 01-05 are in, 06 is waiting or running, and there is no verdict
+        expect(v.t.lanes.slice(0, 5).map((l) => l.state)).toEqual(['passed', 'passed', 'passed', 'passed', 'passed']);
+        expect(v.t.lanes[5]).toMatchObject({ state: phase });
+        expect(v.t.header.verdict).toBeUndefined();
+        expect(v.t.header.done).toBeUndefined();
+        expect(v.t.header).toMatchObject({ running: true, stress: phase });
+        expect(v.t.run).toBe('running');
+        expect(v.t.footer.text).toMatch(/^The other checks passed\./);
+        expect(v.t.liveText).toBe('The other checks passed. Running the stress test before showing the answer.');
+        expect(JSON.stringify(v.t)).not.toMatch(/Passed every check/i);
+      });
+    }
+    it('a certified answer waiting on a stress test queued again keeps its certificate on the trace', () => {
+      const s = fresh({ generation: { ...gen([att(1, 'accepted', fullGates())], 'committed'), id: 'g1' }, repl: [...before, input, output({ label: 'cached artifact', pinned: true })], mutation: mut('waiting') });
+      const v = views(s);
+      expect(v.outcome).toMatchObject({ kind: 'running', stress: { cached: true } });
+      expect(v.t.cached).toBe(true);
+      expect(v.t.lanes.slice(0, 5).map((l) => l.state)).toEqual(['passed', 'passed', 'passed', 'passed', 'passed']);
+      expect(v.t.header.verdict).toBeUndefined();
+      expect(v.a.held).toBe(true);
+    });
+  });
+
+  describe('when it has finished, everything arrives together and says the same thing', () => {
+    it('8 of 12: the seal, the amber stress line, and the line in "Not checked", in the header, the lane and the card', () => {
+      const v = views(withReport(mutationReport(8, 4), mut('done')));
+      const seal = 'Passed every check · stress test caught 8 of 12';
+      expect(v.outcome.kind).toBe('committed');
+      expect(v.a.held).toBe(false);
+      expect(v.a.seal).toEqual({ text: seal, ran: 5, of: 6, complete: true });
+      expect(v.a.checked).toContain('12-way stress test (8 caught)');
+      expect(v.a.checkedAsk).toEqual(['12-way stress test (8 caught)']);
+      expect(v.a.notChecked).toContain('4 of 12 deliberate breaks went unnoticed by your checks');
+      expect(v.t.header.verdict).toBe(`${seal} ↓ see the list`);
+      expect(v.t.header.done).toBe(true);
+      expect(v.t.lanes[5]).toMatchObject({ state: 'passed', done: '8 of 12 caught', line2: '4 missed' });
+      expect(v.t.liveText).toBe(`${seal}. Showing the answer.`);
+      expect(v.t.footer.text).toBe('Checked against: 6 examples · 1 locked answer · 2 house rules on 100 made-up tables · stress test (caught 8 of 12) · your data untouched.');
+      // the header and the card build the seal from different facts and must agree
+      expect(sealOf(v.a.facts)?.text).toBe(v.t.header.verdict!.replace(' ↓ see the list', ''));
+    });
+    it('12 of 12: a green line, nothing added to "Not checked"', () => {
+      const v = views(withReport(mutationReport(12, 0), mut('done')));
+      expect(v.a.seal?.text).toBe('Passed every check · stress test caught 12 of 12');
+      expect(v.a.checked).toContain('12-way stress test (12 caught)');
+      expect(v.a.checkedAsk).toEqual([]);
+      expect(v.a.notChecked.join('\n')).not.toMatch(/deliberate|stress/);
+      expect(v.t.lanes[5]).toMatchObject({ state: 'passed', glyph: 'pass', done: '12 of 12 caught' });
+    });
+    it('it never ran (the engine reported nothing): honest about what ran, never "every check"', () => {
+      const v = views(withReport(mutationReport(0, 0, { skipped: 'mutation check failed: boom' }), mut('done')));
+      expect(v.a.held).toBe(false);
+      expect(v.a.seal).toEqual({ text: "Passed 5 of 6 checks · stress test didn't run", ran: 5, of: 6, complete: false });
+      expect(v.a.checked.some((t) => /stress/.test(t))).toBe(false);
+      expect(v.a.notChecked).toContain("whether your checks would notice a broken calculation: the stress test didn't run");
+      expect(v.t.header.verdict).toBe("Passed 5 of 6 checks · stress test didn't run ↓ see what wasn't checked");
+      expect(v.t.lanes[5]).toMatchObject({ state: 'off', offNote: OFF_NOTES.stressNotRun });
+      expect(JSON.stringify([v.a.seal, v.t.header, v.t.liveText])).not.toMatch(/every check/i);
+    });
+    it('it ran out of time: partial, said plainly', () => {
+      const v = views(withReport(mutationReport(4, 1, { skipped: 'time box reached after 5 of 12 mutants' }), mut('done')));
+      expect(v.a.seal).toEqual({ text: 'Passed 5 of 6 checks · stress test ran out of time', ran: 5, of: 6, complete: false });
+      expect(v.a.checkedAsk).toEqual(['stress test (4 of 5 caught, ran out of time)']);
+      expect(v.a.notChecked).toContain('the stress test ran out of time: it tried 5 of 12 small breaks, and 1 of those went unnoticed by your checks');
+    });
+    it('a second ask on an answer already certified (nothing re-runs): released at once, the same final words', () => {
+      const s = fresh({ program: program(record(fullSpec, fullArtifact(mutationReport(8, 4)))), generation: { ...gen([att(1, 'accepted', fullGates())], 'committed'), id: 'g1' }, repl: [...before, input, output({ label: 'cached artifact', pinned: true })], mutation: mut('done') });
+      const v = views(s);
+      expect(v.outcome.kind).toBe('cached');
+      expect(v.a.held).toBe(false);
+      expect(v.a.seal?.text).toBe('Passed every check · stress test caught 8 of 12');
+      expect(v.t.header.verdict).toBe('Passed every check · stress test caught 8 of 12 ↓ see the list');
+    });
+    it('basic checks stay as they were: two checks, the old seal words (none from here), no hold', () => {
+      const s = state({ program: program(record(specless(), artifact(basicGates()))), generation: gen([att(1, 'accepted', basicGates())], 'committed'), repl: [...before, input, output()] });
+      const v = views(s);
+      expect(v.a.held).toBe(false);
+      expect(v.a.level).toBe('basic');
+      expect(v.a.seal).toBeNull();
+      expect(v.t.header.verdict).toBe("Passed 2 basic checks ↓ see what wasn't checked");
+      expect(v.a.notChecked.join('\n')).not.toMatch(/stress|deliberate/);
+    });
+  });
+
+  describe('traceSummary: the one line above the collapsed trace on the answer pane', () => {
+    it('Full checks: the seal words and the real run, from the trace\'s own header and footer', () => {
+      const v = views(withReport(mutationReport(8, 4), mut('done')));
+      expect(v.t.footer.meta).toBe('real run 0.41 s');
+      expect(traceSummary(v.t)).toBe('Passed every check · stress test caught 8 of 12 · real run 0.41 s');
+      // the same words as the card's seal
+      expect(traceSummary(v.t)!.startsWith(v.a.seal!.text)).toBe(true);
+    });
+    it("a stress test that did not finish is said so, never 'every check'", () => {
+      const v = views(withReport(mutationReport(0, 0, { skipped: 'mutation check failed: boom' }), mut('done')));
+      expect(traceSummary(v.t)).toBe("Passed 5 of 6 checks · stress test didn't run · real run 0.41 s");
+      expect(traceSummary(views(withReport(mutationReport(4, 1, { skipped: 'time box reached after 5 of 12 mutants' }), mut('done'))).t)).toBe('Passed 5 of 6 checks · stress test ran out of time · real run 0.41 s');
+    });
+    it('Basic checks: two checks, no seal words borrowed from Full', () => {
+      const s = state({ program: program(record(specless(), artifact(basicGates()))), generation: gen([att(1, 'accepted', basicGates())], 'committed'), repl: [...before, input, output()] });
+      const line = traceSummary(views(s).t);
+      expect(line).toBe('Passed 2 basic checks · real run 0.41 s');
+      expect(line).not.toMatch(/every check|stress/);
+    });
+    it('an answer certified earlier says so instead of a real run', () => {
+      const s = fresh({ program: program(record(fullSpec, fullArtifact(mutationReport(8, 4)))), generation: { ...gen([att(1, 'accepted', fullGates())], 'committed'), id: 'g1' }, repl: [...before, input, output({ label: 'cached artifact', pinned: true })], mutation: mut('done') });
+      const line = traceSummary(views(s).t);
+      expect(line).toBe('Passed every check · stress test caught 8 of 12 · checked when it was written · 0.41 s · nothing re-run');
+      expect(line).not.toMatch(/real run/);
+    });
+    it('nothing to say until a run has passed', () => {
+      const idle = state({});
+      expect(traceSummary(traceView({ state: idle, run: null, match: matchRun(idle, null), outcome: { kind: 'idle' }, label: 'x', question: 'x', file: 'orders.csv', rows: 332, fn: FN, pendingSeed: null }))).toBeNull();
+      expect(traceSummary(views(withReport(undefined, mut('running'))).t)).toBeNull();
+    });
+  });
+
+  it('the ledger the card shows when it is released is the ledger it keeps: engine updates that do not touch the answer change nothing in it', () => {
+    const released = views(withReport(mutationReport(8, 4), mut('done'))).a;
+    // a later engine tick (e.g. the progress counter being reset by an unrelated operation on another function)
+    const later = views(withReport(mutationReport(8, 4), mut('done', 'other'))).a;
+    for (const k of ['seal', 'checked', 'checkedAsk', 'notChecked', 'held'] as const) expect(later[k]).toEqual(released[k]);
+  });
+
+  describe('a lock that came with the demo file says so next to the Locked button', () => {
+    const lockedState = (pinId: string) => {
+      const p = { ...pin, id: pinId };
+      return fresh({ program: program(record({ ...fullSpec, pins: [p] }, fullArtifact(mutationReport(8, 4)))), mutation: mut('done') });
+    };
+    it('the seeded pin: the rail\'s own sentence', () => {
+      expect(views(lockedState(SEEDED_PIN_ID)).a.lockNote).toBe(SEEDED_NOTE);
+      expect(SEEDED_NOTE).toBe('Saved with this demo file from an earlier session.');
+    });
+    it('a pin the viewer made, or no lock at all: nothing', () => {
+      expect(views(lockedState('mine')).a.lockNote).toBe('');
+      const unlocked = fresh({ program: program(record(fullSpec, fullArtifact(mutationReport(8, 4)))), repl: [...before, input, output()], mutation: mut('done') });
+      expect(views(unlocked).a.lockNote).toBe('');
+    });
   });
 });

@@ -29,7 +29,10 @@ export interface CheckTraceProps {
   draftLabel?: string;
   /** The list's aria-label. */
   listLabel?: string;
-  /** Live feed only: the timer word while the run is going ('checking…'). The run panel says 'drafting…' while the AI is still writing. */
+  /**
+   * Live feed only: the timer word while the run is going ('checking…'). The run panel says 'drafting…' (with its elapsed
+   * seconds) while the AI is still writing. While only the stress test is left the header's own words are used.
+   */
   runningText?: string;
 }
 
@@ -135,7 +138,7 @@ export function CheckTrace(p: CheckTraceProps) {
               class={`fd-trace__timer-a${h.running && !script ? '' : ' fd-trace__hidden'}`}
               style={css(script ? pm.timerRunning : undefined)}
             >
-              {script ? 'checking…' : (p.runningText ?? 'checking…')}
+              {script ? 'checking…' : h.stress ? h.right : (p.runningText ?? 'checking…')}
             </span>
           )}
           {!(h.running && !script) && (
@@ -153,7 +156,8 @@ export function CheckTrace(p: CheckTraceProps) {
       {ghosts.map((gh, gi) => (
         <div key={`${gh.title}:${gi}`}>
           <div class="fd-trace__draft">{gh.title}</div>
-          <ol aria-label={`${gh.title.charAt(0)}${gh.title.slice(1).toLowerCase()} checks`} class="fd-trace__list fd-trace__ghost-list" style={css(pm.ghost)}>
+          {/* decorative: the faded copy of the thrown-out draft's lanes (dimmed to 45%, far under the text contrast); the note below says what it failed, in words */}
+          <ol aria-hidden="true" class="fd-trace__list fd-trace__ghost-list" style={css(pm.ghost)}>
             {gh.lanes.map((lane, i) => {
               const t = script?.scenario.ghost?.[i] ?? null;
               return <Lane key={`${lane.num}:${lane.state}`} lane={lane} timing={t} sx={sx} compact highlight={null} />;

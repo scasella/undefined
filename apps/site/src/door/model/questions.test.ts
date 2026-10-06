@@ -3,7 +3,7 @@ import type { DatasetRef } from '@scasella/undefined-engine/types';
 import { buildDataset } from '../../data/dataset';
 import { suggestCalls } from '../../data/suggest';
 import type { DataRow } from './figures';
-import { customQuestion, customSpec, DEFAULT_QUESTION_ID, fnNameFor, questionFromWhat, suggestedQuestions } from './questions';
+import { customQuestion, customSpec, DEFAULT_QUESTION_ID, fnNameFor, isTypedQuestion, matchQuestion, normalizeQuestion, questionFromWhat, suggestedQuestions } from './questions';
 import { sampleFile, sampleIdFor, type SampleId } from './samples';
 
 async function bound(id: SampleId): Promise<{ ref: DatasetRef; rows: DataRow[] }> {
@@ -95,5 +95,45 @@ describe('typed questions', () => {
     expect(spec.tests).toBe('');
     expect(spec.properties).toBe('');
     expect(spec.typeDecls).toContain('type Row');
+  });
+});
+
+describe('typing a question that is already on the list', () => {
+  const list = [
+    { id: 'status', label: 'Count orders by status', text: 'How many orders are there by status?' },
+    { id: 'top', label: 'Top 5 customers by revenue', text: 'Who are our top customers by revenue?' },
+    { id: 'country', label: 'Revenue by country', text: 'What is our revenue by country?' },
+    { id: 'own:howManyOrdersWereRefunded', label: 'How many orders were refunded?', text: 'How many orders were refunded?' },
+  ];
+  it('normalizes: lowercase, trimmed, one space between words, no ending punctuation, no quote marks around it', () => {
+    expect(normalizeQuestion('  Top 5   customers\tby revenue?? ')).toBe('top 5 customers by revenue');
+    expect(normalizeQuestion('“Top 5 customers by revenue”.')).toBe('top 5 customers by revenue');
+    expect(normalizeQuestion('Who are our top customers by revenue ?!')).toBe('who are our top customers by revenue');
+    expect(normalizeQuestion('What\u2019s the total?')).toBe('what\u2019s the total');
+    expect(normalizeQuestion('?!. ')).toBe('');
+  });
+  it("a suggestion's own words select that chip, however they are typed", () => {
+    for (const typed of ['Top 5 customers by revenue', 'Top 5 customers by revenue?', 'TOP 5 CUSTOMERS BY REVENUE', '  top   5 customers by   revenue  ', 'top 5 customers by revenue.', '“Top 5 customers by revenue”']) {
+      expect(matchQuestion(typed, list)?.id, typed).toBe('top');
+    }
+  });
+  it('its plain-words form selects it too', () => {
+    expect(matchQuestion('Who are our top customers by revenue?', list)?.id).toBe('top');
+    expect(matchQuestion('who are our top customers by revenue', list)?.id).toBe('top');
+    expect(matchQuestion('what is our revenue by country', list)?.id).toBe('country');
+  });
+  it('a question the viewer typed before is found again (no second chip for the same words)', () => {
+    expect(matchQuestion('how many orders were refunded', list)?.id).toBe('own:howManyOrdersWereRefunded');
+  });
+  it('anything else is a new question', () => {
+    expect(matchQuestion('What is the weather in Paris?', list)).toBeNull();
+    expect(matchQuestion('Top 5 customers', list)).toBeNull();
+    expect(matchQuestion('Top 5 customers by revenue in France', list)).toBeNull();
+    expect(matchQuestion('', list)).toBeNull();
+    expect(matchQuestion('?', list)).toBeNull();
+  });
+  it('knows which ids are the viewer\'s own', () => {
+    expect(isTypedQuestion('own:howManyOrdersWereRefunded')).toBe(true);
+    expect(isTypedQuestion('top')).toBe(false);
   });
 });
