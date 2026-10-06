@@ -6,6 +6,7 @@
 .fd-seg__item {
   min-height: 44px; padding: 0 14px; border: 0; border-radius: var(--fd-r-sm);
   font-family: inherit; font-size: 14px; line-height: 20px; font-weight: 500; cursor: pointer;
-  background: transparent; color: var(--fd-ink-2); transition: background-color 120ms ease;
+  background: transparent; color: var(--fd-ink-2); transition: background-color 120ms ease, color 120ms ease;
 }
+.fd-seg__item:not(.is-on):hover { background: var(--fd-line); color: var(--fd-ink); }
 .fd-seg__item.is-on { background: var(--fd-surface); color: var(--fd-ink); box-shadow: 0 1px 2px rgba(11, 13, 18, 0.1), 0 0 0 1px var(--fd-line); }

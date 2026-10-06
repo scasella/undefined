@@ -12,13 +12,14 @@ html { scroll-behavior: smooth; }
 
 .fd-btn--primary { padding: 0 20px; background: var(--fd-indigo); color: #FFFFFF; }
 .fd-btn--primary:hover { background: var(--fd-indigo-hover); color: #FFFFFF; }
-.fd-btn--primary:disabled:hover { background: var(--fd-indigo); }
+.fd-btn--primary:disabled:hover, .fd-btn--primary[aria-disabled='true']:hover { background: var(--fd-indigo); }
 
 .fd-btn--secondary { background: var(--fd-surface); color: var(--fd-ink); box-shadow: var(--fd-sh-ring-2); }
 .fd-btn--secondary:hover { color: var(--fd-ink); background: var(--fd-surface-3); box-shadow: 0 0 0 1px var(--fd-ink-3); }
+.fd-btn--secondary:disabled:hover, .fd-btn--secondary[aria-disabled='true']:hover { background: var(--fd-surface); box-shadow: var(--fd-sh-ring-2); }
 
 .fd-btn--ghost-link {
-  min-height: 40px; padding: 0 4px; background: transparent; color: var(--fd-indigo);
+  min-height: 44px; padding: 0 4px; background: transparent; color: var(--fd-indigo);
 }
 .fd-btn--ghost-link:hover { color: var(--fd-indigo-hover); text-decoration: underline; text-underline-offset: 3px; }
 

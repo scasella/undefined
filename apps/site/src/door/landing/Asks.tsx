@@ -102,6 +102,7 @@ export function Asks() {
                     return (
                       <label class={'fd-asks__opt' + (on ? ' is-on' : '')} key={o.id}>
                         <input type="radio" name={q.name} value={o.id} checked={on} onChange={() => act(pickOption(s, o.id))} class="fd-asks__radio" />
+                        <span class="fd-asks__disc" aria-hidden="true" />
                         <span>{o.label}</span>
                       </label>
                     );

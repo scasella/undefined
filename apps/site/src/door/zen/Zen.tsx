@@ -1,5 +1,6 @@
 /**
- * Zen mode (`#/zen`): the product as a five-pane walk-through, one pane at a time, in a bare single column:
+ * Step by step (the route is still `#/zen`): the product as a five-pane walk-through, one pane at a time, in a bare
+ * single column:
  *   1 Bring your data · 2 Ask a question · 3 What your answer must pass · 4 Checking (the live check trace) · 5 Your answer
  * It is the first run's own session, check trace and answer card (start/*); nothing here is scripted. Pane 4 starts the
  * run and moves on to pane 5 by itself once it has committed; any other outcome (a question only you can answer, a
@@ -92,11 +93,11 @@ export function Zen({ engine, initError }: { engine: Engine; initError: string |
   return (
     <div class="zen">
       <header class="zen__top">
-        <a href="#/" class="zen__home" aria-label="Undefined, full site">
+        <a href="#/" class="zen__home" aria-label="Undefined, home">
           <Mark />
           <span class="zen__word">Undefined</span>
         </a>
-        <span class="zen__tag fd-mono">zen</span>
+        <span class="zen__tag">Step by step</span>
         <a href="#/start" class="zen__full">
           Full view
         </a>

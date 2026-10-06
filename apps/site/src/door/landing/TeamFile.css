@@ -15,7 +15,7 @@
 }
 .fd-tf__glyph { flex: none; color: var(--fd-ink-2); }
 .fd-tf__zip-name {
-  font-family: var(--fd-mono); font-size: 12px; line-height: 16px; font-weight: 500; min-width: 0; overflow-wrap: anywhere;
+  font-family: var(--fd-mono); font-size: 12px; line-height: 17px; font-weight: 500; min-width: 0; overflow-wrap: anywhere;
 }
 .fd-tf__files { list-style: none; margin: 0; padding: 8px 16px 12px; font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
 .fd-tf__files > li { padding: 6px 0; border-bottom: 1px solid var(--fd-line); }

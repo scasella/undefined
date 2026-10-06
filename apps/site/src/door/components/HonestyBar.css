@@ -1,10 +1,15 @@
 .fd-honesty { position: sticky; bottom: 0; z-index: 4; background: var(--fd-surface); border-top: 1px solid var(--fd-line); }
-/* vertical padding (not just min-height) so the two lines of a wrapped bar never touch the border */
+/* vertical padding (not just min-height) so the two lines of a wrapped bar never touch the border. 12px text at the 1.4
+   leading floor is 17px: 9px of padding and a 2px row gap (1px less and 2px less than before) keep the bar exactly as tall
+   as it was, wrapped or not. */
 .fd-honesty__in {
-  max-width: var(--fd-max); margin: 0 auto; padding: 10px var(--fd-gutter); box-sizing: border-box; min-height: 40px;
-  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 16px;
-  font-size: 12px; line-height: 16px; color: var(--fd-ink-2);
+  max-width: var(--fd-max); margin: 0 auto; padding: 9px var(--fd-gutter); box-sizing: border-box; min-height: 40px;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px 16px;
+  font-size: 12px; line-height: 17px; color: var(--fd-ink-2);
 }
-.fd-honesty__in a { position: relative; color: var(--fd-indigo); }
-/* 44px target around the 12px link, without growing the bar */
-.fd-honesty__in a::before { content: ''; position: absolute; inset: -14px -6px; }
+/* The link is a 44px target around its 12px text: 14px of padding each way, taken back by the same negative margin, so
+   neither the line nor the bar grows (the target overlaps the bar's own padding, and may reach a couple of px past it). Being
+   inline-block it also moves to the next line whole instead of breaking in two. The focus ring is pulled in to hug the text. */
+.fd-honesty__in a { display: inline-block; padding: 14px; margin: -14px; border-radius: var(--fd-r-sm); color: var(--fd-indigo); }
+.fd-honesty__in a:hover { color: var(--fd-indigo-hover); }
+.fd-honesty__in a:focus-visible { outline-offset: -12px; }

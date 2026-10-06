@@ -1,5 +1,5 @@
 /**
- * Zen mode · the data, in one quiet card. Nothing bound: a drop target with "Choose a file", "Paste data" and the two
+ * Step by step · the data, in one quiet card. Nothing bound: a drop target with "Choose a file", "Paste data" and the two
  * sample files. Something bound: just its chip and "Change". Every action goes through the shared session
  * (intakeFile, intakeText, useSample); problems are the engine's own words.
  */

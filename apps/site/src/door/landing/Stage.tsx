@@ -86,11 +86,13 @@ export function Stage(_props: { engine?: Engine }) {
               <div class="fd-eyebrow">You asked</div>
               <div class="fd-stage__question">{STAGE_QUESTION}</div>
             </div>
-            <Segmented kind="toggle" label="Choose what to watch" items={WATCH} value={scen} onChange={watch} />
-            <button type="button" class="fd-stage__replay" onClick={() => setRun((r) => r + 1)}>
-              <Replay />
-              Run again
-            </button>
+            <div class="fd-stage__controls">
+              <Segmented kind="toggle" label="Choose what to watch" items={WATCH} value={scen} onChange={watch} class="fd-stage__seg" />
+              <button type="button" class="fd-btn fd-btn--secondary fd-stage__replay" onClick={() => setRun((r) => r + 1)}>
+                <Replay />
+                Run again
+              </button>
+            </div>
           </div>
 
           <div class="fd-stage__trace">

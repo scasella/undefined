@@ -9,7 +9,7 @@
 .fd-tele__home:hover { color: var(--fd-ink); }
 .fd-tele__word { font-weight: 600; font-size: 15px; letter-spacing: -0.01em; }
 .fd-tele__chip {
-  font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: 0.01em; color: var(--fd-ink-2);
+  font-size: 12px; line-height: 17px; font-weight: 500; letter-spacing: 0.01em; color: var(--fd-ink-2);
   padding: 6px 8px; border-radius: var(--fd-r-sm); box-shadow: var(--fd-sh-ring);
 }
 
@@ -22,19 +22,21 @@
 .fd-tele__pillbtn:focus-visible { outline: none; }
 .fd-tele__pillbtn:focus-visible .fd-tele__pill { outline: 2px solid var(--fd-indigo); outline-offset: 2px; }
 .fd-tele__pill {
-  display: inline-flex; align-items: center; gap: 8px; font-size: 13px; line-height: 18px; font-weight: 500;
+  display: inline-flex; align-items: center; gap: 8px; font-size: 13px; line-height: 19px; font-weight: 500;
   color: var(--fd-ink-2); border: 1px solid var(--fd-line-2); border-radius: 999px; padding: 4px 10px 4px 10px;
-  transition: border-color 120ms ease;
+  transition: border-color 120ms ease, background-color 120ms ease;
 }
-.fd-tele__pillbtn:hover .fd-tele__pill { border-color: var(--fd-ink-3); }
+/* hover and open share one look (the ring darkens); pressed adds the wash the other ring-style controls use */
+.fd-tele__pillbtn:hover .fd-tele__pill, .fd-tele__mode.is-open .fd-tele__pill { border-color: var(--fd-ink-3); }
+.fd-tele__pillbtn:active .fd-tele__pill { background: var(--fd-surface-2); }
 .fd-tele__caret { flex: none; color: var(--fd-ink-3); transition: transform 120ms ease; }
 .fd-tele__mode.is-open .fd-tele__caret { transform: rotate(180deg); }
 .fd-tele__dot { flex: none; width: 6px; height: 6px; border-radius: 999px; background: var(--fd-ink-3); }
 .fd-tele__dot.is-running { animation: fd-pill-pulse 1.6s ease-in-out 0s infinite both; }
 @keyframes fd-pill-pulse {
-  0% { background: var(--fd-ink-3); box-shadow: 0 0 0 1px rgba(7, 9, 12, 0); }
+  0% { background: var(--fd-ink-3); box-shadow: 0 0 0 1px transparent; }
   50% { background: var(--tr-pen); box-shadow: 0 0 0 1px var(--tr-ink); }
-  100% { background: var(--fd-ink-3); box-shadow: 0 0 0 1px rgba(7, 9, 12, 0); }
+  100% { background: var(--fd-ink-3); box-shadow: 0 0 0 1px transparent; }
 }
 .fd-tele__note {
   position: absolute; left: 0; top: 100%; z-index: 5; box-sizing: border-box; width: min(360px, calc(100vw - 32px));
@@ -47,9 +49,10 @@
 
 /* the right group: privacy phrase, counter, button */
 .fd-tele__right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
-.fd-tele__privacy { font-size: 13px; line-height: 18px; color: var(--fd-ink-2); white-space: nowrap; }
-.fd-tele__count { font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: 0.01em; color: var(--fd-ink-3); white-space: nowrap; }
+.fd-tele__privacy { font-size: 13px; line-height: 19px; color: var(--fd-ink-2); white-space: nowrap; }
+.fd-tele__count { font-size: 12px; line-height: 17px; font-weight: 500; letter-spacing: 0.01em; color: var(--fd-ink-3); white-space: nowrap; }
 .fd-tele__step { flex: none; }
+.fd-tele__right .fd-tele__step:active { background: var(--fd-surface-2); }
 
 @media (max-width: 1359px) { .fd-tele__privacy { display: none; } }
 @media (max-width: 1199px) { .fd-tele__count { display: none; } }

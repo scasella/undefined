@@ -25,11 +25,11 @@
 }
 .fd-ac--held .fd-ac__seal { display: none; }
 
-.fd-ac__fig { font-size: 13px; line-height: 18px; color: var(--fd-ink-3); }
+.fd-ac__fig { font-size: 13px; line-height: 19px; color: var(--fd-ink-3); }
 .fd-ac__eyebrow {
   margin-top: 16px; display: flex; align-items: center; gap: 8px;
   font-family: var(--fd-mono); font-variant-numeric: tabular-nums slashed-zero; font-feature-settings: 'tnum', 'zero';
-  font-size: 11px; line-height: 14px; font-weight: 500; letter-spacing: 0.08em; color: var(--fd-green-ink);
+  font-size: 12px; line-height: 18px; font-weight: 500; letter-spacing: 0.06em; color: var(--fd-green-ink);
 }
 .fd-ac__eyebrow svg { flex: none; }
 /* a basic pass is not the green full pass: ink text and a partial ring (CoverageRing), the words say how much */
@@ -75,15 +75,15 @@
 .fd-ac__name { flex: 1 1 auto; min-width: 0; font-size: 15px; line-height: 22px; font-weight: 500; overflow-wrap: anywhere; }
 .fd-ac__track--row { flex: 0 1 34%; }
 .fd-ac__amt { width: 110px; flex: none; text-align: right; font-size: 15px; line-height: 22px; }
-.fd-ac__more { margin: 8px 0 0; font-size: 13px; line-height: 18px; color: var(--fd-ink-3); }
+.fd-ac__more { margin: 8px 0 0; font-size: 13px; line-height: 19px; color: var(--fd-ink-3); }
 
 /* fallbacks: an answer with no single figure to lead with */
 .fd-ac__fallback-note { margin: 16px 0 0; font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
 .fd-ac__fallback { margin-top: 12px; overflow-x: auto; border-radius: var(--fd-r-md); box-shadow: var(--fd-sh-ring); }
-.fd-ac__fallback-table { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 18px; }
+.fd-ac__fallback-table { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 19px; }
 .fd-ac__fallback-table th {
   text-align: left; padding: 8px 12px; background: var(--fd-surface-3); color: var(--fd-ink-3);
-  font-family: var(--fd-mono); font-size: 11px; font-weight: 500; letter-spacing: 0.04em; white-space: nowrap;
+  font-family: var(--fd-mono); font-size: 12px; font-weight: 500; letter-spacing: 0.04em; white-space: nowrap;
 }
 .fd-ac__fallback-table td { padding: 8px 12px; border-top: 1px solid var(--fd-line); white-space: nowrap; }
 .fd-ac__fallback .fd-ac__more { padding: 0 12px 8px; }
@@ -108,10 +108,9 @@
 .fd-ac__assumption-text { flex: 1; min-width: 0; }
 .fd-ac__confirm {
   min-height: 44px; padding: 0 12px; border: 0; border-radius: var(--fd-r-md); background: transparent;
-  color: var(--fd-indigo); font-family: inherit; font-size: 14px; font-weight: 500; cursor: pointer;
+  color: var(--fd-indigo); font-family: inherit; font-size: 14px; line-height: 20px; font-weight: 500; cursor: pointer;
 }
 .fd-ac__confirm:hover { color: var(--fd-indigo-hover); }
-.fd-ac__confirm:focus-visible { outline: none; box-shadow: var(--fd-sh-focus); }
 .fd-ac__confirmed { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--fd-green-ink); padding: 0 8px; }
 .fd-ac__confirmed svg { flex: none; }
 
@@ -127,28 +126,28 @@
 .fd-ac__ledger-list li { display: flex; gap: 8px; align-items: flex-start; }
 .fd-ac__ledger-glyph { flex: none; margin-top: 2px; }
 
-.fd-ac__honest { margin: 16px 0 0; font-size: 16px; line-height: 24px; color: var(--fd-ink-2); }
+.fd-ac__honest { margin: 16px 0 0; max-width: 70ch; font-size: 16px; line-height: 24px; color: var(--fd-ink-2); }
 
 /* actions: lock, see the calculation / add a house rule, help */
 .fd-ac__actions { margin-top: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
 .fd-ac--landing .fd-ac__actions { margin-top: 20px; }
 .fd-ac__lock {
   display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 20px; border-radius: var(--fd-r-md);
-  font-family: inherit; font-size: 14px; font-weight: 500; cursor: pointer;
+  font-family: inherit; font-size: 14px; line-height: 20px; font-weight: 500; cursor: pointer;
   background: var(--fd-indigo); color: #FFFFFF; border: 1px solid var(--fd-indigo);
 }
 .fd-ac__lock:hover { background: var(--fd-indigo-hover); border-color: var(--fd-indigo-hover); }
 .fd-ac__lock--on, .fd-ac__lock--on:hover { background: var(--fd-indigo-wash); color: var(--fd-indigo-hover); border-color: var(--fd-indigo); }
 .fd-ac__lock:disabled { cursor: progress; opacity: 0.7; }
-.fd-ac__lock:focus-visible, .fd-ac__calc-toggle:focus-visible, .fd-ac__rule-link:focus-visible { outline: none; box-shadow: var(--fd-sh-focus); }
+.fd-ac__lock:not(.fd-ac__lock--on):disabled:hover { background: var(--fd-indigo); border-color: var(--fd-indigo); }
 .fd-ac__calc-toggle {
   min-height: 44px; padding: 0 4px; border: 0; border-radius: var(--fd-r-sm); background: transparent; color: var(--fd-ink-2);
-  font-family: inherit; font-size: 14px; font-weight: 500; cursor: pointer;
+  font-family: inherit; font-size: 14px; line-height: 20px; font-weight: 500; cursor: pointer;
   text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--fd-line-2);
 }
 .fd-ac__calc-toggle:hover { color: var(--fd-ink); }
 .fd-ac__rule-link { font-size: 14px; font-weight: 500; min-height: 44px; display: inline-flex; align-items: center; border-radius: var(--fd-r-sm); }
-.fd-ac__help { font-size: 13px; line-height: 18px; color: var(--fd-ink-3); }
+.fd-ac__help { font-size: 13px; line-height: 19px; color: var(--fd-ink-3); }
 .fd-ac__calc {
   margin: 12px 0 0; padding: 16px; background: var(--fd-surface-2); border-radius: var(--fd-r-md); overflow-x: auto;
   font-size: 12px; line-height: 18px; color: var(--fd-ink-2);
@@ -166,7 +165,7 @@
 .fd-ac__veil-bar span:first-child { width: 40%; }
 .fd-ac__veil-bar span:last-child { width: 18%; }
 .fd-ac__veil-caption {
-  margin-top: 40px; text-align: center; font-family: var(--fd-mono); font-size: 12px; line-height: 16px; font-weight: 500;
+  margin-top: 40px; text-align: center; font-family: var(--fd-mono); font-size: 12px; line-height: 17px; font-weight: 500;
   letter-spacing: 0.01em; color: var(--fd-ink-3);
 }
 

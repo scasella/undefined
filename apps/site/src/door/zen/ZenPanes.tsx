@@ -1,4 +1,4 @@
-/** Zen mode · the panes that are not already a shared component: the question (2) and "what your answer must pass" (3). */
+/** Step by step · the panes that are not already a shared component: the question (2) and "what your answer must pass" (3). */
 import { useRef, useState } from 'preact/hooks';
 import type { Engine } from '@scasella/undefined-engine/types';
 import { CheckDisc, NotChecked } from '../icons';

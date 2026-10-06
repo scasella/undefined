@@ -1,5 +1,5 @@
 /**
- * Zen mode's flow, as pure data: the five panes, when each may be left, and the "Answer these" checklist (the six
+ * Step by step's flow, as pure data: the five panes, when each may be left, and the "Answer these" checklist (the six
  * checks of the trace, in the design's words, each marked as applying or not for the question about to be asked).
  * No DOM, no engine calls: the pane components feed it what the session reports.
  *

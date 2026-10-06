@@ -4,4 +4,4 @@
 /* "Hand this to your data team (download)" under a committed answer: the engine's eject zip */
 .fd-run__handoff { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
 .fd-run__handoff .fd-btn { max-width: 100%; white-space: normal; text-align: left; }
-.fd-run__handoff-msg { margin: 0; font-size: 13px; line-height: 18px; color: var(--fd-ink-2); min-width: 0; overflow-wrap: anywhere; }
+.fd-run__handoff-msg { margin: 0; max-width: 70ch; font-size: 13px; line-height: 19px; color: var(--fd-ink-2); min-width: 0; overflow-wrap: anywhere; }

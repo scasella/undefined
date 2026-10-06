@@ -5,8 +5,8 @@
 .fd-ow-rows { margin-top: 32px; display: flex; flex-direction: column; gap: 16px; }
 .fd-ow-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .fd-ow-label {
-  width: 120px; font-family: var(--fd-mono); font-size: 11px; line-height: 14px; font-weight: 500;
-  letter-spacing: 0.08em; color: var(--fd-ink-3);
+  width: 128px; font-family: var(--fd-mono); font-size: 12px; line-height: 18px; font-weight: 500;
+  letter-spacing: 0.06em; color: var(--fd-ink-3);
 }
 .fd-ow-label--here { color: var(--fd-indigo); }
 .fd-ow-arrow { color: var(--fd-ink-3); }
@@ -17,4 +17,4 @@
 .fd-ow-step--trace { background: var(--tr-bg); color: var(--tr-text); display: inline-flex; align-items: center; gap: 8px; }
 .fd-ow-pulse { flex: none; width: 6px; height: 6px; background: var(--tr-pass); border-radius: 999px; }
 .fd-ow-step--done { background: var(--fd-green-wash); color: var(--fd-green-ink); font-weight: 500; }
-.fd-ow-note { margin: 24px 0 0; max-width: 760px; font-size: 14px; line-height: 20px; color: var(--fd-ink-3); }
+.fd-ow-note { margin: 24px 0 0; max-width: 70ch; font-size: 14px; line-height: 20px; color: var(--fd-ink-3); }

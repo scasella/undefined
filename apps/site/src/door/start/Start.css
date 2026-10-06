@@ -1,4 +1,7 @@
 /* "Get started" (V3-Door-FirstRun 81-387): left column (data, question, run, columns) and the right rail. */
 .fd-start { padding: 0 0 48px; }
 .fd-start__row { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
-.fd-start__main { flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+/* 700px is the narrowest the left column may be beside the rail. Narrower and orders.csv's three suggestion chips fall to
+   three rows (about 683px and under), which pushes Ask toward the fold; below that width the rail drops under the
+   column, as it already did on smaller screens. (sales-q3.csv's longer labels need ~740px for two rows.) */
+.fd-start__main { flex: 999 1 700px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }

@@ -10,22 +10,23 @@
 /* request chips */
 .fd-sn__chips { margin-top: 20px; display: flex; flex-wrap: wrap; gap: 8px; }
 .fd-sn__chip {
-  min-height: 44px; padding: 0 14px; border-radius: 999px; border: 0; font-family: inherit; font-size: 14px;
+  min-height: 44px; padding: 0 14px; border-radius: 999px; border: 0; font-family: inherit; font-size: 14px; line-height: 20px;
   font-weight: 500; cursor: pointer; transition: box-shadow 120ms ease;
   background: var(--fd-surface); color: var(--fd-ink-2); box-shadow: var(--fd-sh-ring-2);
 }
-.fd-sn__chip.is-on { background: var(--fd-indigo-wash); color: var(--fd-indigo-hover); box-shadow: 0 0 0 1px var(--fd-indigo); }
+.fd-sn__chip:hover { color: var(--fd-ink); box-shadow: 0 0 0 1px var(--fd-ink-3); }
+.fd-sn__chip.is-on, .fd-sn__chip.is-on:hover { background: var(--fd-indigo-wash); color: var(--fd-indigo-hover); box-shadow: 0 0 0 1px var(--fd-indigo); }
 
 /* the grey "I can't do that reliably." panel */
 .fd-sn__no { margin-top: 16px; border-radius: var(--fd-r-lg); background: var(--fd-surface-2); padding: 20px; }
 .fd-sn__asked {
-  font-family: var(--fd-mono); font-size: 11px; line-height: 14px; font-weight: 500; letter-spacing: 0.08em;
+  font-family: var(--fd-mono); font-size: 12px; line-height: 18px; font-weight: 500; letter-spacing: 0.06em;
   color: var(--fd-ink-3);
 }
 .fd-sn__no-h { margin-top: 10px; font-size: 16px; line-height: 22px; font-weight: 600; }
 .fd-sn__no-p { margin: 6px 0 0; font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
 .fd-sn__b { font-weight: 600; color: var(--fd-ink); }
-.fd-sn__saved { margin: 10px 0 0; font-size: 12px; line-height: 16px; font-weight: 500; color: var(--fd-ink-3); }
+.fd-sn__saved { margin: 10px 0 0; font-size: 12px; line-height: 17px; font-weight: 500; color: var(--fd-ink-3); }
 
 /* what the AI sees */
 .fd-sn__list { margin: 16px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }

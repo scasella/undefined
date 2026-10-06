@@ -29,9 +29,11 @@ revision of your running program. Everything runs in your browser except the mod
 
 ## Try it
 
-- **In your browser:** [`#/start`](https://scasella.github.io/undefined/#/start): pick the orders sample and *Top 5
-  customers by revenue*, press **Ask**, and watch the checks run on the recorded answer. Your own file loads and
-  previews too; new questions about it need [the local copy](#run-it-on-your-computer).
+- **In your browser:** [`#/zen`](https://scasella.github.io/undefined/#/zen) (*Step by step*, the first-run path): pick
+  the orders sample and *Top 5 customers by revenue*, press **Continue** after each, then **Run the checks** and watch
+  them run on the recorded answer. The Full view, [`#/start`](https://scasella.github.io/undefined/#/start), is the same
+  run on one page. Your own file loads and previews too; new questions about it need
+  [the local copy](#run-it-on-your-computer).
 - **Lock an answer:** *Does this look right? Lock this answer* turns it into a check every later version must pass.
 - **Decide** where the spec was silent: a rejection a check marks as a spec gap becomes *a question only you can
   answer*. Your ruling becomes a house rule and the function is re-checked. [How](docs/FEATURES.md#decide-spec-gaps-become-questions).
@@ -58,9 +60,9 @@ npm run dev          # http://localhost:5173: the front door, with the generatio
 npm test && npm run typecheck && npm run build    # tests for every package, then the static site in apps/site/dist/
 ```
 
-Open `http://localhost:5173/#/start`, bring your file (or a sample) and ask. The bar at the top reads *Live · the AI runs
-on your computer, real checks*; if it still says *Demo*, the generation service could not reach Codex (check
-`codex login`).
+Open `http://localhost:5173/#/zen` (*Step by step*; `#/start` is the Full view), bring your file (or a sample) and ask. On
+the Full view the bar at the top reads *Live · the AI runs on your computer, real checks*; if it still says *Demo*, the
+generation service could not reach Codex (check `codex login`).
 
 **Replay mode (no Codex needed):** the static build in `apps/site/dist/` (one page, `index.html`) needs no backend and
 no environment variables (deployable to GitHub Pages). With no generation service reachable it replays recorded

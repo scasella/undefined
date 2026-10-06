@@ -26,8 +26,8 @@ button { font-family: inherit; }
   font-feature-settings: 'tnum', 'zero';
 }
 .fd-eyebrow {
-  font-family: var(--fd-mono); font-size: 11px; line-height: 14px; font-weight: 500;
-  letter-spacing: 0.08em; text-transform: uppercase; color: var(--fd-ink-3);
+  font-family: var(--fd-mono); font-size: 12px; line-height: 18px; font-weight: 500;
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--fd-ink-3);
 }
 .fd-sr {
   position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;

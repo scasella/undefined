@@ -6,7 +6,7 @@
 }
 .fd-asks__intro { flex: 1 1 320px; max-width: 400px; }
 .fd-asks__eyebrow {
-  font-family: var(--fd-mono); font-size: 11px; line-height: 14px; font-weight: 500; letter-spacing: 0.08em; color: var(--fd-ink-3);
+  font-family: var(--fd-mono); font-size: 12px; line-height: 18px; font-weight: 500; letter-spacing: 0.06em; color: var(--fd-ink-3);
 }
 .fd-asks__h { margin: 8px 0 0; font-size: clamp(26px, 3vw, 36px); line-height: 1.15; font-weight: 600; letter-spacing: -0.025em; }
 .fd-asks__lede { margin: 12px 0 0; color: var(--fd-ink-2); }
@@ -26,7 +26,7 @@
 }
 .fd-asks__q-eyebrow {
   display: flex; align-items: center; gap: 8px;
-  font-family: var(--fd-mono); font-size: 11px; line-height: 14px; font-weight: 500; letter-spacing: 0.08em; color: var(--fd-amber-ink);
+  font-family: var(--fd-mono); font-size: 12px; line-height: 18px; font-weight: 500; letter-spacing: 0.06em; color: var(--fd-amber-ink);
 }
 .fd-asks__q-eyebrow svg { flex: none; }
 .fd-asks__q-h { margin: 12px 0 0; font-size: 22px; line-height: 28px; font-weight: 600; letter-spacing: -0.015em; color: var(--fd-ink); }
@@ -37,11 +37,11 @@
 .fd-asks__case { margin-top: 16px; background: var(--fd-surface); border-radius: var(--fd-r-md); box-shadow: var(--fd-sh-ring); overflow: hidden; }
 .fd-asks__case-tag {
   padding: 6px 12px; border-bottom: 1px solid var(--fd-line);
-  font-family: var(--fd-mono); font-size: 11px; line-height: 14px; font-weight: 500; letter-spacing: 0.08em; color: var(--fd-ink-3);
+  font-family: var(--fd-mono); font-size: 12px; line-height: 18px; font-weight: 500; letter-spacing: 0.06em; color: var(--fd-ink-3);
 }
 .fd-asks__case-row {
   padding: 10px 12px; font-family: var(--fd-mono); font-variant-numeric: tabular-nums slashed-zero; font-feature-settings: 'tnum', 'zero';
-  font-size: 13px; line-height: 18px; color: var(--fd-ink);
+  font-size: 13px; line-height: 19px; color: var(--fd-ink);
 }
 
 .fd-asks__clash { margin-top: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 0; }
@@ -50,7 +50,7 @@
 .fd-asks__side-name--lock { display: flex; align-items: center; gap: 6px; }
 .fd-asks__side-name--lock svg { flex: none; }
 .fd-asks__side-note {
-  display: block; font-family: var(--fd-mono); font-size: 12px; line-height: 16px; font-weight: 500; color: var(--fd-ink-3);
+  display: block; font-family: var(--fd-mono); font-size: 12px; line-height: 17px; font-weight: 500; color: var(--fd-ink-3);
 }
 .fd-asks__ne { flex: 0 0 72px; height: 44px; position: relative; display: flex; align-items: center; justify-content: center; }
 .fd-asks__ne-line { position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--fd-amber); }
@@ -63,16 +63,25 @@
 .fd-asks__legend { padding: 0; font-size: 14px; line-height: 20px; font-weight: 600; color: var(--fd-ink); }
 .fd-asks__opts { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
 .fd-asks__opt {
-  display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 16px; box-sizing: border-box;
+  position: relative; display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 16px; box-sizing: border-box;
   border-radius: var(--fd-r-md); background: var(--fd-surface); cursor: pointer;
   font-size: 15px; line-height: 20px; color: var(--fd-ink-2); box-shadow: var(--fd-sh-ring);
   transition: box-shadow 120ms ease;
 }
+.fd-asks__opt:hover { box-shadow: var(--fd-sh-ring-2); }
 .fd-asks__opt.is-on { box-shadow: 0 0 0 1.5px var(--fd-indigo); font-weight: 500; color: var(--fd-ink); }
-.fd-asks__radio { width: 18px; height: 18px; margin: 0; accent-color: var(--fd-indigo); flex: none; }
+/* The real radio is the whole row (invisible, so the row is its 48px-tall box and target); the 18px disc beside the label is
+   what is drawn. Borders and a content-box background, not shadows, so it still shows in forced-colours mode. */
+.fd-asks__radio { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.fd-asks__disc {
+  flex: none; width: 18px; height: 18px; box-sizing: border-box; border-radius: 999px;
+  border: 1.5px solid var(--fd-ink-3); background: var(--fd-surface);
+}
+.fd-asks__opt.is-on .fd-asks__disc { border: 2px solid var(--fd-indigo); padding: 3px; background: var(--fd-indigo); background-clip: content-box; }
+.fd-asks__radio:focus-visible + .fd-asks__disc { outline: 2px solid var(--fd-indigo); outline-offset: 2px; }
 .fd-asks__preview { margin: 12px 0 0; font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
 .fd-asks__actions { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
-.fd-asks__waiting { font-size: 13px; line-height: 18px; color: var(--fd-amber-ink); }
+.fd-asks__waiting { font-size: 13px; line-height: 19px; color: var(--fd-amber-ink); }
 
 /* the saved state */
 .fd-asks__saved {
@@ -88,11 +97,11 @@
 .fd-asks__saved-h:focus-visible { outline: 2px solid var(--fd-indigo); outline-offset: 2px; }
 .fd-asks__saved-rule { margin: 10px 0 0; color: var(--fd-ink); }
 .fd-asks__saved-meta {
-  margin: 6px 0 0; font-family: var(--fd-mono); font-size: 12px; line-height: 16px; font-weight: 500; color: var(--fd-green-ink);
+  margin: 6px 0 0; font-family: var(--fd-mono); font-size: 12px; line-height: 17px; font-weight: 500; color: var(--fd-green-ink);
 }
 .fd-asks__again {
   margin-top: 10px; min-height: 44px; padding: 0; border: 0; background: transparent; cursor: pointer;
-  color: var(--fd-indigo); font-family: inherit; font-size: 14px; font-weight: 500;
+  color: var(--fd-indigo); font-family: inherit; font-size: 14px; line-height: 20px; font-weight: 500;
 }
 .fd-asks__again:hover { color: var(--fd-indigo-hover); }
 

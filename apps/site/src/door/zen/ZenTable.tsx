@@ -1,5 +1,5 @@
 /**
- * Zen · the whole table, scrollable. Rows are windowed (only the ones in view are drawn, on a fixed row height) so a
+ * Step by step · the whole table, scrollable. Rows are windowed (only the ones in view are drawn, on a fixed row height) so a
  * 20,000-row file scrolls as smoothly as the 48-row sample. Sticky header with each column's worked-out type.
  */
 import { useMemo, useRef, useState } from 'preact/hooks';
