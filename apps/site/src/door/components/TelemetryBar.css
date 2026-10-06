@@ -1,7 +1,9 @@
+/* The top bar: home · file chip · mode pill (a disclosure) · [privacy phrase · check counter · "Step by step"].
+   Secondary items drop out as the screen narrows (widest first); the pill and the button never do. */
 .fd-tele { background: var(--fd-surface); border-bottom: 1px solid var(--fd-line); position: relative; z-index: 3; }
 .fd-tele__in {
-  max-width: 1440px; margin: 0 auto; padding: 4px 16px; box-sizing: border-box; min-height: 48px;
-  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
+  max-width: 1440px; margin: 0 auto; padding: 4px 16px; box-sizing: border-box; min-height: 52px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px;
 }
 .fd-tele__home { display: flex; align-items: center; gap: 8px; text-decoration: none; color: var(--fd-ink); min-height: 44px; }
 .fd-tele__home:hover { color: var(--fd-ink); }
@@ -10,10 +12,23 @@
   font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: 0.01em; color: var(--fd-ink-2);
   padding: 6px 8px; border-radius: var(--fd-r-sm); box-shadow: var(--fd-sh-ring);
 }
+
+/* mode pill: the button is the 44px target, the pill is its drawn face; the note opens just under it */
+.fd-tele__mode { position: relative; display: flex; align-items: center; min-width: 0; }
+.fd-tele__pillbtn {
+  display: inline-flex; align-items: center; min-height: 44px; margin: 0; padding: 0; border: 0; background: none;
+  font: inherit; color: inherit; text-align: left; cursor: pointer;
+}
+.fd-tele__pillbtn:focus-visible { outline: none; }
+.fd-tele__pillbtn:focus-visible .fd-tele__pill { outline: 2px solid var(--fd-indigo); outline-offset: 2px; }
 .fd-tele__pill {
   display: inline-flex; align-items: center; gap: 8px; font-size: 13px; line-height: 18px; font-weight: 500;
-  color: var(--fd-ink-2); border: 1px solid var(--fd-line-2); border-radius: 999px; padding: 4px 12px 4px 10px;
+  color: var(--fd-ink-2); border: 1px solid var(--fd-line-2); border-radius: 999px; padding: 4px 10px 4px 10px;
+  transition: border-color 120ms ease;
 }
+.fd-tele__pillbtn:hover .fd-tele__pill { border-color: var(--fd-ink-3); }
+.fd-tele__caret { flex: none; color: var(--fd-ink-3); transition: transform 120ms ease; }
+.fd-tele__mode.is-open .fd-tele__caret { transform: rotate(180deg); }
 .fd-tele__dot { flex: none; width: 6px; height: 6px; border-radius: 999px; background: var(--fd-ink-3); }
 .fd-tele__dot.is-running { animation: fd-pill-pulse 1.6s ease-in-out 0s infinite both; }
 @keyframes fd-pill-pulse {
@@ -21,8 +36,26 @@
   50% { background: var(--tr-pen); box-shadow: 0 0 0 1px var(--tr-ink); }
   100% { background: var(--fd-ink-3); box-shadow: 0 0 0 1px rgba(7, 9, 12, 0); }
 }
-.fd-tele__count { font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: 0.01em; color: var(--fd-ink-3); }
-.fd-tele__privacy {
-  margin-left: auto; display: inline-flex; align-items: center; gap: 8px; font-size: 12px; line-height: 16px; color: var(--fd-ink-2);
+.fd-tele__note {
+  position: absolute; left: 0; top: 100%; z-index: 5; box-sizing: border-box; width: min(360px, calc(100vw - 32px));
+  padding: 12px 14px; border-radius: var(--fd-r-md); background: var(--fd-surface); box-shadow: var(--fd-sh-float), var(--fd-sh-ring);
+  font-size: 14px; line-height: 20px; color: var(--fd-ink-2);
 }
-.fd-tele__zen { display: inline-flex; align-items: center; min-height: 44px; padding: 0 4px; font-size: 13px; font-weight: 500; text-decoration: none; }
+.fd-tele__note[hidden] { display: none; }
+.fd-tele__note p { margin: 0; }
+.fd-tele__note p + p { margin-top: 8px; }
+
+/* the right group: privacy phrase, counter, button */
+.fd-tele__right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+.fd-tele__privacy { font-size: 13px; line-height: 18px; color: var(--fd-ink-2); white-space: nowrap; }
+.fd-tele__count { font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: 0.01em; color: var(--fd-ink-3); white-space: nowrap; }
+.fd-tele__step { flex: none; }
+
+@media (max-width: 1359px) { .fd-tele__privacy { display: none; } }
+@media (max-width: 1199px) { .fd-tele__count { display: none; } }
+@media (max-width: 859px) { .fd-tele__chip { display: none; } }
+/* phone: row one is the wordmark and the button, row two is the mode pill */
+@media (max-width: 639px) {
+  .fd-tele__right { order: 2; }
+  .fd-tele__mode { order: 3; flex: 1 0 100%; }
+}

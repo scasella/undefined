@@ -12,6 +12,7 @@ import { listTestNames } from '@scasella/undefined-engine/shared/specInfo';
 import { DECIDED_PREFIX, decisionSummary, decisionsOf } from '@scasella/undefined-engine/decide/decisions';
 import { decodeValue } from '@scasella/undefined-engine/shared/serialize';
 import { show } from '@scasella/undefined-engine/shared/show';
+import { SEEDED_PIN_ID } from './agreements';
 import { humanizeName, leadParts } from './answer';
 
 /** Which lane of the check trace a chip stands for (examples → 02, locked answers → 03, house rules → 04). */
@@ -54,14 +55,38 @@ export interface AgreementView {
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-/** `5 Oct 2026`, in the viewer's own calendar (as decide/decisions.ts decidedOn). */
+/**
+ * `5 Oct 2026`, in the viewer's own calendar (as the engine's decide/decisions.ts decidedOn): for a moment that really
+ * happened (a lock or ruling the viewer made, a version committed), so a lock made on the evening of 4 Oct in New York
+ * reads 4 Oct, not the UTC 5 Oct. The demo's seeded provenance is not such a moment: see `fixedDayText`.
+ */
 export function dayText(at: number): string {
   const d = new Date(at);
   return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
 }
 
+/**
+ * `5 Oct 2026` from the UTC calendar day of `at`, in every timezone. For the demo's seeded rows only (a fixed design
+ * date, not a clock reading: the seeded lock is stored at `Date.UTC(2026, 9, 5)`, which a US clock would show as the
+ * 4th). A moment the viewer made themselves goes through `dayText`.
+ */
+export function fixedDayText(at: number): string {
+  const d = new Date(at);
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
+
 function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
+}
+
+/** `6 examples, 1 locked answer and 2 house rules` (only the parts that exist). */
+export function agreementPhrase(n: AgreementView['n']): string {
+  const parts: string[] = [];
+  if (n.examples > 0) parts.push(plural(n.examples, 'example', 'examples'));
+  if (n.locks > 0) parts.push(plural(n.locks, 'locked answer', 'locked answers'));
+  if (n.rules > 0) parts.push(plural(n.rules, 'house rule', 'house rules'));
+  if (parts.length <= 1) return parts[0] ?? '';
+  return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
 }
 
 export function countsText(n: { examples: number; locks: number; rules: number }): string {
@@ -127,7 +152,7 @@ function pinChip(pin: Pin, program: Program, fn: string): AgreementChip {
   return {
     id: `lock:${pin.id}`,
     t: `${label} = ${value}`,
-    p: `Locked · you · ${dayText(pin.pinnedAt)}${files.length ? ` · on ${files.join(', ')}` : ''}`,
+    p: `Locked · you · ${pin.id === SEEDED_PIN_ID ? fixedDayText(pin.pinnedAt) : dayText(pin.pinnedAt)}${files.length ? ` · on ${files.join(', ')}` : ''}`,
     label,
     value,
   };
@@ -237,3 +262,62 @@ export function illustrativeAgreement(lockValue = '$2,252.07'): AgreementView {
 
 /** The start page's aggregate example chip in the design reads `made-up tables with known answers · you · 4 Oct 2026`. */
 export const ILLUSTRATIVE_EXAMPLES_META = 'made-up tables with known answers · you · 4 Oct 2026';
+
+// ───────────────────────── set vs. what will really run ─────────────────────────
+//
+// "Your agreement" is what the user SET (the program's spec). What RUNS on the next ask is another thing: pins are not
+// part of a function's hashes, so locking an answer leaves its certified function live, and asking again shows the
+// answer on file (checked before the lock) without re-running anything. Only a new version is checked against the
+// lock, and the replay demo cannot write one (every new version needs a recording of that exact spec). The surfaces
+// that speak about this (rail, ask line, lanes, zen checklist, not-checked list, lock help) all read these words.
+
+export type CheckMode = 'live' | 'replay';
+
+/**
+ * The agreement holds something the answer on file was never checked against: the level that will really run
+ * (recorded.ts levelFor) is Basic although the agreement is not empty.
+ */
+export function isHeldBack(level: 'full' | 'basic', view: Pick<AgreementView, 'empty'>): boolean {
+  return level === 'basic' && !view.empty;
+}
+
+/** Live: the engine's own promise (a locked result has to be reproduced by the next version it writes). */
+export const NEXT_VERSION_LIVE = 'The next version runs full checks.';
+/** Replay: nothing is re-run here, and saying so is the honest sentence. */
+export const NEXT_VERSION_REPLAY =
+  "This demo can't re-run, so asking again shows that same answer; on your computer the next version is checked against your agreement.";
+
+export function nextVersionLine(mode: CheckMode): string {
+  return mode === 'replay' ? NEXT_VERSION_REPLAY : NEXT_VERSION_LIVE;
+}
+
+/** The tag for a check that is set but that the next ask will not re-run (zen's checklist). */
+export const NOT_RERUN = 'Not re-run';
+
+/** Under the agreement counts (the right rail), only while the agreement is held back. */
+export function heldNote(mode: CheckMode): string {
+  return mode === 'replay'
+    ? "Not re-run here. The answer on file was checked before this was set, and this demo can't re-run."
+    : 'Not re-run yet. The answer on file was checked before this was set; the next version has to pass it.';
+}
+
+/**
+ * The lock button's confirmation ('' = the card's own words, which are true as they stand):
+ *  - basic checks, live: the engine's promise; basic checks, replay: the demo cannot re-run with the lock;
+ *  - full checks, replay: the lock is kept with the answer, but this demo cannot write a later version, so "every later
+ *    version has to give this" is a statement about the version on the viewer's computer, not about anything here.
+ *    (`noun` is what the answer is called: 'list' for a ranked list, else 'answer'.)
+ *  - full checks, live: '' (the card's own "Every later version has to give this same list." is true there).
+ */
+export function lockedHelp(input: { locked: boolean; level: 'full' | 'basic'; mode: CheckMode; noun?: 'list' | 'answer' }): string {
+  if (!input.locked) return '';
+  if (input.level === 'full') return input.mode === 'replay' ? lockedKeptReplay(input.noun ?? 'answer') : '';
+  return input.mode === 'replay'
+    ? "Locked. This demo can't re-run with it, so asking again shows this same answer; on your computer the next version is checked against it."
+    : 'Locked. The next version runs full checks, starting with this answer.';
+}
+
+/** Replay, locked, full checks: what is true here (the lock is saved with the answer) and what only holds on the viewer's computer. */
+export function lockedKeptReplay(noun: 'list' | 'answer'): string {
+  return `Locked, and kept with this answer. This demo can't write a later version; on your computer every later version has to give this same ${noun}.`;
+}

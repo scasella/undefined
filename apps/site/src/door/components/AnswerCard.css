@@ -32,6 +32,17 @@
   font-size: 11px; line-height: 14px; font-weight: 500; letter-spacing: 0.08em; color: var(--fd-green-ink);
 }
 .fd-ac__eyebrow svg { flex: none; }
+/* a basic pass is not the green full pass: ink text and a partial ring (CoverageRing), the words say how much */
+.fd-ac__eyebrow--basic { color: var(--fd-ink-2); }
+.fd-ac__ring-arc { fill: none; stroke-width: 2; }
+.fd-ac__ring-arc--ran { stroke: var(--fd-ink-2); }
+.fd-ac__ring-arc--rest { stroke: var(--fd-line-2); }
+
+/* the most decisive thing not checked, right under the figure */
+.fd-ac__caveat { margin: 12px 0 0; display: flex; gap: 8px; align-items: flex-start; font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
+.fd-ac__caveat svg { flex: none; margin-top: 2px; }
+.fd-ac__caveat > span { min-width: 0; overflow-wrap: anywhere; }
+.fd-ac__caveat-k { font-weight: 600; color: var(--fd-ink); }
 
 .fd-ac__lead-name { margin-top: 12px; font-size: 28px; line-height: 32px; font-weight: 600; letter-spacing: -0.015em; overflow-wrap: anywhere; }
 .fd-ac__lead-num { font-size: 56px; line-height: 60px; font-weight: 500; letter-spacing: -0.02em; margin-top: 4px; overflow-wrap: anywhere; }

@@ -60,7 +60,7 @@ export interface LaneView {
   line2Tone?: 'ask' | 'pass' | 'fail';
   /** Draw the outline ask diamond before line2 (first-run style). */
   line2Glyph?: boolean;
-  /** Off lanes: the dashed note ('No examples yet'). */
+  /** Off lanes: the dashed note ('No examples yet', OFF_NOTES). */
   offNote?: string;
   /** Stress lanes: how many of the cells (the last ones) are amber '?' cells. */
   missed?: number;
@@ -77,6 +77,12 @@ export interface LaneFacts {
   examples: number | null;
   /** Pinned results ("locked answers"). */
   pins: number;
+  /**
+   * How many of those pins the answer on file was checked with (its evidence), when a certified function holds one.
+   * Pins are outside the hashes, so a lock set after the check leaves the function live: asking again runs none of it.
+   * Absent: nothing is on file, so every pin will run.
+   */
+  pinsChecked?: number;
   /** "Chef Ravioli Starbright = $2,252.07": shown after the lane-03 label when there is exactly one pin. */
   pinLabel?: string;
   /** House rules: authored properties + the user's decisions. */
@@ -189,6 +195,23 @@ function stressLabel(total: number | null): string {
 }
 
 const OFF_ARIA = ': not checked yet. Add an example, a locked answer or a house rule to switch it on.';
+
+/**
+ * The words for a check with nothing to run: the dashed note in the trace AND the tag in zen's checklist (zen/flow.ts
+ * imports them), so the same state is never worded two ways.
+ */
+export const OFF_NOTES = {
+  examples: 'No examples yet',
+  locks: 'Nothing locked yet',
+  rules: 'No house rules yet',
+  stress: 'Needs your rules first',
+  /** A locked answer exists, but it was set after the answer on file was checked: that check never saw it. */
+  locksLate: 'Locked after this answer',
+  /** The stress test did not run on this answer because nothing was set when it was checked (a lock came later). */
+  stressLate: 'Not run on this answer',
+} as const;
+const LATE_LOCK_ARIA = ': not checked on this answer, you locked it afterwards.';
+const LATE_STRESS_ARIA = ': not run on this answer, nothing was set when it was checked.';
 const GRID_MAX = 100;
 const ROW_MAX = 48;
 
@@ -206,8 +229,8 @@ function cellsFor(kind: LaneKind, n: number): number {
   return Math.max(0, Math.min(n, kind === 'grid' ? GRID_MAX : ROW_MAX));
 }
 
-function off(b: Base, note: string): LaneView {
-  return { ...b, cells: 0, state: 'off', idle: 'Not checked', offNote: note, aria: b.label + OFF_ARIA };
+function off(b: Base, note: string, aria: string = OFF_ARIA): LaneView {
+  return { ...b, cells: 0, state: 'off', idle: 'Not checked', offNote: note, aria: b.label + aria };
 }
 function idle(b: Base, n: number, state: 'ready' | 'waiting' | 'skipped'): LaneView {
   const text = state === 'ready' ? 'Ready' : state === 'waiting' ? 'Waiting' : 'Not run';
@@ -280,7 +303,7 @@ export function liveLanes(input: LiveLanesInput): LaneView[] {
   // tests gate split: examples / pins / decision tests
   const split = tests && (tests.status === 'pass' || tests.status === 'fail') ? parseTestsSummary(tests.summary) : null;
   const noTests = !!tests && tests.status === 'skipped' && NOTHING_TO_RUN.has(tests.summary);
-  const pinsRan = split ? split.pinned : noTests ? 0 : facts.pins;
+  const pinsRan = split ? split.pinned : noTests ? 0 : (facts.pinsChecked ?? facts.pins);
   const unitRan = split ? split.unit : noTests ? 0 : null;
   const examplesN = unitRan !== null ? Math.max(0, unitRan - facts.decisionTests) : facts.examples;
   const fails = { ex: [] as Diagnostic[], lock: [] as Diagnostic[], rules: [] as Diagnostic[] };
@@ -313,14 +336,16 @@ export function liveLanes(input: LiveLanesInput): LaneView[] {
   // 02 examples
   const b2: Base = { num: '02', label: examplesLabel(examplesN), kind: 'ticks', link: 'ex' };
   let l2: LaneView;
-  if (examplesN === 0) l2 = off(b2, 'No examples yet');
+  if (examplesN === 0) l2 = off(b2, OFF_NOTES.examples);
   else if (tests?.status === 'fail' && fails.ex.length === 0) l2 = passed(b2, examplesN ?? 0);
   else l2 = laneFromGate(b2, examplesN ?? 0, tests, pending, (b, n) => failOrStop(b, n, fails.ex));
 
   // 03 locked answers
-  const b3: Base = { num: '03', label: lockLabel(pinsRan, facts.pinLabel), kind: 'ticks', lock: true, link: 'lock' };
+  // (a lock set after the check is still named: the rail lists it, so the lane must too)
+  const b3: Base = { num: '03', label: lockLabel(pinsRan === 0 ? facts.pins : pinsRan, facts.pinLabel), kind: 'ticks', lock: true, link: 'lock' };
   let l3: LaneView;
-  if (pinsRan === 0) l3 = off(b3, 'Nothing locked yet');
+  // set but never checked: a lock added after this answer was checked (pins are outside the hashes)
+  if (pinsRan === 0) l3 = facts.pins > 0 ? off(b3, OFF_NOTES.locksLate, LATE_LOCK_ARIA) : off(b3, OFF_NOTES.locks);
   else if (tests?.status === 'fail' && fails.lock.length === 0) l3 = passed(b3, pinsRan);
   else l3 = laneFromGate(b3, pinsRan, tests, pending, (b, n) => failOrStop(b, n, fails.lock));
 
@@ -328,7 +353,7 @@ export function liveLanes(input: LiveLanesInput): LaneView[] {
   const b4: Base = { num: '04', label: rulesLabel(rulesN, tables, propertiesRan), kind: propertiesRan ? 'grid' : 'ticks', link: 'rules' };
   const n4 = propertiesRan ? (tables ?? GRID_MAX) : (rulesN ?? 0);
   let l4: LaneView;
-  if (rulesN === 0) l4 = off(b4, 'No house rules yet');
+  if (rulesN === 0) l4 = off(b4, OFF_NOTES.rules);
   else if (fails.rules.length > 0) l4 = failOrStop(b4, n4, fails.rules);
   else if (noProps) {
     // only decision tests: they ran (and passed) in the tests gate
@@ -364,8 +389,8 @@ function stressLane(input: LiveLanesInput, a: AttemptView | null, gen: Generatio
   const m = input.mutation && fn !== undefined && input.mutation.fn === fn ? input.mutation : undefined;
   const total = report && !report.skipped && report.total > 0 ? report.total : m && m.total > 0 ? m.total : null;
   const b: Base = { num: '06', label: stressLabel(total), kind: 'stress' };
-  if (nothingToKill) return off(b, 'Needs your rules first');
-  if (report && report.skipped !== undefined && report.total === 0) return off(b, 'Needs your rules first');
+  if (nothingToKill) return input.facts.pins > 0 ? off(b, OFF_NOTES.stressLate, LATE_STRESS_ARIA) : off(b, OFF_NOTES.stress);
+  if (report && report.skipped !== undefined && report.total === 0) return off(b, OFF_NOTES.stress);
   // a draft that was thrown out is never stress-tested
   if (a && (a.status === 'rejected' || a.status === 'aborted') && input.run !== 'idle') return idle(b, total ?? 0, 'skipped');
   if (m && m.phase === 'running') return running(b, m.total, { done: m.done, total: m.total });
@@ -552,11 +577,15 @@ export function footerFor(lanes: LaneView[], header: HeaderView): { text: string
   const on = lanes.filter((l) => l.state !== 'off');
   const offN = lanes.length - on.length;
   const full = isFull(lanes);
+  // a lock set after the answer on file was checked: it is in the agreement, and it is not part of this run
+  const lateLock = get('03')?.offNote === OFF_NOTES.locksLate;
   if (!header.done && !header.running) {
     const text = full
       ? `When you ask, ${on.length === 6 ? 'all six' : on.length} checks run before you see anything. A draft that fails any of them is thrown out and the AI tries again.`
-      : 'When you ask, the two basic checks run before you see anything. The other four switch on once you lock an answer or add a house rule.';
-    return { text, meta: `${on.length} checks ready${offN > 0 ? ` · ${offN} not set up` : ''}` };
+      : lateLock
+        ? 'When you ask, the two basic checks run before you see anything. Your locked answer was set after the answer on file was checked, so asking again does not re-run it.'
+        : 'When you ask, the two basic checks run before you see anything. The other four switch on once you lock an answer or add a house rule.';
+    return { text, meta: `${on.length} checks ready${offN > 0 ? ` · ${offN} ${lateLock ? 'not run on this answer' : 'not set up'}` : ''}` };
   }
   if (header.running) return { text: 'Checking the draft before you see anything.', meta: 'checking…' };
   const parts: string[] = [];
@@ -582,7 +611,10 @@ export function footerFor(lanes: LaneView[], header: HeaderView): { text: string
     };
   }
   if (header.tone === 'pass') {
-    if (!full) return { text: 'Checked against: runs without errors · never changes your data · finishes fast. Nothing else yet.', meta: `real run ${header.right}` };
+    if (!full) {
+      const rest = lateLock ? 'Nothing else yet: your locked answer was set after this answer was checked.' : 'Nothing else yet.';
+      return { text: `Checked against: runs without errors · never changes your data · finishes fast. ${rest}`, meta: `real run ${header.right}` };
+    }
     const stress = get('06');
     if (stress && stress.state === 'passed') parts.push('stress test');
     parts.push('your data untouched');

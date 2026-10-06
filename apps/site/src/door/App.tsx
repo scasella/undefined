@@ -1,19 +1,20 @@
 /**
  * The front door shell: top bar, <main id="main"> holding the routed page, the landing's footer and the sticky
- * honesty bar. Routes: '#/' landing, '#/start' first run (router.ts). In-page '#id' links scroll, they never route.
+ * honesty bar. Routes: '#/' landing, '#/start' the full first run, '#/zen' the "Step by step" walk-through, which has
+ * its own bare shell (router.ts). In-page '#id' links scroll, they never route.
  */
 import { useEffect } from 'preact/hooks';
 import type { Engine } from '@scasella/undefined-engine/types';
-import { HonestyBar } from './components/HonestyBar';
+import { HonestyBar, latestVersion } from './components/HonestyBar';
 import { SiteFooter } from './components/SiteFooter';
 import { TelemetryBar } from './components/TelemetryBar';
 import { Landing } from './landing/Landing';
 import { installRouter, useRoute } from './router';
 import { Start } from './start/Start';
 import { Zen } from './zen/Zen';
-import { engineRef, headVersion, shellFileChip, shellRunning } from './state';
+import { engineRef, shellFileChip, shellRunning } from './state';
 
-/** The landing's example is "Version 3 · 5 Oct 2026" (an illustration, see FRONT-DOOR.md honesty rule 2). */
+/** The landing's example is "Version 3 · 5 Oct 2026" (an illustration, see FRONT-DOOR.md honesty rule 2): the bar says so. */
 const LANDING_VERSION = { version: 3, date: '5 Oct 2026' } as const;
 const LANDING_CHIP = 'orders.csv · 332 rows · 10 columns';
 
@@ -24,7 +25,8 @@ export function App({ engine, initError }: { engine: Engine; initError?: string 
   const st = engine.state.value;
   const chip = shellFileChip.value ?? (page === 'landing' ? LANDING_CHIP : null);
   if (page === 'zen') return <Zen engine={engine} initError={initError ?? null} />;
-  const honesty = page === 'landing' ? LANDING_VERSION : headVersion(st);
+  // the first run shows a version only once one was committed (HonestyBar.latestVersion); the landing's is the example's
+  const honesty = page === 'landing' ? LANDING_VERSION : latestVersion(st);
 
   return (
     <div class="fd-shell">
@@ -43,7 +45,7 @@ export function App({ engine, initError }: { engine: Engine; initError?: string 
         )}
       </main>
       {page === 'landing' && <SiteFooter />}
-      <HonestyBar version={honesty.version} date={honesty.date} />
+      <HonestyBar version={honesty?.version ?? null} date={honesty?.date ?? null} example={page === 'landing'} />
     </div>
   );
 }

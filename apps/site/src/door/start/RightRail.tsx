@@ -14,7 +14,7 @@ import { AgreementRail } from '../components/AgreementRail';
 import { DemoNote } from '../components/DemoNote';
 import { PrivacyRail } from '../components/PrivacyRail';
 import { Switch } from '../components/Switch';
-import type { AgreementView } from '../model/agreement';
+import { heldNote, isHeldBack, type AgreementView } from '../model/agreement';
 import type { AgreementSummary } from '../model/agreements';
 import { FOOTER_REST, OFF_TEXT, REPLAY_ROWS_NOTE } from '../model/privacy';
 import { setSendRows } from '../state';
@@ -36,6 +36,8 @@ export function RightRail({ engine, session }: RightRailProps) {
   const seed = s.seed.value;
   const shown = seedShown({ view, seed: seed?.spec ?? null, seedState: s.seedState.value, program: st.program });
   const agreement = shown && seed ? seedDressed(view, seed.summary) : view.seeded ? { ...view, seeded: false } : view;
+  // what will really run (levelFor) against what is set: the same sentence the ask line and the check trace stand on
+  const held = isHeldBack(s.question.value?.level ?? 'basic', agreement);
 
   return (
     <aside class="fd-rrail" aria-label="What the AI will see and your agreement">
@@ -44,7 +46,7 @@ export function RightRail({ engine, session }: RightRailProps) {
       ) : (
         <PrivacyPlaceholder rowsOn={st.send.samples} sampleRows={st.send.sampleRows} replay={st.mode === 'replay'} />
       )}
-      <AgreementRail variant="start" view={agreement} />
+      <AgreementRail variant="start" view={agreement} {...(held ? { note: heldNote(st.mode) } : {})} />
       <DemoNote mode={st.mode} />
     </aside>
   );

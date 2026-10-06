@@ -1,7 +1,8 @@
 /**
  * Landing · "It says no when it can't do it reliably." + "Your data stays in your browser." (V3-Door-Landing,
  * SAYS NO + DATA STAYS). The example-rows switch is the real setting (state.ts sendRows / setSendRows →
- * Engine.setSendSamples), so it stays in sync with the top bar's switch. Copy and rows: ./saysNoView.ts.
+ * Engine.setSendSamples); it is the page's only example-rows switch (the top bar's mode note just reports it).
+ * Copy and rows: ./saysNoView.ts.
  */
 import { Fragment } from 'preact';
 import { useState } from 'preact/hooks';

@@ -1,4 +1,4 @@
-/* Landing · data team file + honest limits + closing call to action (V3-Door-Landing, id="own-file") */
+/* Landing · data team file + honest limits (id="own-file") + closing call to action (V3-Door-Landing) */
 .fd-tf { padding: 0 0 72px; }
 .fd-tf__grid {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr)); gap: 24px; align-items: start;
@@ -32,5 +32,6 @@
   margin: 12px 0 0; padding: 0 0 0 18px; font-size: 15px; line-height: 22px; color: var(--fd-ink-2);
   display: flex; flex-direction: column; gap: 8px;
 }
+.fd-tf__run { display: inline-flex; align-items: center; min-height: 44px; margin-top: 8px; font-size: 15px; font-weight: 500; }
 .fd-tf__claim { font-size: 28px; line-height: 32px; font-weight: 600; letter-spacing: -0.015em; }
 .fd-tf__ctas { margin-top: 20px; display: flex; flex-wrap: wrap; gap: 12px; }

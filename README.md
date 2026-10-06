@@ -8,8 +8,8 @@
 
 The site is one page, **the front door** ([`index.html`](https://scasella.github.io/undefined/)): bring a spreadsheet
 export (CSV, TSV or JSON), pick a question, watch the AI's calculation get checked before you see the answer: your
-examples, your locked answers, your house rules, and what was *not* checked. `#/start` is the first-run page. Its
-contract and vocabulary are in [docs/FRONT-DOOR.md](docs/FRONT-DOOR.md). The original REPL UI (the workbench) was
+examples, your locked answers, your house rules, and what was *not* checked. `#/zen` ("Step by step") is where new
+visitors start; `#/start` is the full first-run page. Their contract and vocabulary are in [docs/FRONT-DOOR.md](docs/FRONT-DOOR.md). The original REPL UI (the workbench) was
 removed; engine features it alone exposed (free-form calls, spec editing, rollback, share links, the session log) are
 engine API only now, listed in [docs/FEATURES.md](docs/FEATURES.md#engine-features-with-no-ui).
 

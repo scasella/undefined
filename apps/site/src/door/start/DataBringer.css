@@ -1,24 +1,40 @@
 /* Bring a file (V3-Door-FirstRun 88-134): drop / paste card + the two sample files. */
-.fd-bring { display: flex; flex-wrap: wrap; gap: 16px; align-items: stretch; }
+.fd-bring { display: flex; flex-direction: column; gap: 12px; }
 .fd-bring [hidden] { display: none !important; }
+.fd-bring__picker { display: flex; flex-wrap: wrap; gap: 16px; align-items: stretch; }
+
+/* the bound file's one-line chip: phones only (below 720px it replaces the picker once a file is bound) */
+.fd-bring__bound { display: none; }
+.fd-bring__bound-icon { flex: none; color: var(--fd-ink-2); }
+.fd-bring__bound-text { flex: 1; min-width: 0; font-size: 13px; line-height: 18px; font-weight: 500; color: var(--fd-ink); overflow-wrap: anywhere; }
+.fd-bring__change {
+  flex: none; min-height: 44px; padding: 0 12px; border: 0; background: none; cursor: pointer; border-radius: var(--fd-r-md);
+  font: inherit; font-size: 14px; font-weight: 500; color: var(--fd-indigo);
+}
+.fd-bring__change:hover { color: var(--fd-indigo-hover); background: var(--fd-indigo-wash); }
+.fd-bring__change[aria-disabled='true'] { cursor: progress; opacity: 0.6; }
+@media (max-width: 719px) {
+  .fd-bring__bound { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 4px 8px 4px 16px; box-sizing: border-box; }
+  .fd-bring.is-folded .fd-bring__picker { display: none; }
+}
 
 .fd-bring__card { flex: 3 1 420px; min-width: 0; padding: 16px; display: flex; flex-direction: column; box-sizing: border-box; }
 .fd-bring__tabs { align-self: flex-start; }
-/* 44px targets (the board's pills are 40px; the contract asks for 44) */
-.fd-bring__tabs .fd-seg__item { min-height: 44px; }
 
 /* drop zone */
 .fd-bring__zone {
-  margin-top: 12px; flex: 1; min-height: 236px; box-sizing: border-box; padding: 24px;
+  margin-top: 12px; flex: 1; min-height: 176px; box-sizing: border-box; padding: 20px 24px;
   border-radius: var(--fd-r-lg); background: var(--fd-surface-2); box-shadow: inset 0 0 0 1px var(--fd-line-2);
   display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
   transition: background-color 120ms ease, box-shadow 120ms ease;
 }
 .fd-bring__zone.is-over { background: var(--fd-indigo-wash); box-shadow: inset 0 0 0 1.5px var(--fd-indigo); }
-.fd-bring__zone-h { margin-top: 12px; font-size: 22px; line-height: 28px; font-weight: 600; letter-spacing: -0.015em; color: var(--fd-ink); }
+.fd-bring__zone-h { margin-top: 10px; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.015em; color: var(--fd-ink); }
 .fd-bring__zone-sub { margin-top: 6px; font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
-.fd-bring__choose { margin-top: 16px; }
-.fd-bring__note { margin: 12px 0 0; max-width: 460px; font-size: 13px; line-height: 18px; color: var(--fd-ink-2); }
+/* the spreadsheet hint says what to do, at body size */
+.fd-bring__zone-hint { margin-top: 2px; max-width: 460px; }
+.fd-bring__choose { margin-top: 14px; }
+.fd-bring__note { margin: 12px 0 0; max-width: 460px; font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
 .fd-bring__note--paste { margin: 0; max-width: none; }
 
 /* paste */
@@ -30,15 +46,15 @@
   font-size: 13px; line-height: 20px; color: var(--fd-ink);
 }
 .fd-bring__paste-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
-.fd-bring__hint { font-size: 13px; line-height: 18px; color: var(--fd-ink-3); }
+.fd-bring__hint { font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
 
 /* intake states */
-.fd-bring__status:not(:empty) { margin-top: 10px; font-size: 13px; line-height: 18px; color: var(--fd-ink-2); }
+.fd-bring__status:not(:empty) { margin-top: 10px; font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
 .fd-bring__problem {
   margin: 10px 0 0; padding: 10px 12px; border-radius: var(--fd-r-sm); background: var(--fd-amber-wash);
-  font-size: 13px; line-height: 18px; color: var(--fd-ink); overflow-wrap: anywhere;
+  font-size: 14px; line-height: 20px; color: var(--fd-ink); overflow-wrap: anywhere;
 }
-.fd-bring__warnings { margin: 10px 0 0; padding: 0 0 0 18px; font-size: 13px; line-height: 18px; color: var(--fd-ink-2); }
+.fd-bring__warnings { margin: 10px 0 0; padding: 0 0 0 18px; font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
 
 /* samples */
 .fd-bring__samples { flex: 2 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }

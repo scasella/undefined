@@ -269,7 +269,7 @@ export function RunStates({ engine, session }: { engine: Engine; session?: Sessi
     card = (
       <div class="fd-rs fd-rs--out" role="status">
         <h3 class="fd-rs__out-h" tabIndex={-1} ref={headRef}>
-          <ThrownOut size={16} tone="light" />
+          <ThrownOut size={20} tone="light" />
           {THROWN_OUT_HEAD}
         </h3>
         <p class="fd-rs__p">{v.last}</p>

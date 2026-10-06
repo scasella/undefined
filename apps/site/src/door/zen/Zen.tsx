@@ -12,9 +12,10 @@ import { BootError } from '../App';
 import { Button } from '../components/LinkButton';
 import { Mark } from '../icons';
 import { rowsShort, sendRows } from '../state';
+import { noRecordingText } from '../start/derive';
 import { RunPanel } from '../start/RunPanel';
 import { sessionFor } from '../start/session';
-import { canContinue, paneOf, ZEN_PANES, type ZenStep } from './flow';
+import { canContinue, CONTINUE_WHY_ID, continueReason, paneOf, ZEN_PANES, type ZenStep } from './flow';
 import { ZenData } from './ZenData';
 import { ZenChecks, ZenQuestion } from './ZenPanes';
 import './Zen.css';
@@ -65,11 +66,17 @@ export function Zen({ engine, initError }: { engine: Engine; initError: string |
   const busy = s?.busy.value ?? false;
   const outcome = s?.outcome.value.kind ?? 'idle';
   const done = outcome === 'committed' || outcome === 'cached';
-  const can = s ? canContinue(step, { bound: s.source.value !== 'none', question: s.question.value !== null, busy }) : false;
+  // replay, nothing recorded for the selected question (typed ones, other suggestions, anything on your own file): it
+  // can only end in "No recorded answer for this one", so Continue stays off and says why
+  const picked = s?.question.value ?? null;
+  const needsLive = !!picked && s?.availability.value[picked.id] === 'none';
+  const can = s ? canContinue(step, { bound: s.source.value !== 'none', question: picked !== null, busy, needsLive }) : false;
+  const why = s ? continueReason(step, { question: picked !== null, needsLive }, noRecordingText(s.source.value === 'own', s.recordedOther.value)) : '';
+  const describedBy = why ? { 'aria-describedby': CONTINUE_WHY_ID } : {};
   const pane = paneOf(step);
 
   const run = () => {
-    if (!s || !s.canAsk.value) return;
+    if (!s || !s.canAsk.value || needsLive) return;
     go(4);
     void s.ask();
   };
@@ -128,8 +135,8 @@ export function Zen({ engine, initError }: { engine: Engine; initError: string |
               </h1>
 
               {step === 1 && <ZenData engine={engine} />}
-              {step === 2 && <ZenQuestion engine={engine} />}
-              {step === 3 && <ZenChecks engine={engine} />}
+              {step === 2 && <ZenQuestion engine={engine} why={why} />}
+              {step === 3 && <ZenChecks engine={engine} why={why} />}
               {step === 4 && <RunPanel engine={engine} zen part="run" onSettled={settled} />}
               {step === 5 && <RunPanel engine={engine} zen part="answer" />}
 
@@ -151,12 +158,12 @@ export function Zen({ engine, initError }: { engine: Engine; initError: string |
                 )}
                 <span class="zen__spacer" />
                 {step < 3 && (
-                  <Button variant="primary" icon="arrow" aria-disabled={can ? undefined : 'true'} onClick={() => can && go((step + 1) as ZenStep)}>
+                  <Button variant="primary" icon="arrow" aria-disabled={can ? undefined : 'true'} {...describedBy} onClick={() => can && go((step + 1) as ZenStep)}>
                     Continue
                   </Button>
                 )}
                 {step === 3 && (
-                  <Button variant="primary" icon="arrow" aria-disabled={can && s.canAsk.value ? undefined : 'true'} onClick={run}>
+                  <Button variant="primary" icon="arrow" aria-disabled={can && s.canAsk.value ? undefined : 'true'} {...describedBy} onClick={run}>
                     Run the checks
                   </Button>
                 )}

@@ -10,14 +10,11 @@
 /* request chips */
 .fd-sn__chips { margin-top: 20px; display: flex; flex-wrap: wrap; gap: 8px; }
 .fd-sn__chip {
-  min-height: 40px; padding: 0 14px; border-radius: 999px; border: 0; font-family: inherit; font-size: 14px;
+  min-height: 44px; padding: 0 14px; border-radius: 999px; border: 0; font-family: inherit; font-size: 14px;
   font-weight: 500; cursor: pointer; transition: box-shadow 120ms ease;
   background: var(--fd-surface); color: var(--fd-ink-2); box-shadow: var(--fd-sh-ring-2);
 }
 .fd-sn__chip.is-on { background: var(--fd-indigo-wash); color: var(--fd-indigo-hover); box-shadow: 0 0 0 1px var(--fd-indigo); }
-/* 44px target without changing the 40px look */
-.fd-sn__chip { position: relative; }
-.fd-sn__chip::before { content: ''; position: absolute; inset: -2px 0; }
 
 /* the grey "I can't do that reliably." panel */
 .fd-sn__no { margin-top: 16px; border-radius: var(--fd-r-lg); background: var(--fd-surface-2); padding: 20px; }

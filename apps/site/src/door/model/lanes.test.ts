@@ -8,6 +8,7 @@ import {
   headerFor,
   liveLanes,
   liveTextFor,
+  OFF_NOTES,
   parsePropertiesSummary,
   parseTestsSummary,
   type LaneFacts,
@@ -198,6 +199,43 @@ describe('liveLanes', () => {
     expect(lanes.map((l) => l.state)).toEqual(['passed', 'off', 'off', 'off', 'passed', 'off']);
   });
 
+  describe('a locked answer set after the answer on file was checked (pins are outside the hashes)', () => {
+    const none = attempt(1, 'accepted', [compileOk, g('tests', 'skipped', 'no tests yet'), g('properties', 'skipped', 'no properties yet'), invOk]);
+    const locked: LaneFacts = { examples: 0, pins: 1, pinLabel: 'Puddlesworth Inc = $2,599.13', houseRules: 0, decisionTests: 0, tables: null };
+
+    it('the committed run did not check it: lane 03 says so instead of "Nothing locked yet", and still names it', () => {
+      const lanes = liveLanes({ generation: gen([none], 'committed'), facts: locked, run: 'done' });
+      expect(lanes[2]).toMatchObject({ state: 'off', idle: 'Not checked', offNote: OFF_NOTES.locksLate, label: 'Matches your locked answer · Puddlesworth Inc = $2,599.13' });
+      expect(lanes[2]?.aria).toContain('you locked it afterwards');
+      expect(lanes[2]?.aria).not.toContain('Add an example');
+      // nothing was set when the stress test would have run: it is not "needs your rules first" for a viewer who set a lock
+      expect(lanes[5]).toMatchObject({ state: 'off', offNote: OFF_NOTES.stressLate });
+      // examples and house rules: nothing set, so the plain words
+      expect(lanes[1]?.offNote).toBe(OFF_NOTES.examples);
+      expect(lanes[3]?.offNote).toBe(OFF_NOTES.rules);
+    });
+    it('with no lock set it is still "Nothing locked yet" / "Needs your rules first"', () => {
+      const lanes = liveLanes({ generation: gen([none], 'committed'), facts: basic, run: 'done' });
+      expect(lanes[2]?.offNote).toBe(OFF_NOTES.locks);
+      expect(lanes[5]?.offNote).toBe(OFF_NOTES.stress);
+    });
+    it('a tests gate that ran examples but no pin reads the same way', () => {
+      const exOnly = attempt(1, 'accepted', [compileOk, g('tests', 'pass', '6/6 tests passed'), g('properties', 'skipped', 'no properties yet'), invOk]);
+      const lanes = liveLanes({ generation: gen([exOnly], 'committed'), facts: { ...locked, examples: 6 }, run: 'done' });
+      expect(lanes[1]?.state).toBe('passed');
+      expect(lanes[2]?.offNote).toBe(OFF_NOTES.locksLate);
+    });
+    it('idle with a certified answer on file: the lanes show what the next ask will run (pinsChecked), not what is set', () => {
+      const lanes = liveLanes({ generation: null, facts: { ...locked, pinsChecked: 0 }, run: 'idle' });
+      expect(lanes[2]).toMatchObject({ state: 'off', offNote: OFF_NOTES.locksLate });
+      expect(lanes[5]).toMatchObject({ state: 'off', offNote: OFF_NOTES.stressLate });
+      // nothing on file: every pin will run
+      expect(liveLanes({ generation: null, facts: locked, run: 'idle' })[2]?.state).toBe('ready');
+      // the answer on file was checked with the lock: it will run again
+      expect(liveLanes({ generation: null, facts: { ...locked, pinsChecked: 1 }, run: 'idle' })[2]?.state).toBe('ready');
+    });
+  });
+
   describe('lane 06: the lazy mutation check, after the commit', () => {
     const a = attempt(1, 'accepted', [compileOk, testsOk, propsOk, invOk]);
     const committed = gen([a], 'committed', { revision: 3 });
@@ -341,6 +379,19 @@ describe('headerFor / footerFor / liveTextFor', () => {
     expect(h.verdict).toBe("Passed 2 basic checks ↓ see what wasn't checked");
     expect(footerFor(lanes, h).text).toBe('Checked against: runs without errors · never changes your data · finishes fast. Nothing else yet.');
     expect(liveTextFor(h, lanes)).toBe('Passed 2 basic checks. Showing the answer.');
+  });
+  it('a lock set after the answer on file was checked: the footer says it is not part of this run (never "nothing else yet" or "switch on once you lock")', () => {
+    const none = attempt(1, 'accepted', [compileOk, g('tests', 'skipped', 'no tests yet'), g('properties', 'skipped', 'no properties yet'), invOk]);
+    const facts: LaneFacts = { examples: 0, pins: 1, pinLabel: 'Puddlesworth Inc = $2,599.13', houseRules: 0, decisionTests: 0, tables: null };
+    const generation = gen([none], 'committed');
+    const lanes = liveLanes({ generation, facts, run: 'done' });
+    const h = headerFor({ ...base, generation, lanes, run: 'done' });
+    expect(footerFor(lanes, h).text).toBe('Checked against: runs without errors · never changes your data · finishes fast. Nothing else yet: your locked answer was set after this answer was checked.');
+    const idle = liveLanes({ generation: null, facts: { ...facts, pinsChecked: 0 }, run: 'idle' });
+    const f = footerFor(idle, headerFor({ ...base, generation: null, lanes: idle, run: 'idle' }));
+    expect(f.text).toContain('Your locked answer was set after the answer on file was checked, so asking again does not re-run it.');
+    expect(f.text).not.toContain('switch on once you lock');
+    expect(f.meta).toBe('2 checks ready · 4 not run on this answer');
   });
   it('held: paused, amber verdict', () => {
     const prop: Diagnostic = { kind: 'property', name: 'refunds', counterexample: '[]', shrinks: 3, runs: 47, seed: 1, silentOn: 'all refunded' };

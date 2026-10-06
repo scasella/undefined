@@ -11,9 +11,6 @@
 .fd-asks__h { margin: 8px 0 0; font-size: clamp(26px, 3vw, 36px); line-height: 1.15; font-weight: 600; letter-spacing: -0.025em; }
 .fd-asks__lede { margin: 12px 0 0; color: var(--fd-ink-2); }
 .fd-asks__seg { margin-top: 20px; }
-/* 44px target without changing the design's 40px pill (the group's 3px padding holds the extra 2px each side) */
-.fd-asks__seg .fd-seg__item { position: relative; }
-.fd-asks__seg .fd-seg__item::before { content: ''; position: absolute; inset: -2px 0; }
 /* one row, as the design (its pill row sets the intro column width); wraps only on narrow screens */
 @media (min-width: 560px) { .fd-asks__seg { flex-wrap: nowrap; max-width: none; } }
 /* narrow: each pill fills its row, so the wrapped group reads as a stacked control, not a stray grey block */

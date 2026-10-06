@@ -51,11 +51,11 @@
 .zd__sample:hover { box-shadow: 0 0 0 1.5px var(--fd-ink-3); }
 .zd__sample.is-on { background: var(--fd-indigo-wash); box-shadow: 0 0 0 1.5px var(--fd-indigo); color: var(--fd-indigo-hover); }
 .zd__sample[aria-disabled='true'] { cursor: progress; }
-.zd__hint { margin: 0; text-align: center; font-size: 12px; line-height: 16px; color: var(--fd-ink-3); }
+.zd__hint { margin: 0; text-align: center; font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
 
-.zd__status:not(:empty) { font-size: 13px; line-height: 18px; color: var(--fd-ink-2); text-align: center; }
+.zd__status:not(:empty) { font-size: 14px; line-height: 20px; color: var(--fd-ink-2); text-align: center; }
 .zd__problem {
   margin: 0; padding: 10px 12px; border-radius: var(--fd-r-sm); background: var(--fd-amber-wash);
-  font-size: 13px; line-height: 18px; color: var(--fd-ink); overflow-wrap: anywhere;
+  font-size: 14px; line-height: 20px; color: var(--fd-ink); overflow-wrap: anywhere;
 }
-.zd__note { margin: 0; font-size: 13px; line-height: 18px; color: var(--fd-ink-2); }
+.zd__note { margin: 0; font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }

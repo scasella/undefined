@@ -84,7 +84,8 @@
 .fd-rs__no-h { margin: 10px 0 0; font-size: 16px; line-height: 22px; font-weight: 600; color: var(--fd-ink); }
 
 /* ── every draft thrown out (calm red ink) ── */
-.fd-rs--out { background: var(--fd-surface); box-shadow: 0 0 0 1px var(--fd-line), var(--fd-sh-1); border-left: 3px solid var(--fd-red); padding: 20px; }
+/* The card keeps its 1px ring; the meaning is the drawn red glyph and the state words in red ink, not a coloured edge. */
+.fd-rs--out { background: var(--fd-surface); box-shadow: 0 0 0 1px var(--fd-line), var(--fd-sh-1); padding: 20px; }
 .fd-rs__out-h {
   margin: 0; display: flex; align-items: center; gap: 10px;
   font-size: 16px; line-height: 22px; font-weight: 600; color: var(--fd-red);

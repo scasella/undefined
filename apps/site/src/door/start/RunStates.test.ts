@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { GapQuestion, GenerationView } from '@scasella/undefined-engine/types';
 import { routeAnchor, parseHash } from '../router';
-import { confirmKey, HOUSE_RULE_HREF } from './RunPanel';
+import { confirmKey, draftingView, HOUSE_RULE_HREF } from './RunPanel';
 import { declinedView, DECLINE_WHY, gapPreview, gapView, OWN_FILE_HREF, savedRuleText, serviceView, thrownOutView } from './RunStates';
 
 const gap: GapQuestion = {
@@ -91,5 +91,36 @@ describe('cross-route links', () => {
   it('confirmations reset per run', () => {
     expect(confirmKey(null)).toBe('');
     expect(confirmKey({ id: 3, questionId: 'top' })).not.toBe(confirmKey({ id: 4, questionId: 'top' }));
+  });
+});
+
+describe('draftingView', () => {
+  const gen = (o: Partial<Pick<GenerationView, 'phase' | 'mode' | 'kind' | 'attempt'>>) => ({ phase: 'generating' as const, mode: 'live' as const, attempt: 1, ...o });
+  it('says the AI is writing, not that the checks run, while the draft is being written', () => {
+    const v = draftingView(gen({}))!;
+    expect(v.runningText).toBe('drafting…');
+    expect(v.footer.text).toContain('The AI is writing draft 1.');
+    expect(v.footer.text).toContain('trusted until it passes the checks');
+    expect(v.liveText).toContain('writing draft 1');
+    expect(draftingView(gen({ attempt: 2 }))!.footer.text).toContain('draft 2');
+  });
+  it('labels the demo wait as a recording, without claiming its pace', () => {
+    const v = draftingView(gen({ mode: 'replay' }))!;
+    expect(v.runningText).toBe('drafting · from the recording');
+    expect(v.footer.text).toContain("Replaying the AI's recorded draft 1.");
+    expect(JSON.stringify(v)).not.toMatch(/pace/i);
+    expect(v.liveText).toContain('recorded draft 1');
+  });
+  it('is null once the checks run, once it is over, or when no model was asked', () => {
+    expect(draftingView(null)).toBeNull();
+    for (const phase of ['gating', 'committed', 'failed'] as const) expect(draftingView(gen({ phase }))).toBeNull();
+    expect(draftingView(gen({ kind: 'recheck' }))).toBeNull();
+  });
+  it('never uses engine words and claims no duration', () => {
+    for (const mode of ['live', 'replay'] as const) {
+      const all = JSON.stringify(draftingView(gen({ mode })));
+      expect(all).not.toMatch(/\b(gate|spec|property|fuzz|mutant|revision|pin)\b/i);
+      expect(all).not.toMatch(/\d+(\.\d+)? ?(s|ms|sec|seconds)\b/);
+    }
   });
 });

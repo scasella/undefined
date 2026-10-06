@@ -5,6 +5,8 @@
 .fd-agree__counts { margin-top: 6px; font-size: 12px; line-height: 16px; font-weight: 500; color: var(--fd-ink); }
 .fd-agree__hint { margin: 8px 0 0; font-size: 13px; line-height: 18px; color: var(--fd-ink-3); }
 .fd-agree__seeded { margin: 6px 0 0; font-size: 13px; line-height: 18px; color: var(--fd-ink-3); }
+/* an agreement the answer on file was never checked against: one quiet sentence (not an alert) */
+.fd-agree__held { margin: 6px 0 0; font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
 
 .fd-agree__h { margin: 20px 0 8px; font-size: 14px; line-height: 20px; font-weight: 600; color: var(--fd-ink); }
 .fd-agree__h--locks { margin-top: 12px; }

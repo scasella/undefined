@@ -1,5 +1,5 @@
 /**
- * Pure view-models for the top of `#/start` (Intro, DataBringer, ColumnPreview): the "How it works" steps, the
+ * Pure view-models for the top of `#/start` (Intro, DataBringer, ColumnPreview): the title, the "How it works" steps, the
  * column preview table, the replay note and the sample radiogroup's arrow keys. No DOM, no engine calls.
  */
 import type { DatasetRef } from '@scasella/undefined-engine/types';
@@ -17,6 +17,13 @@ export interface IntroStep {
 }
 
 export const INTRO_EYEBROW = 'START HERE · BRING A FILE, ASK IN PLAIN WORDS';
+
+/**
+ * The page's h1: the task, in plain words. It promises nothing about what this copy can answer (the public demo plays
+ * back one recorded answer, with basic checks; the rest needs the version on your computer), and it does not repeat
+ * the landing's claim, which the page above it already made.
+ */
+export const INTRO_TITLE = 'Ask a question about a file';
 
 export function introSteps(): IntroStep[] {
   return [

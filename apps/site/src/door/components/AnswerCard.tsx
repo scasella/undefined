@@ -9,6 +9,7 @@ import type { ComponentChildren } from 'preact';
 import type { AnswerView } from '../model/answer';
 import { lockedRowsPhrase } from '../model/answer';
 import type { AssumptionList } from '../model/assumptions';
+import { lockedHelp, type CheckMode } from '../model/agreement';
 import { CheckDisc, Lock, NotChecked } from '../icons';
 import './AnswerCard.css';
 
@@ -16,6 +17,12 @@ export const HELD_CAPTION_START = 'Held until every check passes. Ask to start t
 export const HELD_CAPTION_LANDING = 'Held until every check passes.';
 export const HELD_CAPTION_WAITING = 'Waiting on you. No new answer is shown until you decide.';
 export const HELD_LABEL = 'Answer held until every check passes';
+
+/** A basic pass: the two checks that need nothing from you (runs without errors; never changes your data, finishes fast), of six. */
+export const BASIC_CHECKS = 2;
+export const TOTAL_CHECKS = 6;
+export const LEVEL_FULL = 'PASSED EVERY CHECK';
+export const LEVEL_BASIC = `PASSED ${BASIC_CHECKS} BASIC CHECKS · NOTHING ELSE CHECKED YET`;
 
 export interface AnswerCardProps {
   view: AnswerView | null;
@@ -33,6 +40,13 @@ export interface AnswerCardProps {
   /** 'full': PASSED EVERY CHECK; 'basic': PASSED 2 BASIC CHECKS · NOTHING ELSE CHECKED YET. */
   level: 'full' | 'basic';
   locked: boolean;
+  /**
+   * The lock confirmation to show instead of the card's own words (derive.ts AnswerProps.lockHelp: the honest replay
+   * sentence). Empty or omitted: the card's own words.
+   */
+  lockHelp?: string;
+  /** How the checks run here. Omitted (the landing's illustration): the card's own words, unchanged. */
+  mode?: CheckMode;
   /** Omit to hide the lock button (e.g. the result cannot be locked). */
   onToggleLock?: () => void;
   /** Disables the lock button (e.g. while the engine is pinning). */
@@ -49,11 +63,54 @@ export interface AnswerCardProps {
   houseRuleHref?: string;
 }
 
-export function lockHelpText(p: { locked: boolean; variant: 'landing' | 'start'; level: 'full' | 'basic'; view: AnswerView | null }): string {
-  if (!p.locked) return 'You checked it; we hold every later version to it.';
+/** The demo (replay mode) cannot write a new version, so a lock is saved with the answer but never re-run here. */
+export const LOCK_HELP_REPLAY =
+  "You checked it. Locking saves it with the answer. This demo can't re-run with it, so asking again shows this same answer; on your computer the next version is checked against it.";
+
+export function lockHelpText(p: { locked: boolean; variant: 'landing' | 'start'; level: 'full' | 'basic'; view: AnswerView | null; mode?: CheckMode }): string {
+  if (!p.locked) return p.mode === 'replay' ? LOCK_HELP_REPLAY : 'You checked it; we hold every later version to it.';
   if (p.variant === 'landing') return `Every later version has to give ${lockedRowsPhrase(p.view)}. Unlock any time.`;
+  const noun = p.view?.kind === 'ranked' ? 'list' : 'answer';
+  // a mode that is known (the start and step-by-step pages) speaks for itself: the demo cannot write a later version
+  const own = p.mode ? lockedHelp({ locked: true, level: p.level, mode: p.mode, noun }) : '';
+  if (own) return own;
   if (p.level === 'basic') return 'Locked. The next version runs full checks, starting with this answer.';
-  return p.view?.kind === 'ranked' ? 'Every later version has to give this same list.' : 'Every later version has to give this same answer.';
+  // live, or no mode given: the engine does hold every later version to the lock
+  return `Every later version has to give this same ${noun}.`;
+}
+
+/**
+ * The one thing left unchecked that most decides whether the figure is right, as one plain line: the first item of the
+ * not-checked list as given (the list is built most decisive first). Nothing is added: no items, no line.
+ */
+export function decisiveCaveat(notChecked: readonly string[]): string | null {
+  const first = notChecked.map((t) => t.trim()).find((t) => t !== '');
+  return first ?? null;
+}
+
+/** SVG path of arc `i` of `total` in a ring of radius `r` around (c, c): clockwise from 12 o'clock, `gap` degrees apart. */
+export function ringArc(i: number, total: number, r: number, c: number, gap = 16): string {
+  const span = 360 / total;
+  const at = (deg: number): string => {
+    const a = ((deg - 90) * Math.PI) / 180;
+    return `${(c + r * Math.cos(a)).toFixed(2)} ${(c + r * Math.sin(a)).toFixed(2)}`;
+  };
+  return `M ${at(i * span + gap / 2)} A ${r} ${r} 0 0 1 ${at((i + 1) * span - gap / 2)}`;
+}
+
+/**
+ * The basic-pass seal: a ring of `total` arcs of which the first `ran` are drawn solid and the rest left as an empty
+ * track, in ink (not green): it reads as "this much of the work was checked", where the green disc says "all of it".
+ * Decoration only; the words beside it carry the meaning.
+ */
+function CoverageRing({ ran, total, size = 16 }: { ran: number; total: number; size?: number }) {
+  const arcs = [];
+  for (let i = 0; i < total; i++) arcs.push(<path key={i} d={ringArc(i, total, 6.5, 8)} class={`fd-ac__ring-arc ${i < ran ? 'fd-ac__ring-arc--ran' : 'fd-ac__ring-arc--rest'}`} />);
+  return (
+    <svg aria-hidden="true" class="fd-ac__ring" width={size} height={size} viewBox="0 0 16 16">
+      {arcs}
+    </svg>
+  );
 }
 
 const vars = (o: Record<string, string>): string => Object.entries(o).map(([k, v]) => `${k}:${v}`).join(';');
@@ -97,14 +154,25 @@ export function AnswerCard(props: AnswerCardProps) {
 function Body(props: AnswerCardProps & { view: AnswerView; variant: 'landing' | 'start'; held: boolean }) {
   const { view, variant, held, level, locked } = props;
   const lead = view.lead;
-  const help = lockHelpText({ locked, variant, level, view });
+  const help = props.lockHelp || lockHelpText({ locked, variant, level, view, ...(props.mode ? { mode: props.mode } : {}) });
+  // the caveat that decides whether the number is right sits right under the number, not only in the list far below
+  const line = decisiveCaveat(props.notChecked);
+  const caveat = line && (
+    <p class="fd-ac__caveat fd-ac__ri" style={vars({ '--fd-ri': '0.2s' })}>
+      <NotChecked size={16} />
+      <span>
+        <span class="fd-ac__caveat-k">Not checked:</span> {line}
+      </span>
+    </p>
+  );
   return (
     <div class="fd-ac__body" inert={held} aria-hidden={held ? true : undefined}>
       <div class="fd-ac__fig">{view.fig}</div>
-      <div class="fd-ac__eyebrow">
-        <CheckDisc size={16} />
-        {level === 'full' ? 'PASSED EVERY CHECK' : 'PASSED 2 BASIC CHECKS · NOTHING ELSE CHECKED YET'}
+      <div class={`fd-ac__eyebrow${level === 'full' ? '' : ' fd-ac__eyebrow--basic'}`}>
+        {level === 'full' ? <CheckDisc size={16} /> : <CoverageRing ran={BASIC_CHECKS} total={TOTAL_CHECKS} />}
+        {level === 'full' ? LEVEL_FULL : LEVEL_BASIC}
       </div>
+      {!lead && caveat}
 
       {lead && lead.name && <div class="fd-ac__lead-name fd-ac__ri" style={vars({ '--fd-ri': '0.1s' })}>{lead.name}</div>}
       {lead && (
@@ -114,6 +182,7 @@ function Body(props: AnswerCardProps & { view: AnswerView; variant: 'landing' | 
         </div>
       )}
       {lead && variant === 'landing' && view.kind === 'ranked' && <div class="fd-ac__lead-bar" />}
+      {lead && caveat}
 
       {view.kind === 'ranked' && view.rest.length > 0 && <Rest view={view} variant={variant} />}
       {view.kind === 'ranked' && view.rest.length === 0 && variant === 'start' && <ol aria-label="The rest of the list" class="fd-ac__rest" />}

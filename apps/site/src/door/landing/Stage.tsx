@@ -74,8 +74,12 @@ export function Stage(_props: { engine?: Engine }) {
   };
 
   return (
-    <section aria-label="Live example: top customers by revenue" class="fd-stage">
+    <section aria-labelledby="stage-h" class="fd-stage">
       <div class="fd-wrap fd-stage__wrap">
+        {/* the answer card's and the agreement's h3s sit under this h2, not directly under the page's h1 */}
+        <h2 id="stage-h" class="fd-sr">
+          Live example: top customers by revenue
+        </h2>
         <div class="fd-stage__main">
           <div class="fd-card fd-stage__ask">
             <div class="fd-stage__asked">

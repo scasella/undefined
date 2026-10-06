@@ -12,6 +12,9 @@
   padding: 24px;
   color: var(--tr-text);
   overflow: hidden;
+  /* The lanes lay themselves out by the trace's own width, not the viewport's: the same trace sits in a wide column
+     (landing, #/start) and in zen's 760px one, and a viewport breakpoint would miss one of them. */
+  container: fd-trace / inline-size;
 }
 .fd-trace__seal {
   position: absolute; top: 0; left: 24px; right: 24px; height: 1px;
@@ -37,6 +40,8 @@
 .fd-trace__timer-b { color: var(--tr-text-2); }
 .fd-trace__timer-b--ask { color: var(--tr-ask); }
 .fd-trace__hidden { opacity: 0; }
+/* opacity alone leaves text in the accessibility tree: every .fd-trace__hidden element also carries aria-hidden (or is
+   not rendered at all) once it has faded, see CheckTrace.tsx. */
 
 .fd-trace__draft {
   margin-top: 20px;
@@ -56,31 +61,32 @@
 }
 .fd-trace__ghost-note svg { flex: none; margin-top: 2px; }
 
-/* ── a lane ── */
+/* ── a lane ──
+   Wide trace (content >= 678px): one row, label | cells | verdict. The label gives way first (280px down to 200px), then
+   the cells and the 132px verdict column never shrink, so the verdict is always on screen. A narrower trace stacks the
+   lane (see the @container rules below the count box). The old fixed `min-width: 760px` on every lane forced the list
+   to scroll sideways and pushed the verdict ("Passed", the count, "Not checked") off screen on phones and tablets. */
 .fd-lane {
   display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 4px 12px; box-sizing: border-box;
   border-radius: var(--fd-r-xs); background: var(--tr-lane);
 }
 .fd-lane--compact { min-height: 28px; padding: 2px 12px; }
-/* Phones (both pages): keep each lane on one line (the design's cells never wrap) and let the lane list scroll sideways
-   (.fd-trace__list has overflow-x: auto) instead of squeezing the cells into a column. 760px = the widest lane:
-   padding 24 + label 280 + 100-table grid 298 + count 132 + gaps 24. Wider traces are unaffected. */
-.fd-trace__list > .fd-lane { min-width: 760px; }
-.fd-trace__list > .fd-lane--compact { min-width: 640px; }
 .fd-lane--stopped { background: var(--tr-ask-bg); }
 .fd-lane--running { box-shadow: 0 0 0 1px var(--tr-pen), 0 0 24px rgba(210, 255, 63, 0.14); }
 .fd-lane--hl { outline: 2px solid var(--fd-indigo-soft); outline-offset: 2px; }
 .fd-lane__label {
-  flex: none; width: 280px; display: flex; align-items: center; gap: 8px;
+  flex: 0 1 280px; min-width: 200px; display: flex; align-items: center; gap: 8px;
   font-size: 14px; line-height: 18px; color: var(--tr-text);
 }
-.fd-lane--compact .fd-lane__label { width: 240px; font-size: 13px; }
+.fd-lane--compact .fd-lane__label { flex-basis: 240px; min-width: 180px; font-size: 13px; }
 .fd-lane__label--dim { color: var(--tr-text-3); }
 .fd-lane__label svg { flex: none; }
 .fd-lane__num { font-family: var(--fd-mono); font-size: 11px; color: var(--tr-text-3); }
-.fd-lane__mid { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
-.fd-lane__cells { position: relative; display: flex; align-items: center; flex-wrap: nowrap; gap: 4px; }
-.fd-lane__cells--grid { display: grid; grid-template-columns: repeat(50, 4px); gap: 2px; }
+.fd-lane__mid { flex: 1 0 auto; min-width: 0; display: flex; align-items: center; gap: 8px; }
+/* one-row ticks wrap rather than run past the verdict; 298px is the width of the 100-table grid */
+.fd-lane__cells { position: relative; display: flex; align-items: center; flex-wrap: wrap; gap: 4px; max-width: 298px; }
+/* the grid is 50 columns of 4px and 2px gaps (298px); on a very narrow lane the columns narrow with it */
+.fd-lane__cells--grid { display: grid; grid-template-columns: repeat(50, minmax(0, 1fr)); gap: 2px; width: 298px; max-width: 100%; }
 .fd-lane__strike { flex: 1; height: 1px; background: var(--tr-fail); transform-origin: left center; }
 .fd-lane__off {
   display: inline-flex; align-items: center; min-height: 24px; padding: 0 10px; border-radius: var(--fd-r-sm);
@@ -95,7 +101,7 @@
   background: var(--tr-pass);
 }
 .fd-lane--compact .fd-cell { width: 8px; height: 12px; }
-.fd-lane__cells--grid .fd-cell { width: 4px; height: 4px; border-radius: 2px; }
+.fd-lane__cells--grid .fd-cell { width: auto; height: 4px; border-radius: 2px; }
 .fd-lane__cells--stress .fd-cell { width: 10px; height: 10px; }
 .fd-cell--wait { background: var(--tr-cell); }
 .fd-cell--fail { background: var(--tr-fail); color: #FFFFFF; }
@@ -128,6 +134,25 @@
 .fd-lane__line2--ask { color: var(--tr-ask); }
 .fd-lane__line2--fail { color: var(--tr-fail); }
 .fd-lane__line2--pass { color: var(--tr-pass); }
+
+/* A narrower trace stacks each lane so the verdict stays visible without sideways scrolling.
+   Under 678px: the label on top, the cells under it, the verdict in its own column on the right (spanning both rows).
+   Under 466px (phones): the verdict sits at the top right, level with the label, and the cells take the full row below. */
+@container fd-trace (max-width: 677px) {
+  .fd-lane {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'label count' 'mid count';
+    column-gap: 12px; row-gap: 0; align-items: center;
+  }
+  .fd-lane__label, .fd-lane--compact .fd-lane__label { grid-area: label; min-width: 0; }
+  .fd-lane__mid { grid-area: mid; margin-top: 6px; }
+  .fd-lane__mid:empty { display: none; }
+  .fd-lane__count, .fd-lane--compact .fd-lane__count { grid-area: count; width: auto; max-width: 132px; }
+  .fd-lane__cells { max-width: 100%; }
+  .fd-lane__off { white-space: normal; }
+}
+@container fd-trace (max-width: 465px) {
+  .fd-lane { grid-template-areas: 'label count' 'mid mid'; align-items: start; }
+}
 
 /* Phones: let the header wrap so the verdict gets the full width and the timer sits under it (no squeezed column). */
 @media (max-width: 480px) {

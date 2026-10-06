@@ -22,7 +22,10 @@ import { hashesFor } from '@scasella/undefined-engine/shared/hash';
 import { checkFactsFrom, hasAgreement } from '../model/assumptions';
 import type { CheckLevel, SuggestedQuestion } from '../model/questions';
 
-/** certified: answered from a function already certified · recorded: a recorded draft exists · none: needs live mode · live: live mode. */
+/**
+ * certified: answered from a function already certified (either mode: nothing is written or re-checked) · recorded: a
+ * recorded draft exists · none: needs live mode · live: live mode, and a new version would be written.
+ */
 export type Availability = 'certified' | 'recorded' | 'none' | 'live';
 
 /** The spec a spec-less call `fn(<dataset>)` grows from (core/engine.ts callSpec; exampleId is not hashed). */
@@ -114,15 +117,16 @@ export async function availabilityOf(input: {
   const out: Record<string, Availability> = {};
   const keys = recordedKeys(input.recordings);
   for (const q of input.questions) {
-    if (input.mode === 'live') {
-      out[q.id] = 'live';
-      continue;
-    }
     const seed = input.seedFor(q);
-    // a certified function answers only while the spec the ask runs against is the one it was certified for
+    // a certified function answers only while the spec the ask runs against is the one it was certified for. Live mode
+    // too: asking again then shows the answer on file (a lock set since changes no hash), so what ran then is the level
     const installed = input.program.functions[q.fn];
     if (isCertified(input.program, q.fn) && (!seed || (await sameHashes(installed!.spec, seed)))) {
       out[q.id] = 'certified';
+      continue;
+    }
+    if (input.mode === 'live') {
+      out[q.id] = 'live';
       continue;
     }
     const spec = seed ?? expectedSpec(q, input.program, input.dataset, null);

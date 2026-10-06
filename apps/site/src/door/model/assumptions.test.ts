@@ -150,6 +150,28 @@ describe('not checked', () => {
     expect(notCheckedList({ ...other, data: { ...data, idColumn: 'ticket_id', repeatedIds: 1 } })[0]).toBe('whether the 1 repeated ticket_id value should count twice');
     expect(notCheckedList({ ...other, data: { ...data, idColumn: 'ticket_id', repeatedIds: 3 } })[0]).toBe('whether the 3 repeated ticket_id values should count twice');
   });
+  describe('what you set versus what ran', () => {
+    const q = { fileName: 'orders.csv', question: 'Who are our top customers by revenue?', data: null };
+    it('a lock set after the answer was checked is not "you haven\'t set any yet"', () => {
+      const out = notCheckedList({ ...q, facts: EMPTY_FACTS, set: { examples: 0, locks: 1, rules: 0 } });
+      expect(out).toEqual(['whether orders.csv is the complete export', 'whether this was the right question', 'your locked answer: added after this answer was checked']);
+      expect(out.join('\n')).not.toContain("haven't set any");
+    });
+    it('several late kinds read in the plural', () => {
+      const out = notCheckedList({ ...q, facts: EMPTY_FACTS, set: { examples: 6, locks: 1, rules: 2 } });
+      expect(out[out.length - 1]).toBe('your 6 examples, your locked answer and your 2 house rules: added after this answer was checked');
+    });
+    it('only the kinds nothing ran for are late; kinds that ran are left alone', () => {
+      const out = notCheckedList({ ...q, facts: { ...EMPTY_FACTS, examples: 6, houseRules: 2 }, set: { examples: 6, locks: 1, rules: 2 } });
+      expect(out[out.length - 1]).toBe('your locked answer: added after this answer was checked');
+    });
+    it('everything set was run: no such line; nothing set and nothing run: the old line', () => {
+      const ran = { ...EMPTY_FACTS, examples: 6, locked: 1, houseRules: 2 };
+      const out = notCheckedList({ ...q, facts: ran, set: { examples: 6, locks: 1, rules: 2 } });
+      expect(out).toEqual(['whether orders.csv is the complete export', 'whether this was the right question']);
+      expect(notCheckedList({ ...q, facts: EMPTY_FACTS, set: { examples: 0, locks: 0, rules: 0 } }).pop()).toBe("your examples, locked answers and house rules: you haven't set any yet");
+    });
+  });
   it('a duplicates decision alone covers repeats', () => {
     const out = notCheckedList({ fileName: 'x.csv', question: 'count', facts: EMPTY_FACTS, data, decisions: [decision('duplicates', 'keep')] });
     expect(out.some((t) => t.includes('repeated'))).toBe(false);

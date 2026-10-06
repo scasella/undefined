@@ -5,7 +5,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
-import { signal } from '@preact/signals';
+import { effect, signal } from '@preact/signals';
 import type { DatasetRef, Engine, EngineState, FunctionSpec, Recording } from '@scasella/undefined-engine/types';
 import { hashesFor } from '@scasella/undefined-engine/shared/hash';
 import { buildDataset } from '../../data/dataset';
@@ -17,7 +17,7 @@ import { session as telemetry, shellFileChip } from '../state';
 import { delimiterProblem, fileChipFor, fileProblem, jsonFileKind, ownDatasetName, parseRows, textProblem } from './intake';
 import { ReplayGenerator } from '../../core/generator';
 import { agreementRecording, answerableOther, availabilityOf, callSpecFor, fetchRecordings, levelFor, recordedKeys, seedUsable, specHasAgreement, specKey } from './recorded';
-import { createSession } from './session';
+import { createSession, sessionFor, type Session } from './session';
 
 const recordingsDir = new URL('../../../public/recordings/', import.meta.url);
 const ordersRecording = (): Recording => JSON.parse(readFileSync(new URL('orders.json', recordingsDir), 'utf8')) as Recording;
@@ -201,6 +201,26 @@ describe('what the replay site can answer (the real bundled recording)', () => {
     const cert = await availabilityOf({ mode: 'replay', questions: qs, program: { functions: { countByStatus: { spec, ...h, artifact: art } } }, dataset: d, recordings: [], seedFor: () => null });
     expect(cert.status).toBe('certified');
   });
+
+  it('live mode too: a certified function answers from its artifact (asking again re-runs nothing), so the level is what it was certified with', async () => {
+    const d = await bind('rows', 'Row');
+    const qs = suggestedQuestions(d, [], 'orders');
+    const seed = seedAgreement('orders', 'top', d)!.spec;
+    const call = callSpecFor('topCustomersByRevenue', d);
+    const h = await hashesFor(call);
+    const art = { specHash: h.specHash, testsHash: h.testsHash, candidates: [], evidence: undefined } as never;
+    // certified spec-less, then locked (pins are outside the hashes: still live)
+    const locked = { functions: { topCustomersByRevenue: { spec: { ...call, pins: seed.pins! }, ...h, artifact: art } } };
+    const a = await availabilityOf({ mode: 'live', questions: qs, program: locked, dataset: d, recordings: [], seedFor: () => null });
+    expect(a).toEqual({ status: 'live', top: 'certified', country: 'live' });
+    const q = { fn: 'topCustomersByRevenue', text: 'Who are our top customers by revenue?' };
+    // without this, live mode would claim Full checks for an ask that shows the basic-checked answer on file
+    expect(levelFor({ question: q, availability: a.top, program: locked, seed: null })).toBe('basic');
+    expect(levelFor({ question: q, availability: 'live', program: locked, seed: null })).toBe('full');
+    // a seed that is not what is installed will be installed and the function written again: not certified for it
+    const seeded = await availabilityOf({ mode: 'live', questions: qs, program: locked, dataset: d, recordings: [], seedFor: (x) => (x.id === 'top' ? seed : null) });
+    expect(seeded.top).toBe('live');
+  });
 });
 
 // ───────────────────────── the controller against a fake engine ─────────────────────────
@@ -383,6 +403,42 @@ describe('session controller (fake engine)', () => {
     s.dispose();
   });
 
+  it('removing a typed question: only the viewer\'s own go; the selection moves to the first one left', async () => {
+    const { engine } = fakeEngine('live');
+    const s = createSession(engine);
+    await s.useSample('orders');
+    await s.addQuestion('How many orders were refunded?');
+    await s.addQuestion('Which country has the most orders?');
+    expect(s.questions.value).toHaveLength(5);
+    // a suggestion cannot be removed
+    expect(await s.removeQuestion('status')).toBe(false);
+    expect(s.questions.value).toHaveLength(5);
+    // an unselected typed question goes; the selection stays
+    expect(s.questionId.value).toBe('own:whichCountryHasTheMostOrders');
+    expect(await s.removeQuestion('own:howManyOrdersWereRefunded')).toBe(true);
+    expect(s.questions.value.map((q) => q.id)).toEqual(['status', 'top', 'country', 'own:whichCountryHasTheMostOrders']);
+    expect(s.questionId.value).toBe('own:whichCountryHasTheMostOrders');
+    // the selected one goes: the first suggestion is selected (its agreement installed as for any selection)
+    expect(await s.removeQuestion('own:whichCountryHasTheMostOrders')).toBe(true);
+    expect(s.questions.value.map((q) => q.id)).toEqual(['status', 'top', 'country']);
+    expect(s.questionId.value).toBe('status');
+    expect(s.run.value).toBeNull();
+    // gone is gone
+    expect(await s.removeQuestion('own:whichCountryHasTheMostOrders')).toBe(false);
+    s.dispose();
+  });
+
+  it('removing a typed question is refused while the engine is busy', async () => {
+    const { engine, state } = fakeEngine('live');
+    const s = createSession(engine);
+    await s.useSample('orders');
+    await s.addQuestion('How many orders were refunded?');
+    state.value = { ...state.value, busy: true };
+    expect(await s.removeQuestion('own:howManyOrdersWereRefunded')).toBe(false);
+    expect(s.questions.value).toHaveLength(4);
+    s.dispose();
+  });
+
   it('seed off: no agreement is installed; the call goes out spec-less', async () => {
     const { engine, calls } = fakeEngine('live');
     const s = createSession(engine, { seed: false, sampleNames: { orders: 'data' } });
@@ -429,5 +485,87 @@ describe('session controller (fake engine)', () => {
     expect(s.sampleId.value).toBe('sales');
     expect(s.questionId.value).toBe('region');
     s.dispose();
+  });
+});
+
+// ───────────────────────── the shared session across a route change (#/start <-> #/zen) ─────────────────────────
+
+describe('the shared session across a route change', () => {
+  it('a session made after the last was disposed takes up what was bound and picked (the engine still holds the file)', async () => {
+    const { engine, calls } = fakeEngine('live');
+    const a = sessionFor(engine);
+    expect(sessionFor(engine)).toBe(a);
+    await a.useSample('orders');
+    await a.addQuestion('How many orders were refunded?');
+    await a.selectQuestion('top');
+    expect(a.questions.value).toHaveLength(4);
+    a.dispose();
+
+    // the other page: same file, same suggestions + the typed one, same selection, the table's rows, the chip text
+    const b = sessionFor(engine);
+    expect(b).not.toBe(a);
+    expect(b.source.value).toBe('sample');
+    expect(b.fileChip.value).toBe('orders.csv · 332 rows · 10 columns');
+    expect(b.rows.value).toHaveLength(332);
+    expect(b.questions.value.map((q) => q.id)).toEqual(['status', 'top', 'country', 'own:howManyOrdersWereRefunded']);
+    expect(b.questionId.value).toBe('top');
+    expect(b.question.value?.text).toBe('Who are our top customers by revenue?');
+    // its agreement is put back as it was (installed once: not written again)
+    await vi.waitFor(() => expect(b.seedState.value).toBe('installed'));
+    expect(calls.filter((c) => c.startsWith('upsertSpec topCustomersByRevenue'))).toHaveLength(1);
+    expect(await b.ask()).toBe(true);
+
+    // and back again
+    b.dispose();
+    const c = sessionFor(engine);
+    expect(c.questionId.value).toBe('top');
+    expect(c.questions.value).toHaveLength(4);
+    c.dispose();
+  });
+
+  it('own file: the rows travel too (zen\'s table and start\'s suggestions come from them)', async () => {
+    const { engine } = fakeEngine('live');
+    const a = sessionFor(engine);
+    expect(await a.intakeText({ text: 'region,amount\nwest,10\neast,5', filename: 'Sales Q3.csv' })).toBe(true);
+    const first = a.questionId.value;
+    a.dispose();
+    const b = sessionFor(engine);
+    expect(b.source.value).toBe('own');
+    expect(b.rows.value).toEqual([{ region: 'west', amount: 10 }, { region: 'east', amount: 5 }]);
+    expect(b.questionId.value).toBe(first);
+    expect(b.questions.value.length).toBeGreaterThan(0);
+    b.dispose();
+  });
+
+  it('nothing bound stays nothing bound; a reset is not undone by the next page', async () => {
+    const { engine } = fakeEngine('live');
+    const a = sessionFor(engine);
+    a.dispose();
+    expect(sessionFor(engine).source.value).toBe('none');
+    const b = sessionFor(engine);
+    await b.useSample('sales');
+    await b.reset();
+    b.dispose();
+    const c = sessionFor(engine);
+    expect(c.source.value).toBe('none');
+    expect(c.questions.value).toEqual([]);
+    c.dispose();
+  });
+
+  it('what rendered with the old session renders again with the new one (the new page renders before the old one unmounts)', async () => {
+    const { engine } = fakeEngine('live');
+    const old = sessionFor(engine);
+    const seen: Session[] = [];
+    const stop = effect(() => {
+      seen.push(sessionFor(engine));
+    });
+    expect(seen).toEqual([old]);
+    old.dispose();
+    const next = sessionFor(engine);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(seen.at(-1)).toBe(next);
+    stop();
+    next.dispose();
   });
 });

@@ -6,9 +6,12 @@
  * Focus: the Ask button and the chips use aria-disabled (not `disabled`) while the session is busy, so a click never
  * drops focus to <body>; focus stays on the button after asking and the check trace's aria-live says what happened.
  * A non-happy outcome (RunStates) moves focus to its own heading.
+ *
+ * The selected question is shown as text ("Asking: …"), not in a read-only field: it is picked from the chips above, and
+ * a field that looks like an input but does nothing when clicked was the thing people tried to type into.
  */
 import type { Engine } from '@scasella/undefined-engine/types';
-import type { AgreementView } from '../model/agreement';
+import { agreementPhrase, nextVersionLine, type AgreementView, type CheckMode } from '../model/agreement';
 import type { SuggestedQuestion } from '../model/questions';
 import { Arrow } from '../icons';
 import { noRecordingText } from './derive';
@@ -23,23 +26,16 @@ export const ASK_BOX_ID = 'ask-box';
 export const BASIC_LEVEL_LINE = "Basic checks only: no examples, locked answers or house rules for this question yet. We'll say so on the answer.";
 export const NEEDS_LIVE = 'needs live';
 
-const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
-
-/** `6 examples, 1 locked answer and 2 house rules` (only the parts that exist). */
-export function agreementPhrase(n: AgreementView['n']): string {
-  const parts: string[] = [];
-  if (n.examples > 0) parts.push(plural(n.examples, 'example', 'examples'));
-  if (n.locks > 0) parts.push(plural(n.locks, 'locked answer', 'locked answers'));
-  if (n.rules > 0) parts.push(plural(n.rules, 'house rule', 'house rules'));
-  if (parts.length <= 1) return parts[0] ?? '';
-  return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
-}
+// (the phrase lives with the agreement's other words; kept exported here for the callers that import it from the card)
+export { agreementPhrase };
 
 /**
  * The line under the Ask button. The check level is the one that will REALLY check the answer (session questions,
  * recorded.ts levelFor): a function certified before a lock or rule was added still answers from that basic-checked
- * version, so an agreement alone does not make it Full checks. Then, when this page cannot answer the question
- * (replay, nothing recorded), the same honest sentence the no-recording outcome will show.
+ * version, so an agreement alone does not make it Full checks, and asking again shows that answer. What happens next
+ * is mode-specific (model/agreement.ts nextVersionLine): live keeps the engine's promise, the demo says it cannot
+ * re-run. Then, when this page cannot answer the question (replay, nothing recorded), the same honest sentence the
+ * no-recording outcome will show.
  */
 export function levelLine(input: {
   level: 'full' | 'basic';
@@ -47,13 +43,14 @@ export function levelLine(input: {
   availability: Availability | undefined;
   ownData: boolean;
   recordedOther: Pick<SuggestedQuestion, 'label'> | null;
+  mode: CheckMode;
 }): string {
   const a = input.agreement;
   let line: string;
   if (input.level === 'basic') {
     line = a.empty
       ? BASIC_LEVEL_LINE
-      : `Basic checks: the answer on file was checked before ${a.seeded ? 'this demo file came with' : 'you set'} ${agreementPhrase(a.n)}. The next version runs full checks.`;
+      : `Basic checks: the answer on file was checked before ${a.seeded ? 'this demo file came with' : 'you set'} ${agreementPhrase(a.n)}. ${nextVersionLine(input.mode)}`;
   } else if (a.seeded) line = `Full checks: this demo file comes with ${agreementPhrase(a.n)} for this question.`;
   else line = `Full checks: you set ${agreementPhrase(a.n)} for this question.`;
   if (input.availability === 'none') line += ' ' + noRecordingText(input.ownData, input.recordedOther);
@@ -89,7 +86,7 @@ export function AskCard({ engine, session }: { engine: Engine; session?: Session
   // once the no-recording card below says it, the level line does not repeat it
   const said = s.outcome.value.kind === 'no-recording';
   const line = q
-    ? levelLine({ level: q.level, agreement, availability: said ? undefined : avail[q.id], ownData: s.source.value === 'own', recordedOther: s.recordedOther.value })
+    ? levelLine({ level: q.level, agreement, availability: said ? undefined : avail[q.id], ownData: s.source.value === 'own', recordedOther: s.recordedOther.value, mode: engine.state.value.mode })
     : '';
 
   const pick = (id: string) => {
@@ -124,10 +121,16 @@ export function AskCard({ engine, session }: { engine: Engine; session?: Session
         ))}
       </div>
       <div class="fd-ask__row">
-        <label for={ASK_BOX_ID} class="fd-sr">
-          Your question
-        </label>
-        <input id={ASK_BOX_ID} class="fd-ask__box" type="text" readOnly value={q?.text ?? ''} />
+        <p id={ASK_BOX_ID} class={`fd-ask__picked${q ? '' : ' is-empty'}`}>
+          {q ? (
+            <>
+              <span class="fd-ask__picked-k">Asking:</span>
+              <span class="fd-ask__picked-q">{q.text}</span>
+            </>
+          ) : (
+            'Bring a file, then pick a question.'
+          )}
+        </p>
         <button id={ASK_BUTTON_ID} type="button" class="fd-btn fd-btn--primary fd-ask__go" aria-disabled={!canAsk || undefined} onClick={ask}>
           {s.askLabel.value}
           <Arrow />

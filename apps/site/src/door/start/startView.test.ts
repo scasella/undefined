@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { introSteps, previewModel, radioKeyIndex, rememberedSample, showOwnFileNote } from './startView';
+import { INTRO_EYEBROW, INTRO_TITLE, introSteps, previewModel, radioKeyIndex, rememberedSample, showOwnFileNote } from './startView';
+
+describe('the first run\'s heading', () => {
+  it('is a task in plain words: not the landing\'s claim, and no promise about what this copy can answer', () => {
+    expect(INTRO_TITLE).toBe('Ask a question about a file');
+    expect(INTRO_TITLE).not.toMatch(/AI writes|check it|passes/i);
+    expect(INTRO_TITLE).not.toBe(INTRO_EYEBROW);
+  });
+});
 
 describe('introSteps', () => {
   it("draws step 3's chip dark in every state, as the board does", () => {

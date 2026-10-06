@@ -16,6 +16,7 @@ import { encodeValue } from '@scasella/undefined-engine/shared/serialize';
 import { bundledOrders } from '../../data/orders';
 import type { OutputEntry } from '../model/answer';
 import { dataFacts } from '../model/assumptions';
+import { OFF_NOTES } from '../model/lanes';
 import { seedAgreement } from '../model/agreements';
 import type { DatasetRef } from '@scasella/undefined-engine/types';
 import {
@@ -159,7 +160,7 @@ const state = (p: Partial<EngineState> = {}): EngineState =>
     service: { state: 'down' },
     program: program(),
     headRevision: 4,
-    revisions: [{ id: 4, at: Date.UTC(2026, 9, 5, 12), kind: 'commit', title: 'x', fns: 1, artifacts: 1 }],
+    revisions: [{ id: 4, at: new Date(2026, 9, 5, 12).getTime(), kind: 'commit', title: 'x', fns: 1, artifacts: 1 }],
     repl: [],
     replInput: '',
     generation: null,
@@ -287,6 +288,26 @@ describe('traceView', () => {
     expect(telemetryOf(g, t.facts)).toEqual({ checks: 2, ms: 410 });
   });
 
+  it('a lock set after the answer was checked: lane 03 says so, cached or idle, and agrees with the rail', () => {
+    const pin = { id: 'pin1', label: CALL, args: pinnable.args, expected: pinnable.expected, pinnedAt: 2 };
+    const rec = record(specless([pin]), artifact(basicGates()));
+    const s = state({ program: program(rec), generation: gen([att(1, 'accepted', basicGates())], 'committed', { id: 'g1' }), repl: [...before, input, output({ label: 'cached artifact', pinned: true })] });
+    const r = runRef({ genBefore: 'g1' });
+    const m = matchRun(s, r);
+    const t = traceView({ ...base, state: s, run: r, match: m, outcome: outcomeOf(s, r, m) });
+    expect(t.cached).toBe(true);
+    expect(t.lanes[2]).toMatchObject({ state: 'off', idle: 'Not checked', offNote: OFF_NOTES.locksLate });
+    expect(t.lanes[2]!.label).toContain('Matches your locked answer');
+    expect(agreementFor(s.program, FN, null, false).counts).toBe('0 examples · 1 locked answer · 0 house rules');
+    // another selection and back (no run): the lanes show what the next ask runs, which is not the lock
+    const idle = traceView({ ...base, state: s, run: null, match: matchRun(s, null), outcome: { kind: 'idle' } });
+    expect(idle.lanes[0]!.state).toBe('ready');
+    expect(idle.lanes[2]).toMatchObject({ state: 'off', offNote: OFF_NOTES.locksLate });
+    // the same lock on a function with nothing on file: every pin will run
+    const fresh = state({ program: program(record(specless([pin]), null)) });
+    expect(traceView({ ...base, state: fresh, run: null, match: matchRun(fresh, null), outcome: { kind: 'idle' } }).lanes[2]!.state).toBe('ready');
+  });
+
   it('cached: the certified draft’s real gates, flagged cached, no ghosts, no checks counted as run now', () => {
     const rec = record(specless(), artifact(basicGates()));
     const s = state({ program: program(rec), generation: gen([att(1, 'accepted', basicGates())], 'committed', { id: 'g1' }), repl: [...before, input, output({ label: 'cached artifact' })] });
@@ -402,8 +423,47 @@ describe('answerView', () => {
     const a = answerView({ ...ctx, state: s, match: m, outcome: outcomeOf(s, r, m), data: null });
     expect(a.locked).toBe(true);
     expect(a.level).toBe('basic');
+    // one truth: the lock is in the agreement, so the answer must not say "you haven't set any yet" ...
+    expect(a.notChecked).toContain('your locked answer: added after this answer was checked');
+    expect(a.notChecked.join('\n')).not.toContain("haven't set any");
+    // ... and the lock confirmation: live keeps the promise, the replay demo says it cannot re-run
+    expect(a.lockHelp).toBe('Locked. The next version runs full checks, starting with this answer.');
+    const replay = answerView({ ...ctx, state: s, match: m, outcome: outcomeOf(s, r, m), data: null, mode: 'replay' });
+    expect(replay.lockHelp).toBe("Locked. This demo can't re-run with it, so asking again shows this same answer; on your computer the next version is checked against it.");
+    expect(replay.level).toBe('basic');
     expect(lockInfo(s.program, m.output)).toEqual({ locked: true, entryId: 'out1', pin: { fn: FN, id: 'pin1' } });
     expect(lockInfo(program(record(specless(), null)), output())).toEqual({ locked: false, entryId: 'out1', pin: null });
+  });
+
+  it('a locked answer that ran full checks: live keeps the card\'s own words, replay says the demo cannot write a later version', () => {
+    const pin = { id: 'pin1', label: CALL, args: pinnable.args, expected: pinnable.expected, pinnedAt: 2 };
+    const spec: FunctionSpec = { ...specless([pin]), tests: 'test("a", () => {})', properties: 'property("b", [], () => {})' };
+    const art = artifact(fullGates(), { unitTests: 7, pinnedTests: 1, properties: [{ name: 'b', runs: 100 }] });
+    const s = state({ program: program(record(spec, art)), generation: gen([att(1, 'accepted', fullGates())], 'committed'), repl: [...before, input, output({ pinned: true })] });
+    const r = runRef();
+    const m = matchRun(s, r);
+    const live = answerView({ ...ctx, state: s, match: m, outcome: outcomeOf(s, r, m), data: null, mode: 'live' });
+    expect(live.level).toBe('full');
+    expect(live.locked).toBe(true);
+    expect(live.view?.kind).toBe('ranked');
+    // live: '' = the card's own "Every later version has to give this same list.", which is true there
+    expect(live.lockHelp).toBe('');
+    // replay: nothing later can be written here, so the sentence says what is true here and what holds on the viewer's computer
+    const replay = answerView({ ...ctx, state: s, match: m, outcome: outcomeOf(s, r, m), data: null, mode: 'replay' });
+    expect(replay.level).toBe('full');
+    expect(replay.lockHelp).toBe("Locked, and kept with this answer. This demo can't write a later version; on your computer every later version has to give this same list.");
+    expect(replay.lockHelp).not.toContain('Every later version has to give');
+    // no mode given: the live words (the default)
+    expect(answerView({ ...ctx, state: s, match: m, outcome: outcomeOf(s, r, m), data: null }).lockHelp).toBe('');
+  });
+
+  it('not locked: no confirmation text of its own, and an agreement-free answer still says "you haven\'t set any yet"', () => {
+    const s = state({ program: program(record(specless(), artifact(basicGates()))), generation: gen([att(1, 'accepted', basicGates())], 'committed'), repl: [...before, input, output()] });
+    const r = runRef();
+    const m = matchRun(s, r);
+    const a = answerView({ ...ctx, state: s, match: m, outcome: outcomeOf(s, r, m), data: null, mode: 'replay' });
+    expect(a.lockHelp).toBe('');
+    expect(a.notChecked).toContain("your examples, locked answers and house rules: you haven't set any yet");
   });
 
   it('busy engine: the lock button is disabled', () => {

@@ -14,16 +14,21 @@
   font-size: 8px; line-height: 10px; text-align: center; font-weight: 700; color: var(--fd-amber-ink);
 }
 
-/* 10 × 10 made-up tables */
-.fd-ev-dots { margin-top: 12px; display: grid; grid-template-columns: repeat(10, 12px); gap: 0; width: max-content; }
+/* 10 × 10 made-up tables. Each dot is DRAWN 6×6 (ringed 12×12 when picked), as the design has it; its button is the
+   grid's pitch, 20×20, with no gaps, so the hit areas tile the grid without overlapping. 44px each is not reachable:
+   ten of them would be 440px wide and a tile's content is as narrow as 200px. Arrow keys still walk the grid. */
+.fd-ev-dots { margin-top: 12px; display: grid; grid-template-columns: repeat(10, 20px); gap: 0; width: max-content; }
 .fd-ev-dot {
-  width: 12px; height: 12px; padding: 0; border: 0; background: transparent; cursor: pointer;
+  position: relative; width: 20px; height: 20px; padding: 0; border: 0; background: transparent; cursor: pointer;
   display: flex; align-items: center; justify-content: center; border-radius: var(--fd-r-xs);
 }
 .fd-ev-dot > span { width: 6px; height: 6px; border-radius: var(--fd-r-xs); background: var(--fd-green); }
-.fd-ev-dot.is-on { box-shadow: 0 0 0 1.5px var(--fd-indigo); }
+.fd-ev-dot.is-on::after {
+  content: ''; position: absolute; left: 4px; top: 4px; width: 12px; height: 12px; box-sizing: border-box;
+  border-radius: var(--fd-r-xs); box-shadow: 0 0 0 1.5px var(--fd-indigo); pointer-events: none;
+}
 .fd-ev-dot.is-on > span { background: var(--fd-indigo); }
-.fd-ev-dot:focus-visible { outline-offset: 1px; }
+.fd-ev-dot:focus-visible { outline-offset: -2px; }
 .fd-ev-note {
   margin-top: 10px; border-radius: var(--fd-r-sm); background: var(--fd-surface-2); padding: 8px 10px;
   font-size: 13px; line-height: 18px; color: var(--fd-ink-2);
@@ -34,6 +39,7 @@
   display: inline-block; margin-top: 10px; font-family: var(--fd-mono); font-size: 11px; line-height: 14px; font-weight: 500;
   color: var(--fd-ink-3); border: 1px dashed var(--fd-line-2); border-radius: var(--fd-r-sm); padding: 2px 6px;
 }
+.fd-ev-sub + .fd-ev-badge { margin-top: 8px; }
 
 /* design: 40px; raised to the contract's 44px target */
 .fd-ev-link {

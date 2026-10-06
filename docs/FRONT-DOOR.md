@@ -18,8 +18,8 @@ spacing, colours, motion, a11y attributes), translated into Preact + CSS files w
 | Route | What | Design board |
 |---|---|---|
 | `#/` (default) | Landing: telemetry bar, hero claim, live example stage (check trace + answer + agreement rail), evidence strip, order-of-work, definition ladder, "agree once", "it asks", "says no" + privacy, team file + honest limits, footer, honesty bar | `V3-Door-Landing` |
-| `#/start` | First run: bring a file (drop / paste / sample), column preview, ask a question, live check trace, answer, right rail (what the AI will see, your agreement, demo note) | `V3-Door-FirstRun` |
-| `#/zen` | Zen mode: a five-pane walk-through in a bare single column (1 bring data · 2 ask · 3 what the answer must pass, the six checks marked Always / Applies / None yet · 4 the live check trace, which starts the run and hands over by itself once it commits · 5 the answer, download, ask again). Same session and components as `#/start`; nothing scripted | (no board; `src/door/zen/`) |
+| `#/start` | The full first run, for people who want everything on one page (reached from the landing's footer, "Full view of the demo", and from the step-by-step page's "Full view"): a short task heading, bring a file (drop / paste / sample), ask a question, live check trace, answer, the file's columns, right rail (what the AI will see, your agreement, demo note). Not redirected; `scripts/record-door.mjs` and `replay-check.mjs` open it | `V3-Door-FirstRun` |
+| `#/zen` | **Step by step** (the route is still `#/zen`): where first-time visitors are sent (every "Try the demo" / "Run it on your own file" button, and the top bar's "Step by step" button). A five-pane walk-through in a bare single column (1 bring data · 2 ask · 3 what the answer must pass, the six checks each tagged in the check trace's own words: `Always` (01 and 05) or `Applies` (the other four, when they will run), `No examples yet` / `Nothing locked yet` / `No house rules yet` / `Needs your rules first` (the stress test) when there is nothing to run it on, and `Not re-run` when the agreement holds it but the answer on file was checked before it was set (`zen/flow.ts` `zenChecks`, `model/lanes.ts` `OFF_NOTES`) · 4 the live check trace, which starts the run and hands over by itself once it commits · 5 the answer, download, ask again). Same session and components as `#/start`; nothing scripted | (no board; `src/door/zen/`) |
 
 ## Vocabulary map (the design's words are plain-language names for engine features)
 
@@ -31,14 +31,16 @@ spacing, colours, motion, a11y attributes), translated into Preact + CSS files w
 | 04 Follows your house rules on 100 made-up tables | Properties gate (fast-check, `numRuns`); decisions placed as properties are house rules too |
 | 05 Never changes your data · finishes fast | Invariants gate (pure + bounded) |
 | 06 Stress test: we broke it 12 small ways | Mutation check (`Engine.runMutation`, `state.mutation`, `Evidence.mutation`) |
-| Version N | Revision `rN` / `state.headRevision` |
+| Version N | Revision `rN` an accepted draft was committed at (`Artifact.revision`; the answer card's caption and the honesty bar). NOT `state.headRevision`, which also counts binding a file, installing the demo's agreement, locking and rulings; the first run's bar shows no version until one is committed, and the landing's reads "Example answer: Version 3" |
 | Lock this answer | `Engine.pinResult(entryId)` |
 | Draft thrown out | A rejected `AttemptView` / `Candidate` |
 | A question only you can answer | A rejection whose diagnostic carries `silentOn` → `Engine.gapQuestion(ref)` → `Engine.decide(ref, choice, {reason})` |
 | It says no | `GenerationView.declined` (decline protocol: `cannot-be-pure`, `needs-spec`) |
 | What the AI will see / 3 example rows | `Engine.previewDataset().sampleText`, `typeDecl`, `Engine.setSendSamples`, `Candidate.prompt` |
 | Hand your data team a file | Eject (the engine's `eject/eject.ts`, called by `model/handoff.ts`) |
-| "Demo · recorded answers, real checks" | `state.mode === 'replay'` |
+| How to run it on your computer | The README's "Run it on your computer" section; the landing's HONEST LIMITS card (`#own-file`) links to it |
+| "Demo · recorded answers, real checks" | `state.mode === 'replay'` (the top bar's mode pill: a disclosure whose note says what runs where and what leaves the browser) |
+| "Step by step" | The `#/zen` walk-through (the UI never says "Zen") |
 | Basic checks vs Full checks | A spec-less call (only Compile + Invariants gate it) vs a spec with tests/properties/pins |
 
 "House rule" = a Decide ruling (`spec.decisions`) or an authored property. "Example" = an authored unit test. Words in
@@ -67,8 +69,9 @@ from the data by `model/figures.ts`, never typed in twice, and `figures.test.ts`
    produce something (no recording in replay mode, no live service), say so in the design's own plain words
    (e.g. "In this demo, answers are recorded, so questions about your own file need the version on your computer").
 2. The landing's hero trace is a scripted, slowed-down playback of the example (the design says so: "Slowed down so you
-   can watch"). It is labelled as an illustration; the stress-test strip stays labelled "Illustrative · not yet a
-   recorded run" until a recording backs it.
+   can watch"). It is labelled as an illustration; every evidence tile (6 of 6, 100, 11 of 12, 1 thrown out) and the
+   stress-test strip carry "Illustrative · not yet a recorded run" until a recording backs them (`landing/evidenceView.ts`:
+   the counts come from the seeded agreement, the outcomes are scripted; only the thrown-out draft's "Why" is computed).
 3. The "two rules that disagree" question has no engine signal; it exists only as the landing's illustration.
 4. Checked, not proven. The honesty bar and the "Not checked" list are always present.
 5. Privacy copy states exactly what leaves the browser; the example-rows switch is wired to `Engine.setSendSamples`
@@ -78,7 +81,7 @@ from the data by `model/figures.ts`, never typed in twice, and `figures.test.ts`
 
 ```
 main.tsx                  entry for index.html; boots the engine once, renders <App/>
-App.tsx                   hash router (#/ , #/start), skip link, <main id="main">
+App.tsx                   hash router (#/ , #/start, #/zen), skip link, <main id="main">
 tokens.css  base.css      design tokens (colours, shadows, radii, type) and page base; self-hosted Geist + Geist Mono
 icons.tsx                 inline SVG glyphs from the design (check disc, thrown-out square, ask diamond, lock, arrow, replay, file, …)
 components/               presentational + small stateful pieces shared by both pages (one .tsx + one .css each)
@@ -114,9 +117,12 @@ recordings of one function with different specs coexist.
 - **Adaptive seeding.** The seeded agreement (`model/agreements.ts`) is installed in live mode, and in replay mode only
   when a recording matches its hashes (or a function certified for it exists): `start/recorded.ts` seedUsable. Otherwise
   the question is asked spec-less. The question's level ('Full checks' / 'Basic checks') is what will really run
-  (`recorded.ts` levelFor). Today, on the replay site: "Top 5 customers by revenue" replays with Basic checks
-  (Puddlesworth Inc $2,599.13 first, every row counted); "Count orders by status" and "Revenue by country" end in the
-  honest no-recording state, which points at the question that has an answer.
+  (`recorded.ts` levelFor). Today, on the replay site (`orders-agreement.json` is bundled): "Top 5 customers by
+  revenue" installs the agreement and replays with Full checks (Chef Ravioli Starbright $2,252.07 first, already
+  locked); with that recording unavailable or stale it falls back to the spec-less `orders.json` session and replays with
+  Basic checks (Puddlesworth Inc $2,599.13 first, every row counted). "Count orders by status" and "Revenue by country"
+  end in the honest no-recording state either way, which points at the question that has an answer. `npm run
+  check:replay` drives both paths (the second by serving the recordings index without the agreement's recording).
 - **Recording the agreement** (`npm run record:door`, i.e. `node apps/site/scripts/record-door.mjs`): starts the vite
   dev server (live mode: it uses YOUR Codex login and spends model calls), opens `#/start` on a fresh image in headless
   Chrome, and drives the page's own session (`sessionFor(engine)`): bind orders.csv as `rows`, select "Top 5 customers

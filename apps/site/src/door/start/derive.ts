@@ -45,7 +45,7 @@ import {
   type CheckFacts,
   type DataFacts,
 } from '../model/assumptions';
-import { agreementOf, emptyAgreement, type AgreementView } from '../model/agreement';
+import { agreementOf, emptyAgreement, lockedHelp, type AgreementView, type CheckMode } from '../model/agreement';
 import { HOUSE_RULES } from '../model/agreements';
 import {
   factsFromSpec,
@@ -260,6 +260,11 @@ export function laneFacts(spec: FunctionSpec | null, artifact: Artifact | null, 
   };
 }
 
+/** The function's artifact is live for its current spec (engine isLive): a call is answered from it, nothing re-run. */
+function isOnFile(rec: FunctionRecord): boolean {
+  return rec.artifact !== null && rec.artifact.specHash === rec.specHash && rec.artifact.testsHash === rec.testsHash;
+}
+
 /** The run ended before any draft existed (no recording, it said no, the service failed): nothing was checked. */
 const NOTHING_DRAFTED: ReadonlySet<RunOutcome['kind']> = new Set(['no-recording', 'declined', 'service']);
 export const FOOTER_NOTHING_DRAFTED = 'Nothing was checked: there was no draft to check, so no answer is shown.';
@@ -314,7 +319,11 @@ export function traceView(t: TraceInput): TraceView {
   // evidence only for an answer the function gave (committed now, or certified earlier)
   const answered = outcome.kind === 'committed' || cached;
   const artifact = answered ? (rec?.artifact ?? null) : null;
-  const facts = laneFacts(spec, artifact, t.question);
+  // the answer a call would get without writing anything: it was checked with the locks that existed then, not with
+  // one set afterwards (pins are outside the hashes), so the idle lanes must not promise to run it
+  const onFile = rec && isOnFile(rec) ? rec.artifact : null;
+  const base = laneFacts(spec, artifact, t.question);
+  const facts: LaneFacts = onFile?.evidence ? { ...base, pinsChecked: onFile.evidence.pinnedTests } : base;
   const mutationReport = artifact?.evidence?.mutation ?? null;
   const lanes = liveLanes({
     generation,
@@ -407,6 +416,8 @@ export interface AnswerInput {
   data: DataFacts | null;
   /** The no-recording sentence (noRecordingText), when the outcome is no-recording. */
   noRecording?: string;
+  /** state.mode: what a lock can promise (a new version is only written, and so checked against it, in live mode). */
+  mode?: CheckMode;
 }
 
 export interface AnswerProps {
@@ -416,6 +427,12 @@ export interface AnswerProps {
   /** 'full' when the answer was checked against an agreement (examples, a locked answer or house rules RAN); else 'basic'. */
   level: 'full' | 'basic';
   locked: boolean;
+  /**
+   * The lock button's confirmation when the answer is locked and either was checked with basic checks only, or this is
+   * replay ('' otherwise: the card's own words). Replay says plainly that the demo cannot re-run with the lock or write
+   * a later version (model/agreement.ts lockedHelp); live full checks keep the card's "Every later version…".
+   */
+  lockHelp: string;
   /** The answer can be locked / unlocked now (a pinnable result, engine idle). */
   canLock: boolean;
   assumptions: AssumptionList;
@@ -464,12 +481,15 @@ export function answerView(a: AnswerInput): AnswerProps {
         ...(countedFor(spec) ? { counted: countedFor(spec)! } : {}),
       })
     : null;
+  const level = hasAgreement(facts) ? 'full' : 'basic';
+  const locked = !!out?.pinned;
   return {
     view,
     held: !out,
     heldCaption: heldCaptionFor(a.outcome, a.noRecording),
-    level: hasAgreement(facts) ? 'full' : 'basic',
-    locked: !!out?.pinned,
+    level,
+    locked,
+    lockHelp: lockedHelp({ locked, level, mode: a.mode ?? 'live', noun: view?.kind === 'ranked' ? 'list' : 'answer' }),
     canLock: !!out?.pinnable && !a.state.busy,
     assumptions: assumptionsFromNote(noteFor(out?.note, artifact)),
     checked: out ? checkedList(facts) : [],
@@ -480,6 +500,8 @@ export function answerView(a: AnswerInput): AnswerProps {
       data: a.data,
       decisions: spec?.decisions ?? [],
       rules: ruleTexts(spec),
+      // what the user has set now: a lock added after this answer was checked is not "nothing set"
+      ...(a.fn && rec ? { set: agreementOf(a.state.program, a.fn).n } : {}),
     }),
     facts,
   };

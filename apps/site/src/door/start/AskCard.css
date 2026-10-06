@@ -8,13 +8,11 @@
 
 .fd-ask__chips { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px; }
 .fd-ask__chip {
-  display: inline-flex; align-items: center; min-height: 40px; padding: 0 14px; box-sizing: border-box;
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 14px; box-sizing: border-box;
   border-radius: 999px; border: 0; background: var(--fd-surface); color: var(--fd-ink-2); box-shadow: var(--fd-sh-ring-2);
   font-family: inherit; font-size: 14px; font-weight: 500; text-align: left; cursor: pointer;
-  transition: box-shadow 120ms ease; position: relative;
+  transition: box-shadow 120ms ease;
 }
-/* 44px target: an invisible band around the design's 40px pill (the 8px row gap leaves room) */
-.fd-ask__chip::before { content: ''; position: absolute; inset: -2px 0; }
 .fd-ask__chip:hover { box-shadow: 0 0 0 1px var(--fd-ink-3); }
 .fd-ask__chip.is-on { background: var(--fd-indigo-wash); color: var(--fd-ink); box-shadow: 0 0 0 1px var(--fd-indigo); }
 .fd-ask__chip[aria-disabled='true'] { cursor: not-allowed; }
@@ -30,12 +28,16 @@
 }
 
 .fd-ask__row { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
-.fd-ask__box {
-  flex: 1 1 320px; min-width: 0; min-height: 48px; box-sizing: border-box;
-  border-radius: var(--fd-r-md); border: 1px solid var(--fd-line-2); background: var(--fd-surface);
-  padding: 0 14px; font-family: inherit; font-size: 16px; color: var(--fd-ink);
+/* The selected question, read back as text: no border, no field chrome, nothing to focus (it is picked from the chips). */
+.fd-ask__picked {
+  flex: 1 1 320px; min-width: 0; min-height: 48px; box-sizing: border-box; margin: 0; padding: 11px 14px;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px;
+  border-radius: var(--fd-r-md); background: var(--fd-surface-2);
+  font-size: 16px; line-height: 26px; color: var(--fd-ink); overflow-wrap: anywhere;
 }
-.fd-ask__box:focus-visible { outline: none; box-shadow: var(--fd-sh-focus); border-color: var(--fd-indigo); }
+.fd-ask__picked.is-empty { color: var(--fd-ink-3); }
+.fd-ask__picked-k { flex: none; font-size: 14px; color: var(--fd-ink-3); }
+.fd-ask__picked-q { min-width: 0; font-weight: 500; }
 .fd-ask__go { min-height: 48px; }
 .fd-ask__go[aria-disabled='true'] { cursor: not-allowed; opacity: 0.55; }
 .fd-ask__go[aria-disabled='true']:hover { background: var(--fd-indigo); }

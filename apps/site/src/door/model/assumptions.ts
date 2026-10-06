@@ -6,7 +6,8 @@
  *    A check that did not run is never listed.
  *  - "Not checked": always the file's completeness and whether this was the right question, plus cheap, TRUE
  *    data-derived warnings (repeated ids, status values) when no house rule covers them, plus "you haven't set any
- *    yet" when the agreement is empty.
+ *    yet" when the agreement is empty, or "added after this answer was checked" when the agreement holds
+ *    something this answer was never checked against (a lock added afterwards: pins are outside the hashes).
  * Pure: no DOM, no engine calls.
  */
 import type { Artifact, Candidate, Decision, Evidence, FunctionSpec, GateResult, MutationReport, Pin } from '@scasella/undefined-engine/types';
@@ -249,6 +250,29 @@ export interface NotCheckedInput {
   decisions?: Decision[];
   /** ruleTexts(spec): what the user's house rules say, for the status check. */
   rules?: string[];
+  /** What the user has SET now (the spec: model/agreement.ts counts). Absent: taken to be what ran. */
+  set?: { examples: number; locks: number; rules: number };
+}
+
+/** `your locked answer`, `your 2 house rules`, `your 6 examples and your locked answer` (only the parts given). */
+function yourParts(n: { examples: number; locks: number; rules: number }): string[] {
+  const out: string[] = [];
+  if (n.examples > 0) out.push(n.examples === 1 ? 'your example' : `your ${n.examples} examples`);
+  if (n.locks > 0) out.push(n.locks === 1 ? 'your locked answer' : `your ${n.locks} locked answers`);
+  if (n.rules > 0) out.push(n.rules === 1 ? 'your house rule' : `your ${n.rules} house rules`);
+  return out;
+}
+
+/**
+ * What the user set that this answer was never checked against: a kind with something set and nothing run. (Kinds with
+ * something run are left alone: their counts can differ for reasons that are not lateness.)
+ */
+export function setAfterCheck(set: { examples: number; locks: number; rules: number }, f: CheckFacts): { examples: number; locks: number; rules: number } {
+  return {
+    examples: f.examples === 0 ? set.examples : 0,
+    locks: f.locked === 0 ? set.locks : 0,
+    rules: f.houseRules === 0 ? set.rules : 0,
+  };
 }
 
 const MONEYISH = /revenue|amount|total|price|spend|sales|income|profit|money|\$/i;
@@ -281,6 +305,10 @@ export function notCheckedList(input: NotCheckedInput): string[] {
   }
   if (input.fileName) out.push(`whether ${input.fileName} is the complete export`);
   out.push('whether this was the right question');
-  if (!hasAgreement(input.facts)) out.push("your examples, locked answers and house rules: you haven't set any yet");
+  const set = input.set ?? { examples: input.facts.examples, locks: input.facts.locked, rules: input.facts.houseRules };
+  const lateSet = setAfterCheck(set, input.facts);
+  const late = yourParts(lateSet);
+  if (late.length > 0) out.push(`${listWords(late)}: added after this answer was checked`);
+  else if (!hasAgreement(input.facts) && set.examples + set.locks + set.rules === 0) out.push("your examples, locked answers and house rules: you haven't set any yet");
   return out;
 }

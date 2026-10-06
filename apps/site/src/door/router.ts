@@ -1,6 +1,7 @@
 /**
  * A tiny hash router on a signal. Only `#/…` hashes are routes ('#/' or '' → landing, '#/start' or '#/start?…' →
- * start). Any other hash ('#own-file', '#asks', the skip link's '#main') is an IN-PAGE link: it scrolls to that id
+ * start, '#/zen' → the "Step by step" walk-through, which is where first-time visitors are sent; '#/start' stays
+ * reachable as the full view). Any other hash ('#own-file', '#asks', the skip link's '#main') is an IN-PAGE link: it scrolls to that id
  * (smooth unless reduced motion), moves focus to the target's heading and never changes the route or the URL.
  */
 import { signal, type ReadonlySignal } from '@preact/signals';
@@ -13,7 +14,7 @@ export const ROUTE_PATHS: Record<Route, string> = { landing: '#/', start: '#/sta
 export const ROUTE_TITLES: Record<Route, string> = {
   landing: 'Undefined — answers from your spreadsheet, checked before you see them',
   start: 'Get started · Undefined',
-  zen: 'Zen · Undefined',
+  zen: 'Step by step · Undefined',
 };
 
 /** Pure: the route a hash names, or null when the hash is not a route (an in-page anchor; keep the current route). */

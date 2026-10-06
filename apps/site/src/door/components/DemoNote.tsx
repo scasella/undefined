@@ -1,13 +1,17 @@
 /**
  * The mode note at the foot of the first-run rail (V3-Door-FirstRun 380-384).
  * Replay (`state.mode === 'replay'`): the design's "Demo · recorded answers, real checks" with a link to the landing's
- * "run it on your computer" section. Live: the honest live-mode equivalent.
+ * "run it on your computer" spot (`#own-file`: the limits card, which links on to the README's setup steps).
+ * Live: the honest live-mode equivalent. (The top bar's mode pill carries the same note, as a disclosure.)
  *
  * The router has no `#/?to=…` form, so the link's href is the landing ('#/', works without JS and in a new tab) and a
  * click goes there and then scrolls to the in-page anchor `#own-file` with the router's own scrollToAnchor.
  */
 import { navigate, parseHash, scrollToAnchor } from '../router';
 import './DemoNote.css';
+
+/** The README section that says how to run the app on your own computer (the landing's limits card links to it). */
+export const RUN_LOCALLY_URL = 'https://github.com/scasella/undefined#run-it-on-your-computer';
 
 export interface DemoNoteProps {
   mode: 'live' | 'replay';

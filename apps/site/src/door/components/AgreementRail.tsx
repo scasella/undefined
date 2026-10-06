@@ -33,12 +33,17 @@ export interface AgreementRailLandingProps {
 export interface AgreementRailStartProps {
   variant: 'start';
   view: AgreementView;
+  /**
+   * One plain sentence under the counts, for an agreement the answer on file was never checked against (model/agreement.ts
+   * heldNote): so the counts and the check trace say the same thing.
+   */
+  note?: string;
 }
 
 export type AgreementRailProps = AgreementRailLandingProps | AgreementRailStartProps;
 
 export function AgreementRail(props: AgreementRailProps) {
-  return props.variant === 'landing' ? <LandingRail {...props} /> : <StartCard view={props.view} />;
+  return props.variant === 'landing' ? <LandingRail {...props} /> : <StartCard view={props.view} {...(props.note ? { note: props.note } : {})} />;
 }
 
 function ChipText({ chip }: { chip: AgreementChip }) {
@@ -143,12 +148,13 @@ function LockMeta({ p }: { p: string }) {
   );
 }
 
-function StartCard({ view }: { view: AgreementView }) {
+function StartCard({ view, note }: { view: AgreementView; note?: string }) {
   const chips = compactChips(view);
   return (
     <div class="fd-agree fd-card">
       <div class="fd-eyebrow">YOUR AGREEMENT</div>
       <div class="fd-agree__counts fd-agree__counts--start fd-mono">{view.counts}</div>
+      {note && !view.empty && <p class="fd-agree__held">{note}</p>}
       {!view.empty && (
         <>
           {view.seeded && <p class="fd-agree__seeded">Saved with this demo file from an earlier session.</p>}
@@ -169,7 +175,7 @@ function StartCard({ view }: { view: AgreementView }) {
         <div class="fd-agree__empty">
           <div class="fd-agree__empty-t">Agree on the rules once. Every version after that has to pass all of them.</div>
           <p class="fd-agree__empty-p">
-            No examples, locked answers or house rules yet, so your first answer gets basic checks only. Lock an answer you know is right, or add a house rule, and all six checks switch on.
+            No examples, locked answers or house rules yet, so your first answer gets basic checks only. Lock an answer you know is right, or add a house rule, and every later version has to pass it.
           </p>
         </div>
       )}

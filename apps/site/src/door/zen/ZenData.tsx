@@ -164,7 +164,7 @@ export function ZenData({ engine }: { engine: Engine }) {
               </button>
             ))}
           </div>
-          <p class="zd__hint">Up to 20,000 rows, 1 MB. Saving from Excel? File › Save As › CSV.</p>
+          <p class="zd__hint">Up to 20,000 rows, 1 MB. Excel files (.xlsx) are not read here: in Excel, choose File › Save As › CSV, then bring that.</p>
         </div>
       )}
 

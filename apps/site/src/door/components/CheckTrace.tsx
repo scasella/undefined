@@ -4,7 +4,7 @@
  *  - live: lanes from the real engine (model/lanes), each playing a short sweep once when it settles.
  * The static styles are the animation's end state, so reduced motion still shows the right result.
  */
-import { useEffect, useRef } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import type { CSSProperties, JSX } from 'preact';
 import { AskDiamond, CheckDisc, Lock, NotChecked, ThrownOut } from '../icons';
 import type { GhostView, HeaderView, LaneLink, LaneState, LaneView } from '../model/lanes';
@@ -29,6 +29,8 @@ export interface CheckTraceProps {
   draftLabel?: string;
   /** The list's aria-label. */
   listLabel?: string;
+  /** Live feed only: the timer word while the run is going ('checking…'). The run panel says 'drafting…' while the AI is still writing. */
+  runningText?: string;
 }
 
 const SETTLED: ReadonlySet<LaneState> = new Set(['passed', 'failed', 'stopped']);
@@ -70,10 +72,18 @@ export function CheckTrace(p: CheckTraceProps) {
   const settledCb = useRef(p.onSettled);
   settledCb.current = p.onSettled;
   const scriptKey = script ? `${script.scenario.id}:${script.run}` : null;
+  // Script only: the playback that has reached its end state. Until then the verdict text stays out of the accessibility
+  // tree (it is opacity 0 on screen); once there, the 'checking…' line and the header's left text leave it instead. The
+  // live feed is always at rest: its text is real state, not playback.
+  const [restKey, setRestKey] = useState<string | null>(null);
+  const atRest = !script || restKey === scriptKey;
   useEffect(() => {
     if (!script) return;
     const ms = prefersReducedMotion() ? 0 : script.scenario.tEnd * 1000;
-    const t = setTimeout(() => settledCb.current?.(), ms);
+    const t = setTimeout(() => {
+      setRestKey(scriptKey);
+      settledCb.current?.();
+    }, ms);
     return () => clearTimeout(t);
   }, [scriptKey]);
   const liveDone = !script && !!p.header.done;
@@ -93,28 +103,47 @@ export function CheckTrace(p: CheckTraceProps) {
   const showVerdict = !!(h.done && h.verdict);
   const ghosts = p.ghost ? (Array.isArray(p.ghost) ? p.ghost : [p.ghost]) : [];
 
+  // text that is faded out on screen is not read out either (aria-hidden): the header's left text once the verdict is up,
+  // and, in the playback, the verdict until it has landed and 'checking…' once it has
+  const verdictUp = showVerdict && atRest;
   return (
     <div class="fd-trace">
       {showVerdict && h.tone === 'pass' && <span aria-hidden="true" class="fd-trace__seal" style={css(pm.seal)} />}
       <div class="fd-trace__head fd-trace__mono">
         <div class="fd-trace__hl">
-          <span class={`fd-trace__hl-a${showVerdict ? ' fd-trace__hidden' : ''}`} style={css(showVerdict ? pm.hdrLeft : undefined)}>
+          <span
+            aria-hidden={verdictUp ? 'true' : undefined}
+            class={`fd-trace__hl-a${showVerdict ? ' fd-trace__hidden' : ''}`}
+            style={css(showVerdict ? pm.hdrLeft : undefined)}
+          >
             {h.left}
           </span>
           {showVerdict && (
-            <span class={`fd-trace__hl-b${h.tone === 'ask' ? ' fd-trace__hl-b--ask' : h.tone === 'fail' ? ' fd-trace__hl-b--fail' : ''}`} style={css(pm.hdrVerdict)}>
+            <span
+              aria-hidden={atRest ? undefined : 'true'}
+              class={`fd-trace__hl-b${h.tone === 'ask' ? ' fd-trace__hl-b--ask' : h.tone === 'fail' ? ' fd-trace__hl-b--fail' : ''}`}
+              style={css(pm.hdrVerdict)}
+            >
               {h.verdict}
             </span>
           )}
         </div>
         <div class="fd-trace__timer">
           {(script || h.running) && (
-            <span class={`fd-trace__timer-a${h.running && !script ? '' : ' fd-trace__hidden'}`} style={css(script ? pm.timerRunning : undefined)}>
-              checking…
+            <span
+              aria-hidden={script && atRest ? 'true' : undefined}
+              class={`fd-trace__timer-a${h.running && !script ? '' : ' fd-trace__hidden'}`}
+              style={css(script ? pm.timerRunning : undefined)}
+            >
+              {script ? 'checking…' : (p.runningText ?? 'checking…')}
             </span>
           )}
           {!(h.running && !script) && (
-            <span class={`fd-trace__timer-b${h.tone === 'ask' && h.done ? ' fd-trace__timer-b--ask' : ''}`} style={css(h.done ? pm.timerDone : undefined)}>
+            <span
+              aria-hidden={atRest ? undefined : 'true'}
+              class={`fd-trace__timer-b${h.tone === 'ask' && h.done ? ' fd-trace__timer-b--ask' : ''}`}
+              style={css(h.done ? pm.timerDone : undefined)}
+            >
               {h.right}
             </span>
           )}
@@ -152,7 +181,7 @@ export function CheckTrace(p: CheckTraceProps) {
         <span class="fd-trace__foot-meta fd-trace__mono">{p.footer.meta}</span>
       </div>
       <div aria-live="polite" class="fd-sr">
-        {p.liveText}
+        {atRest ? p.liveText : ''}
       </div>
     </div>
   );
@@ -243,10 +272,15 @@ function Lane({ lane, timing, sx, highlight, compact }: LaneProps) {
             {lane.idle ?? ''}
           </span>
         )}
-        {settled && <span class="fd-lane__wait fd-trace__hidden" style={css(m.wait)}>Waiting</span>}
+        {/* the motion's own text ("Waiting", the 0/n … n/n strip) only exists while it plays: it is never read out */}
+        {settled && m.wait && (
+          <span aria-hidden="true" class="fd-lane__wait fd-trace__hidden" style={css(m.wait)}>
+            Waiting
+          </span>
+        )}
         {st === 'running' && <span class="fd-lane__run">{lane.progress ? `${lane.progress.done}/${lane.progress.total}` : 'checking…'}</span>}
-        {settled && st !== 'failed' && (
-          <span class="fd-lane__run fd-trace__hidden" style={css(m.run)}>
+        {settled && st !== 'failed' && m.run && (
+          <span aria-hidden="true" class="fd-lane__run fd-trace__hidden" style={css(m.run)}>
             <span class="fd-lane__strip" style={css(m.strip)}>
               {steps.map((s, k) => (
                 <span key={k}>{s}</span>

@@ -6,6 +6,8 @@
  * ── Getting it ──────────────────────────────────────────────────────────────────────────────────────────────────
  *   const s = sessionFor(engine);       // one shared session per engine (every section gets the same one)
  *   s.dispose();                        // stops its effects; clears the shell chip / running pulse (page unmount)
+ *                                       // and leaves what was bound / picked behind: the next sessionFor(engine) (the
+ *                                       // other page: #/start <-> #/zen) takes it up, the engine still holds the data
  *   createSession(engine, config?)      // a private one (tests, scratch harnesses)
  *   s.config.seed = false               // never install the seeded agreement (default true); read at the next ask
  *   s.config.sampleNames.orders = 'x'   // bind a sample under another variable (default: samples.ts datasetName)
@@ -28,12 +30,14 @@
  *                                                       it (null: none, seed off, not recorded, or still being checked)
  *   seedState      'none' | 'installing' | 'installed' | 'failed'
  *   availability   Record<questionId, 'certified' | 'recorded' | 'none' | 'live'>   can it be answered here, and how
+ *                                                       ('certified' in either mode: asking again shows the answer on file)
  *   recordedOther  SuggestedQuestion | null             another question that CAN be answered here (for the no-recording copy)
  *   run            RunRef | null                        the run the page started (derive.ts)
  *   outcome        RunOutcome                           idle · running · committed · cached · thrown-out · stopped ·
  *                                                       declined · no-recording · service · error (derive.ts)
  *   trace          TraceView                            CheckTrace props: lanes, ghost, header, footer, liveText (+ cached)
- *   answer         AnswerProps                          AnswerCard props: view, held, heldCaption, level, locked, canLock,
+ *   answer         AnswerProps                          AnswerCard props: view, held, heldCaption, level, locked, lockHelp
+ *                                                       (the lock confirmation: honest about replay), canLock,
  *                                                       assumptions, checked, notChecked
  *   lock           LockInfo                             locked + how to undo it
  *   agreement      AgreementView                        Your agreement (seeded shows at once)
@@ -52,6 +56,9 @@
  *                              derived from the file name (lib/data.ts datasetNameFromFile), `data` for pasted text
  *   intakeFile(file)           File → refusals (spreadsheet, size, binary) → intakeText
  *   selectQuestion(id)         select; installs the seeded agreement now when there is one (idempotent)
+ *   addQuestion(text)          add a question the viewer typed (a function of the bound table, grown from their words), select it
+ *   removeQuestion(id)         take a question the viewer typed off the list (never a suggestion); the selection moves to
+ *                              the first one left. The function it may have grown stays in the program (the page never deletes one)
  *   ask()                      install the seed if needed, setInput(call), submit(); returns when the run settled
  *   toggleLock()               engine.pinResult(entryId) / engine.removePin(fn, pinId)
  *   decide(choice, {reason?, scope?})   rule on the stop-and-ask (engine.decide); then asks again for the answer
@@ -64,12 +71,15 @@
  * bundled recording was made against exactly its spec (public/recordings/orders-agreement.json, written by
  * `npm run record:door`), or a function already certified for it answers. Otherwise the question goes out spec-less.
  *
- * What the replay site can answer today (session.test.ts proves it against public/recordings/orders.json): the only
- * recorded session for the samples is the spec-less `topCustomersByRevenue(rows)` on orders.csv bound as `rows`
- * (type `Row`; the row type's name is inside the hashed spec, so orders.csv is bound as `rows`, see samples.ts). So
- * "Top 5 customers by revenue" replays with basic checks (committed, Puddlesworth Inc $2,599.13 first, every row
- * counted), and "Count orders by status" / "Revenue by country" end in 'no-recording', pointing at it. Once
- * orders-agreement.json is bundled, the same question installs the agreement and runs with full checks, unchanged code.
+ * What the replay site can answer today: two recorded sessions for the samples, both for `topCustomersByRevenue(rows)`
+ * on orders.csv bound as `rows` (type `Row`; the row type's name is inside the hashed spec, so orders.csv is bound as
+ * `rows`, see samples.ts). `orders-agreement.json` is bundled, so "Top 5 customers by revenue" installs the seeded
+ * agreement (6 examples, 1 locked answer, 2 house rules) and replays with FULL checks (Chef Ravioli Starbright
+ * $2,252.07 first, already locked). Only on the seed-off path (that recording missing from the index, or made
+ * against a spec that no longer matches) does it fall back to the spec-less `orders.json` session and replay with
+ * BASIC checks (committed, Puddlesworth Inc $2,599.13 first, every row counted; session.test.ts proves that path
+ * against public/recordings/orders.json). "Count orders by status" / "Revenue by country" end in 'no-recording'
+ * either way, pointing at the question that has an answer.
  */
 import { batch, computed, effect, signal, type ReadonlySignal } from '@preact/signals';
 import type { DatasetRef, DecideChoice, DecideOptions, Engine, EngineState, FunctionSpec, GapQuestion, GapRef, Program, Recording } from '@scasella/undefined-engine/types';
@@ -168,6 +178,8 @@ export interface Session {
   selectQuestion(id: string): Promise<boolean>;
   /** Add a question the viewer typed (a function of the bound table, grown from their words) and select it. */
   addQuestion(text: string): Promise<boolean>;
+  /** Remove a question the viewer typed (suggestions stay). Selects the first question left when it was the selected one. */
+  removeQuestion(id: string): Promise<boolean>;
   ask(): Promise<boolean>;
   toggleLock(): Promise<boolean>;
   decide(choice: DecideChoice, opts?: DecideOptions): Promise<boolean>;
@@ -188,7 +200,21 @@ async function seedInstalled(state: EngineState, seed: SeededAgreement, installe
   return installedOnce || (rec.spec.pins ?? []).some((p) => p.id === SEEDED_PIN_ID);
 }
 
-export function createSession(engine: Engine, config: Partial<SessionConfig> = {}): Session {
+/**
+ * What a session leaves behind when its page unmounts. The engine keeps the dataset, but WHICH file is bound (and its
+ * rows), the selected question and the questions the viewer typed live in the session; without this, the next session
+ * (the other page, `#/start` <-> `#/zen`) would start with nothing bound while the engine still held the file.
+ */
+interface Carry {
+  bound: Bound | null;
+  questionId: string | null;
+  typed: SuggestedQuestion[];
+}
+
+/** The carry of the shared session of `engine` that was disposed last. */
+const carried = new WeakMap<Engine, Carry>();
+
+export function createSession(engine: Engine, config: Partial<SessionConfig> = {}, resume?: Carry): Session {
   const cfg: SessionConfig = {
     seed: config.seed ?? true,
     sampleNames: { ...(config.sampleNames ?? {}) },
@@ -196,9 +222,9 @@ export function createSession(engine: Engine, config: Partial<SessionConfig> = {
   };
   const st = engine.state;
 
-  const bound = signal<Bound | null>(null);
+  const bound = signal<Bound | null>(resume?.bound ?? null);
   const intake = signal<IntakeState>(EMPTY_INTAKE);
-  const questionId = signal<string | null>(null);
+  const questionId = signal<string | null>(resume?.questionId ?? null);
   const run = signal<RunRef | null>(null);
   const seedState = signal<'none' | 'installing' | 'installed' | 'failed'>('none');
   const working = signal(false);
@@ -230,7 +256,7 @@ export function createSession(engine: Engine, config: Partial<SessionConfig> = {
   const mode = computed(() => st.value.mode);
   /** The questions as model/questions.ts suggests them (static level). */
   /** Questions the viewer typed for the bound table (cleared when other data is bound). */
-  const typed = signal<SuggestedQuestion[]>([]);
+  const typed = signal<SuggestedQuestion[]>(resume?.typed ?? []);
   const baseQuestions = computed<SuggestedQuestion[]>(() => {
     const d = dataset.value;
     const r = rows.value;
@@ -316,6 +342,7 @@ export function createSession(engine: Engine, config: Partial<SessionConfig> = {
       rowCount: d?.rowCount ?? null,
       data: facts.value,
       noRecording: noRecording.value,
+      mode: mode.value,
     });
   });
   const lock = computed(() => lockInfo(st.value.program, answer.value.view ? match.value.output : null));
@@ -644,6 +671,22 @@ export function createSession(engine: Engine, config: Partial<SessionConfig> = {
     return selectQuestion(q.id);
   }
 
+  async function removeQuestion(id: string): Promise<boolean> {
+    if (!idle() || !typed.peek().some((q) => q.id === id)) return false;
+    const wasSelected = questionId.peek() === id;
+    batch(() => {
+      typed.value = typed.peek().filter((q) => q.id !== id);
+      if (wasSelected) {
+        questionId.value = null;
+        run.value = null;
+        seedState.value = 'none';
+      }
+    });
+    if (!wasSelected) return true;
+    const next = questions.peek()[0];
+    return next ? selectQuestion(next.id) : true;
+  }
+
   /** A typed question's contract is installed before its first ask, so the model reads the words and not just a name. */
   async function ensureTyped(q: SuggestedQuestion): Promise<void> {
     const d = dataset.peek();
@@ -748,7 +791,10 @@ export function createSession(engine: Engine, config: Partial<SessionConfig> = {
     stops.length = 0;
     shellFileChip.value = null;
     shellRunning.value = false;
-    if (shared.get(engine) === api) shared.delete(engine);
+    if (shared.get(engine) === api) {
+      carried.set(engine, { bound: bound.peek(), questionId: questionId.peek(), typed: typed.peek() });
+      shared.delete(engine);
+    }
   }
 
   const api: Session = {
@@ -788,23 +834,42 @@ export function createSession(engine: Engine, config: Partial<SessionConfig> = {
     intakeFile,
     selectQuestion,
     addQuestion,
+    removeQuestion,
     ask,
     toggleLock,
     decide,
     reset,
     dispose,
   };
+  // taken up from the page that was just left: the selection's agreement is put back in the program (idempotent)
+  if (resume?.bound && resume.questionId) {
+    const id = resume.questionId;
+    queueMicrotask(() => {
+      if (!disposed) void selectQuestion(id);
+    });
+  }
   return api;
 }
 
 const shared = new WeakMap<Engine, Session>();
+/** Bumped when a session is created for an engine that had none: everything that rendered with the old one renders again. */
+const replaced = signal(0);
 
-/** The page's one session for `engine` (created on first use; a disposed one is replaced). */
+/**
+ * The page's one session for `engine` (created on first use; a disposed one is replaced, and takes up what the disposed
+ * one had bound and picked). Components read this in their render, so they follow the replacement: the other page's
+ * route change renders the new page BEFORE the old one unmounts (and disposes the session it just got), so without
+ * the re-render the new page would keep a dead session.
+ */
 export function sessionFor(engine: Engine): Session {
+  void replaced.value;
   let s = shared.get(engine);
   if (!s) {
-    s = createSession(engine);
+    s = createSession(engine, {}, carried.get(engine));
     shared.set(engine, s);
+    queueMicrotask(() => {
+      replaced.value++;
+    });
   }
   return s;
 }

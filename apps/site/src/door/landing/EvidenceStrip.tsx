@@ -1,19 +1,34 @@
 /**
  * Landing · evidence strip (V3-Door-Landing 386-453): four tiles under the example answer, the "Why" behind the thrown-out
- * draft, and the expandable stress-test strip. The made-up-table sentence and the 12 breaks are ILLUSTRATIVE (labelled
- * so on the page); the thrown-out draft's figures are computed from the real orders by model/figures.ts.
+ * draft, and the expandable stress-test strip. Every tile reports the outcome of a run that was not recorded, so each
+ * carries the ILLUSTRATIVE badge (./evidenceView.ts says which parts are computed); the thrown-out draft's figures in
+ * the "Why" are computed from the real orders by model/figures.ts.
  */
 import { useRef, useState } from 'preact/hooks';
 import { bundledOrders } from '../../data/orders';
 import { AskDiamond, CheckDisc, ThrownOut } from '../icons';
 import { MADE_UP_TABLES } from '../model/agreements';
 import { DEFAULT_MADE_UP_TABLE, ILLUSTRATIVE_BREAKS, madeUpTableLabel, madeUpTableNote, thrownOutDraft } from '../model/figures';
+import { exampleCount } from './teamFileView';
 import { dotGridKey } from './dotGrid';
+import { EVIDENCE_FOOT, evidenceTiles, ILLUSTRATIVE, type EvidenceTile } from './evidenceView';
 import './EvidenceStrip.css';
 
 const DRAFT = thrownOutDraft(bundledOrders());
 const MISSED = ILLUSTRATIVE_BREAKS.length - 1;
-const ILLUSTRATIVE = 'Illustrative · not yet a recorded run';
+const TILES = evidenceTiles();
+const tile = (id: EvidenceTile['id']): EvidenceTile => TILES.find((t) => t.id === id)!;
+
+/** A tile's headline figure, its plain line and (for a figure from an unrecorded run) the badge, always in that order. */
+function Head({ t }: { t: EvidenceTile }) {
+  return (
+    <>
+      <div class="fd-ev-big fd-mono">{t.big}</div>
+      <div class="fd-ev-sub">{t.sub}</div>
+      {t.illustrative && <span class="fd-ev-badge">{ILLUSTRATIVE}</span>}
+    </>
+  );
+}
 
 function Dots() {
   const [dot, setDot] = useState(DEFAULT_MADE_UP_TABLE);
@@ -99,33 +114,26 @@ export function EvidenceStrip() {
         <h2 id="ev-h" class="fd-sr">The evidence behind this answer</h2>
         <div class="fd-ev-grid">
           <div class="fd-ev-tile">
-            <div class="fd-ev-big fd-mono">6 of 6</div>
-            <div class="fd-ev-sub">of your examples match</div>
+            <Head t={tile('examples')} />
             <div aria-hidden="true" class="fd-ev-ticks">
-              {Array.from({ length: 6 }, (_, i) => <span key={i} />)}
+              {Array.from({ length: exampleCount() }, (_, i) => <span key={i} />)}
             </div>
           </div>
           <div class="fd-ev-tile">
-            <div class="fd-ev-big fd-mono">{MADE_UP_TABLES}</div>
-            <div class="fd-ev-sub">made-up tables, every house rule held</div>
+            <Head t={tile('tables')} />
             <Dots />
           </div>
           <div class="fd-ev-tile">
-            <div class="fd-ev-big fd-mono">
-              {MISSED} of {ILLUSTRATIVE_BREAKS.length}
-            </div>
-            <div class="fd-ev-sub">small breaks caught on purpose</div>
+            <Head t={tile('breaks')} />
             <div aria-hidden="true" class="fd-ev-ticks fd-ev-ticks--stress">
               {ILLUSTRATIVE_BREAKS.map((_, i) => (i === MISSED ? <span key={i} class="is-missed">?</span> : <span key={i} />))}
             </div>
-            <span class="fd-ev-badge">{ILLUSTRATIVE}</span>
             <button type="button" class="fd-ev-link fd-ev-link--block" aria-expanded={stress ? 'true' : 'false'} onClick={() => setStress(!stress)}>
               {stress ? `Hide the ${ILLUSTRATIVE_BREAKS.length} breaks` : `See all ${ILLUSTRATIVE_BREAKS.length} and the one they missed`}
             </button>
           </div>
           <div class="fd-ev-tile">
-            <div class="fd-ev-big fd-mono">1</div>
-            <div class="fd-ev-sub">first draft thrown out</div>
+            <Head t={tile('thrown')} />
             <div class="fd-ev-thrown">
               <ThrownOut tone="light" />
               <span class="fd-ev-thrown__word">Thrown out</span>
@@ -136,7 +144,7 @@ export function EvidenceStrip() {
             {why && DRAFT && <p class="fd-ev-why">{DRAFT.why}</p>}
           </div>
         </div>
-        <p class="fd-ev-foot">Never changes your data · finished in 0.41 s</p>
+        <p class="fd-ev-foot">{EVIDENCE_FOOT}</p>
         {stress && <StressStrip />}
       </div>
     </section>

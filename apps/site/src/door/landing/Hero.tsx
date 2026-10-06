@@ -1,5 +1,6 @@
-/** The landing hero (V3-Door-Landing 81-95): the claim, what it means, and the two ways in. */
+/** The landing hero (V3-Door-Landing 81-95): the claim, what it means, and the two ways in (both start the step-by-step walk-through). */
 import { LinkButton } from '../components/LinkButton';
+import { ROUTE_PATHS } from '../router';
 import './Hero.css';
 
 export function Hero() {
@@ -16,10 +17,10 @@ export function Hero() {
             If two rules can't both be true, or your rules don't cover a case, it stops and asks you. It never guesses.
           </p>
           <div class="fd-hero__ctas">
-            <LinkButton href="#/start" variant="primary" icon="arrow">
+            <LinkButton href={ROUTE_PATHS.zen} variant="primary" icon="arrow">
               Try the demo
             </LinkButton>
-            <LinkButton href="#own-file" variant="secondary">
+            <LinkButton href={ROUTE_PATHS.zen} variant="secondary">
               Run it on your own file
             </LinkButton>
           </div>

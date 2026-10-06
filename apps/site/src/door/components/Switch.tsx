@@ -1,4 +1,4 @@
-/** The design's on/off switch: 40×24 track, 18px knob, indigo when on. The hit area is 44px without changing the look. */
+/** The design's on/off switch: 40×24 track, 18px knob, indigo when on. The button itself is the 44×44 target (Switch.css). */
 import './Switch.css';
 
 export interface SwitchProps {

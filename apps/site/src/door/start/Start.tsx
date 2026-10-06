@@ -1,7 +1,10 @@
 /**
- * The first run (`#/start`, V3-Door-FirstRun): the hero line, then "Get started" in two columns: bring a file, its
- * columns, ask, the run (trace + answer) on the left; what the AI will see, your agreement and the demo note on the
- * right. Every section reads the one shared session (start/session.ts); nothing here is scripted.
+ * The full first run (`#/start`, V3-Door-FirstRun; the "Step by step" walk-through at `#/zen` is where newcomers are
+ * sent, and this page stays for people who want everything at once): a short task heading, then "Get started" in two
+ * columns: bring a file, ask, the run (trace + answer), and the file's columns on the left; what the AI will see, your
+ * agreement and the demo note on the right. "Ask a question" comes straight after the file, so it is on screen without
+ * scrolling; the columns (also listed under "What the AI will see") are reference and come last. Every section reads
+ * the one shared session (start/session.ts); nothing here is scripted.
  *
  * On first visit the sample orders.csv is bound (after a reload, the sample last picked) (once per session, unless something is bound already); leaving the
  * page disposes the session so the top bar's file chip and running pulse go with it.
@@ -80,10 +83,11 @@ export function Start({ engine }: { engine: Engine }) {
       <section aria-label="Get started" class="fd-start">
         <div class="fd-wrap fd-start__row">
           <div class="fd-start__main">
+            <h2 class="fd-sr">Bring a file</h2>
             <DataBringer engine={engine} />
-            <ColumnPreview engine={engine} />
             <AskCard engine={engine} />
             <RunPanel engine={engine} />
+            <ColumnPreview engine={engine} />
           </div>
           <RightRail engine={engine} />
         </div>
