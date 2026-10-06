@@ -59,7 +59,7 @@ describe('parseRecordingText', () => {
     expect(seed.canSeed).toBe(true);
     expect(seed.summary).toContain(`1 function (${fns[0]})`);
     if (variants > 0) expect(seed.summary).toContain(`${variants} later spec variant`);
-    expect(seed.summary).toContain(`recorded with ${r.recording.model} via Codex ${r.recording.codexVersion} on 2026-10-04`);
+    expect(seed.summary).toContain(`recorded with ${r.recording.model} via Codex ${r.recording.codexVersion} on ${r.recording.recordedAt.slice(0, 10)}`);
     expect(seed.summary).toMatch(/the gates will run live in your browser\.$/);
   });
 
@@ -154,7 +154,13 @@ describe('seedFromRecording', () => {
     const seed = seedFromRecording(r.recording);
     const fns = [...new Set(r.recording.sessions.map((s) => s.fn))];
     expect(seed.specs.map((s) => s.name)).toEqual(fns);
-    expect(seed.specs).toHaveLength(BUNDLED.length); // one function per bundled recording (the count follows public/recordings)
+    // One spec per DISTINCT function across the bundled recordings, not per file: orders.json and orders-agreement.json
+    // both define topCustomersByRevenue, so they merge into one spec (the count follows public/recordings).
+    const bundledFns = new Set(BUNDLED.flatMap((b) => (JSON.parse(b.text) as Recording).sessions.map((s) => s.fn)));
+    expect(seed.specs).toHaveLength(bundledFns.size);
+    // Every session whose spec differs from its function's first one is a later variant (same rule as the bundled test above).
+    const keys = new Set(r.recording.sessions.map((s) => `${s.fn}|${s.specHash}|${s.testsHash}`));
+    const variants = keys.size - fns.length;
     expect(seed.datasets[H1]).toEqual([{ a: 1 }]); // first wins
     expect(seed.datasets[H2]).toEqual([{ a: 2 }]);
     expect(seed.datasetRefs.map((d) => [d.name, d.hash])).toEqual([
@@ -163,7 +169,7 @@ describe('seedFromRecording', () => {
     ]);
     expect(seed.calls).toEqual([...new Set(r.recording.sessions.flatMap((s) => s.calls ?? []))]);
     expect(seed.summary).toBe(
-      `${BUNDLED.length} functions (${fns.join(', ')}), ${BUNDLED.length} later spec variants not loaded, ${Object.keys(seed.datasets).length} datasets, ${seed.calls.length} calls, recorded with gpt-6-luna via Codex 0.159.2 on 2026-10-04; the gates will run live in your browser.`,
+      `${fns.length} functions (${fns.join(', ')}), ${variants} later spec variants not loaded, ${Object.keys(seed.datasets).length} datasets, ${seed.calls.length} calls, recorded with ${r.recording.model} via Codex ${r.recording.codexVersion} on ${r.recording.recordedAt.slice(0, 10)}; the gates will run live in your browser.`,
     );
   });
 

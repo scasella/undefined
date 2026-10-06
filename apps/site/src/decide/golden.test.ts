@@ -27,7 +27,11 @@ const BASELINE: Record<string, { specHash: string; testsHash: string }> = {
   },
 };
 
-/** Every session of every shipped recording: fn, specHash, testsHash, as captured before decisions existed. */
+/**
+ * Every session of every shipped recording: fn, specHash, testsHash, as captured before decisions existed.
+ * orders-agreement.json was recorded live later (2026-10-06); its spec carries no decisions either, so its keys are
+ * pinned the same way.
+ */
 const RECORDED: Record<string, Array<[string, string, string]>> = {
   'fibonacci.json': [
     ['fibonacci', 'e924f6c85db985bfcb1600fb51a4ceee134da6c758a15e6f6f8aeaa49cc374cf', 'd137719dcacdc53d681b95f2a45185c8b05acb2c0f375007d96dea81ee3044aa'],
@@ -36,6 +40,9 @@ const RECORDED: Record<string, Array<[string, string, string]>> = {
   'median.json': [
     ['median', '9d21d9cd048e1f37bd1b66a8272fed6d43125c400567e0b85843f4900a6a24a2', '881ef16eef654298b4037ca2d4f9f3a1e40e1c8ea969a0d66565a58c221a5d8d'],
     ['median', '9cb6dee85e922117e424b73fc68c981a06635f09ecb183bb51a6398da04dff41', 'dd56ea479a256ac251195581954e02a2852f75e54298ea00ffa3fc034a1dd0f5'],
+  ],
+  'orders-agreement.json': [
+    ['topCustomersByRevenue', 'd6e81acb638ab7a2017497ebe43a5d95980709238c4f83d1e1dbd3b39a7e746c', '5c934788236ad017fe4438b4a7ab60e62ef68d038382d8787dc35c5372b3d025'],
   ],
   'orders.json': [
     ['topCustomersByRevenue', '0dde492c94d5235dee52fc81ffcc959cc8cb6743d38c939d53e22317ac937257', '439083f38956ba51ece90631552c6ea23c5c29570d3d5710e408e77e01ba7375'],
