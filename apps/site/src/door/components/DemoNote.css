@@ -5,3 +5,30 @@
 .fd-demo__dot--live { background: var(--fd-green); }
 .fd-demo__p { margin: 6px 0 0; font-size: 13px; line-height: 19px; color: var(--fd-ink-2); }
 .fd-demo__a { display: inline-flex; align-items: center; min-height: 44px; font-size: 14px; line-height: 20px; font-weight: 500; }
+
+/* How to run it on your computer (model/runLocally.ts): what you need, the three commands, where it opens. The commands are
+   code and wrap instead of scrolling, so a phone never scrolls sideways; the block is a tonal panel with a ring, not a card. */
+.fd-rl { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.fd-rl__h { margin: 0; font-size: 16px; line-height: 22px; font-weight: 600; color: var(--fd-ink); }
+.fd-rl__hand { margin: 0; max-width: var(--fd-measure); font-size: 14px; line-height: 20px; color: var(--fd-ink); text-wrap: pretty; }
+.fd-rl__lead { margin: 4px 0 0; font-size: 14px; line-height: 20px; font-weight: 500; color: var(--fd-ink); }
+.fd-rl__list { margin: 0; padding: 0 0 0 18px; display: flex; flex-direction: column; gap: 4px; font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
+.fd-rl__code { font-size: 13px; line-height: 20px; font-weight: 500; color: var(--fd-ink); overflow-wrap: anywhere; }
+.fd-rl__cmds {
+  margin: 0; padding: 12px 14px; box-sizing: border-box; max-width: 100%; border-radius: var(--fd-r-md);
+  background: var(--fd-surface-2); box-shadow: var(--fd-sh-ring);
+  font-size: 13px; line-height: 20px; font-weight: 500; color: var(--fd-ink); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.fd-rl__opens { margin: 0; font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
+.fd-rl__readme { display: inline-flex; align-items: center; align-self: flex-start; min-height: 44px; font-size: 14px; line-height: 20px; font-weight: 500; }
+
+/* the disclosure (Step by step): a real <details>; its summary is a 44px link-like control with a drawn chevron */
+.fd-rl__sum {
+  display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 4px; margin-left: -4px; border-radius: var(--fd-r-sm); cursor: pointer;
+  list-style: none; font-size: 14px; line-height: 20px; font-weight: 500; color: var(--fd-indigo); width: fit-content; max-width: 100%;
+}
+.fd-rl__sum::-webkit-details-marker { display: none; }
+.fd-rl__sum:hover { color: var(--fd-indigo-hover); text-decoration: underline; text-underline-offset: 3px; }
+.fd-rl__chev { flex: none; transform: rotate(-90deg); transition: transform 120ms ease; }
+.fd-rl__d[open] > .fd-rl__sum .fd-rl__chev { transform: none; }
+.fd-rl__body { display: flex; flex-direction: column; gap: 8px; padding: 4px 0 0; min-width: 0; }

@@ -2,6 +2,8 @@
 .zp { display: flex; flex-direction: column; gap: 14px; }
 .zp__lede { margin: 0; max-width: var(--fd-measure); font-size: var(--fd-fs-row); line-height: var(--fd-lh-row); color: var(--fd-ink-2); }
 .zp__chips { display: flex; flex-direction: column; gap: 8px; }
+/* columns read as text that look like numbers or dates (model/columnNotes.ts): a plain sentence above the suggestions it limits, no panel */
+.zp__colnote { margin: 0; max-width: var(--fd-measure); font-size: 14px; line-height: 20px; color: var(--fd-ink-2); overflow-wrap: anywhere; }
 /* a chip and its remove button: the button is the chip's own minimum height, at the top, so the cross sits level with the first line of a wrapped question */
 .zp__item { display: flex; align-items: flex-start; gap: 6px; }
 .zp__item .zp__chip { flex: 1 1 auto; min-width: 0; }

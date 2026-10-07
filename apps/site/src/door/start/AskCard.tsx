@@ -115,7 +115,8 @@ export function needsLiveLegend(chips: ReadonlyArray<Pick<ChipView, 'needsLive'>
 
 /**
  * The legend with its way forward: the README's steps, in a new tab so the page and what was picked stay as they are.
- * `link` false leaves the link out where the same link is already on screen (step by step's dead-end message).
+ * `link` false leaves the link out where the way forward is already on screen: step by step's dead-end message, which lists
+ * the steps and ends in the same link (components/DemoNote.tsx RunLocally).
  */
 export function NeedsLiveLegend({ text, class: cls, link = true }: { text: string; class: string; link?: boolean }) {
   return (

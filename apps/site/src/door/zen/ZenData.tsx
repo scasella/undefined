@@ -1,7 +1,14 @@
 /**
  * Step by step · the data, in one quiet card. Nothing bound: a drop target with "Choose a file", "Paste data" and the two
- * sample files. Something bound: just its chip and "Change". Every action goes through the shared session
- * (intakeFile, intakeText, useSample); problems are the engine's own words.
+ * sample files. A sample bound (or any file, on a copy that runs on your computer): just its chip and "Change". Every action
+ * goes through the shared session (intakeFile, intakeText, useSample); problems are the engine's own words.
+ *
+ * The demo (replay) says what it can and cannot do with a file of your own BEFORE you drop one: one caveat under the drop
+ * zone (startView.ts DEMO_OWN_FILE_CAVEAT). Once your own data is bound the picker does not fold away (startView.ts
+ * zenPickerFold, the Full view's pickerFold rule for the demo): the sample files stay in sight, with a short note directly
+ * above them (a status region that is there before it has words, so what changes is spoken), and the forward button says what
+ * it opens (flow.ts forwardLabel). A refusal holds the picker open in the demo too. A copy that runs on your computer draws
+ * none of this and folds the picker as it always did.
  */
 import { useRef, useState } from 'preact/hooks';
 import type { TargetedDragEvent, TargetedEvent } from 'preact';
@@ -9,7 +16,7 @@ import type { Engine } from '@scasella/undefined-engine/types';
 import { FileGlyph } from '../icons';
 import { sampleFiles, type SampleId } from '../model/samples';
 import { sessionFor } from '../start/session';
-import { ACCEPT, DROP_NOTE, showOwnFileNote } from '../start/startView';
+import { ACCEPT, boundAnnouncement, ownFileCaveat, ownFileNote, ownFileRegion, PASTED_NAME, showOwnFileNote, zenPickerFold } from '../start/startView';
 import { ZEN_CONTINUE_ID } from './flow';
 import './ZenData.css';
 
@@ -32,22 +39,34 @@ export function ZenData({ engine }: { engine: Engine }) {
   const canChange = s.canChange.value;
   const sampleId = s.sampleId.value;
   const bound = chip !== null;
-  const showPicker = !bound || open;
-  const ownNote = showOwnFileNote(s.source.value, engine.state.value.mode);
+  const mode = engine.state.value.mode;
+  const ownNote = showOwnFileNote(s.source.value, mode);
+  const caveat = ownFileCaveat(mode);
+  // folded behind the chip once something is bound, unless it was opened or (in the demo) the own-file note / a refusal is what is needed
+  const fold = zenPickerFold({ bound, open, source: s.source.value, mode, problem: !!intake.problem });
+  const showPicker = !fold.folded;
 
   const done = () => {
     setReading(null);
-    // the picker closes once something is bound; a refusal keeps it open with the problem under it
+    // a refusal keeps the picker open with the problem under it; a bound file folds it (your own file in the demo keeps it open)
     if (s.source.peek() !== 'none' && !s.intake.peek().problem) {
-      // the button that was pressed (a sample, "Use this data", the file chooser's) closes with the picker and would take the
-      // focus with it, to <body>: send it to Continue on purpose, the next thing to do, and say what is now bound
+      // the button that was pressed (a sample, "Use this data", the file chooser's) may go with the picker and would take the
+      // focus with it, to <body>; and with your own file the picker stays but the next thing to do is the forward button:
+      // send focus there on purpose, and say what is now bound
       const a = document.activeElement;
       const lost = !a || a === document.body || !!picker.current?.contains(a);
       setOpen(false);
       setPasting(false);
-      setReady(`${s.fileChip.peek() ?? 'Your data'} is ready.`);
+      setReady(boundAnnouncement(s.fileChip.peek(), showOwnFileNote(s.source.peek(), engine.state.peek().mode)));
       if (lost) requestAnimationFrame(() => document.getElementById(ZEN_CONTINUE_ID)?.focus());
     }
+  };
+  // "Change": opens a folded picker; while the picker cannot fold (your own file's note, a refusal) it moves in instead of
+  // closing; opened by choice it closes
+  const onChange = () => {
+    if (!canChange) return;
+    if (fold.forced) picker.current?.querySelector<HTMLElement>('.zd__zone button, .zd__zone textarea')?.focus();
+    else setOpen(!open);
   };
   const takeFile = (file: File | undefined | null) => {
     if (!file || !s.canChange.peek()) return;
@@ -81,7 +100,7 @@ export function ZenData({ engine }: { engine: Engine }) {
   };
   const usePaste = () => {
     if (!s.canChange.peek()) return;
-    setReading('pasted data');
+    setReading(PASTED_NAME);
     void s.intakeText({ text }).finally(done);
   };
   const pickSample = (id: SampleId) => {
@@ -90,7 +109,7 @@ export function ZenData({ engine }: { engine: Engine }) {
     void s.useSample(id).finally(done);
   };
 
-  const status = intake.busy || reading ? (reading === 'pasted data' ? 'Reading the pasted data…' : 'Reading the file…') : '';
+  const status = intake.busy || reading ? (reading === PASTED_NAME ? 'Reading the pasted data…' : 'Reading the file…') : '';
 
   return (
     <section class="zd" aria-label="Your data">
@@ -101,12 +120,12 @@ export function ZenData({ engine }: { engine: Engine }) {
           <button
             type="button"
             class="zd__change"
-            aria-expanded={open}
+            aria-expanded={fold.expanded}
             aria-controls="zd-picker"
             aria-disabled={!canChange || undefined}
-            onClick={() => canChange && setOpen(!open)}
+            onClick={onChange}
           >
-            {open ? 'Close' : 'Change'}
+            {fold.button}
           </button>
         </div>
       )}
@@ -158,6 +177,12 @@ export function ZenData({ engine }: { engine: Engine }) {
               </div>
             )}
           </div>
+          {caveat && <p class="zd__caveat">{caveat}</p>}
+          {ownFileRegion(mode) && (
+            <div class="zd__own" role="status">
+              {ownNote && <p class="zd__note">{ownFileNote(s.fileName.value)}</p>}
+            </div>
+          )}
           <div class="zd__samples" role="group" aria-label="Sample files">
             <span class="zd__or">or try a sample</span>
             {sampleFiles().map((f) => (
@@ -188,7 +213,6 @@ export function ZenData({ engine }: { engine: Engine }) {
           {intake.problem}
         </p>
       )}
-      {ownNote && <p class="zd__note">{DROP_NOTE}</p>}
     </section>
   );
 }

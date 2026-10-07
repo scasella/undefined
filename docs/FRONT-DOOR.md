@@ -68,12 +68,16 @@ spacing, colours, motion, a11y attributes), translated into Preact + CSS files w
   another page is otherwise unchanged: Back from Step by step to a landing that was scrolled lands at the top with or without
   the hold (probed at 1440 and 390 px; the router's scroll to the top wins).
 - **1 · Bring your data.** Continue is aria-disabled until data is bound and says why next to it ("Choose a sample or bring a
-  file to continue."), tied to the button with `aria-describedby`. Binding closes the picker and the button that was pressed
-  with it, so focus is sent to Continue on purpose (`ZEN_CONTINUE_ID`) and a screen reader hears "<file> is ready.".
-- **2 · Ask a question.** In this order: the suggestion chips, one line saying what "needs live" means (replay only, when any
-  chip carries it), the typed-question field, the "Asking:" line, the reason Continue is off (id `zen-why`), Back / Continue,
-  and only then "Your data" (the whole table, scrollable, with the plain note about columns read as text,
-  `model/columnNotes.ts`). The table is reference and 320px tall: above the buttons it pushed Continue off the screen
+  file to continue."), tied to the button with `aria-describedby`. Binding a sample closes the picker and the button that was
+  pressed with it, so focus is sent to Continue on purpose (`ZEN_CONTINUE_ID`) and a screen reader hears "<file> is ready.".
+  In the demo a file of your own is a different path: see "Your own file in the demo" below (the picker stays open, the
+  button reads "See what's in your file", the screen reader hears "<file> is loaded.").
+- **2 · Ask a question.** In this order: the plain note about columns read as text when there is one (`model/columnNotes.ts`:
+  it limits the suggestions, so it comes before them, and it is said once on the page), the suggestion chips, one line saying
+  what "needs live" means (replay only, when any chip carries it), the typed-question field, the "Asking:" line, the reason
+  Continue is off (id `zen-why`) and, when that reason is the demo's no-recording sentence, the steps to run it on your
+  computer (a disclosure that starts open, below), Back / Continue, and only then "Your data" (the whole table, scrollable; it no longer
+  repeats the note). The table is reference and 320px tall: above the buttons it pushed Continue off the screen
   (y 970 at 1440x900, 1062 at 390x844; it is now at 650 and 693).
 - **3 · What your answer must pass.** The six checks as a list. Nothing has run on this pane, so none of them is green: a
   check that will run (`Always` / `Applies`) carries a neutral dashed ring with a dot, a check that will not run keeps the
@@ -115,6 +119,66 @@ spacing, colours, motion, a11y attributes), translated into Preact + CSS files w
   (`aria-expanded` / `aria-controls`, collapsed by default) that opens the full check trace of that run, the same component
   and props as pane 4 (`zen/ZenProof.tsx`). Nothing plays when it opens, so reduced motion needs nothing.
 
+### Your own file in the demo (`#/start` and `#/zen`, replay only)
+
+The public site plays back recorded answers, and only some questions about `orders.csv` have one (`sales-q3.csv`, the other
+sample, has none: every question about it reads "needs live"). The page says so before a file of your own is dropped, keeps
+a way to see a full run in sight after, and says how to run it on your computer without leaving the page. Every word below is
+drawn in the demo only; a copy that runs on your computer renders exactly as it did (each is a pure view function that is null
+or unchanged in live mode, tested in both modes: `ownFileCaveat`, `ownFileRegion`, `showOwnFileNote`, `zenPickerFold`,
+`forwardLabel`, `runLocallyView`; and `replay-check.mjs` 3f stubs the generation service's health check to look at a live page,
+including what a refusal does to the picker there).
+
+- **One caveat, before.** Under the drop zone, in the picker of both pages (open with nothing bound, or opened with "Change"
+  while a sample is bound): "In this demo, only some questions about the sample file orders.csv have recorded answers. Your
+  own file loads and previews here; asking about it needs the version on your computer." (`start/startView.ts`
+  `DEMO_OWN_FILE_CAVEAT`, one constant). It is worded to agree with the question pane's legend ("needs live: this demo has
+  recorded answers for one question; the others need the version on your computer"), and `start/ownFileCaveat.test.ts` ties it
+  to the real recordings: some orders.csv questions answerable, none on sales-q3.csv, so it never says "the sample files".
+- **The picker stays open after your own file binds** (`startView.ts` `pickerFold`, the rule both pages share: the fold never
+  hides the own-file note or a refusal), so the two sample files stay in sight. Step by step used to close it unconditionally,
+  and the sample buttons vanished at the moment the note said to try one. "Change" then moves focus into the picker rather
+  than closing it, and says "Change" with `aria-expanded` true (on the Full view that is so also when the picker was opened
+  by hand first). The two pages differ in one clause: the Full view's picker has always held a refusal open, in both modes;
+  Step by step's goes through `zenPickerFold`, which holds it open for a refusal in the demo only, so on a copy that runs on
+  your computer a refusal leaves the picker as it was before this path existed (the chip's button says "Close" and folds
+  it; the refusal stays under the chip). In the demo, a refusal left over from the sample's own set-up (`session.ts`, a
+  failed seed install writes to the same `intake.problem`) would also hold the picker open when the viewer comes back to
+  pane 1; that is an error path, and the message it shows is still the engine's own.
+- **A short note directly above the samples** (Step by step: a status region that exists, empty, before it has words, between the
+  caveat and the samples; the Full view keeps its note inside the drop zone): "Your file stays in this browser. To see the checks
+  run, try orders.csv." (`DROP_NOTE`; pasted rows get `PASTE_NOTE`, "Read in this browser. To see the checks run, try orders.csv.", on the Full view's
+  paste tab and on Step by step, which picks by the name the session gave the data: `ownFileNote`). It names the sample that has
+  recorded answers, from the caveat's own constant, because `sales-q3.csv` sits right beside it and has none ("try a sample
+  file" sent a click there, to a pane where every question reads "needs live"). The notes no longer repeat the caveat.
+- **The forward button says what it opens** (`zen/flow.ts` `forwardLabel`): with your own file bound on pane 1 it reads "See
+  what's in your file", secondary, still enabled and still the button that takes focus (pane 2 is where the columns and the
+  suggested questions are, and the note about columns read as text). Every other pane and case is as it was: "Continue" /
+  "Run the checks", primary.
+- **How to run it, inline** (`model/runLocally.ts`, one set of strings; `components/DemoNote.tsx` `RunLocally`): what you need
+  (Node ^20.19 or >=22.12; Codex CLI 0.157 or later, `npm i -g @openai/codex`, signed in with `codex login`; no API keys and no
+  other account), the three commands exactly as the README gives them (`git clone … && cd undefined`, `npm install`,
+  `npm run dev`; never "one command"), where it opens (`http://localhost:5173/#/zen`), and the README link for the full steps.
+  `model/runLocally.test.ts` reads `README.md`, the root `package.json` engines and the site's `vite.config.ts` and fails when
+  the Node range, the Codex version, a command or the address drifts from either (it also ties the root `dev` script, the clone
+  URL to the repository `package.json` names, and the two documents that restate the range). On Step by step's dead end (pane
+  2, and pane 3 when it is reached) it follows the no-recording sentence: one plain sentence for someone who does not run
+  commands ("If this is not your world, send this page to someone on your data team.", set so its last line is never one
+  word) and the steps in a real `<details>` ("How to run it on your computer"). The steps START OPEN, so the list and the
+  commands are on the page where the dead end is, not behind a click; the viewer can fold them away, and the fold is kept
+  (`runLocallyOpen`, a signal flipped by the summary's own click: typing a question and pressing Enter redraws the message,
+  and the browser's own "toggle" report would arrive too late to keep it). Back and Continue sit below the steps: at 390 px
+  pane 2 with the steps open is about 1760 px tall. The status region the buttons are described by holds only the sentence.
+  On the landing, the HONEST LIMITS card lists the same steps as a plain list (no card inside the card) above its README
+  link; in the demo the closing card sits under the zip card (two columns level from 809 px, where the grid first fits two columns) because the limits card is the
+  tall one, and a copy that runs on your computer keeps the layout it had. The commands are set in the mono face and wrap (pre-wrap, at a URL's seams) instead of
+  scrolling, so nothing scrolls sideways at 390 px.
+- **Not done here:** the suggestion generator still offers questions that mean little for an own file (it works from column
+  types alone: model/questions.ts); the landing's hero and closing buttons are as they were; the dead end's own sentence still
+  ends "Try a sample file for now." (`start/derive.ts` `NO_RECORDING_OWN`, with no sample in reach on panes 2 and 3 except
+  through Back); "Paste data" and the paste form's "Back" still drop focus to the page (as before this path existed;
+  changing it would change a copy that runs on your computer).
+
 ### Suggested and typed questions (`#/start` and `#/zen`)
 
 - **Order.** Chips this page can answer come first (a recording, or an answer already on file), the ones that need the
@@ -122,7 +186,8 @@ spacing, colours, motion, a11y attributes), translated into Preact + CSS files w
   answered is known nothing moves.
 - **"needs live"** is defined once, next to the chips, whenever any chip carries it in replay: "needs live: this demo has
   recorded answers for one question; the others need the version on your computer." (the number is counted) with the "How
-  to run it on your computer" link (`RUN_LOCALLY_URL`, the README). Step by step's dead-end message carries the same link.
+  to run it on your computer" link (`RUN_LOCALLY_URL`, the README). Step by step's dead-end message carries the steps instead
+  (below), and the README link as their last line.
 - **Typing a suggestion's own words** (a label or its plain-words form, any case, spaces, ending punctuation or quote marks)
   selects that chip and adds nothing (`model/questions.ts` `matchQuestion`).
 - **A question the demo cannot answer** (typed or suggested, replay only) is tagged "needs live" alone: no level is claimed
@@ -149,7 +214,7 @@ spacing, colours, motion, a11y attributes), translated into Preact + CSS files w
 | It says no | `GenerationView.declined` (decline protocol: `cannot-be-pure`, `needs-spec`) |
 | What the AI will see / 3 example rows | `Engine.previewDataset().sampleText`, `typeDecl`, `Engine.setSendSamples`, `Candidate.prompt` |
 | Hand your data team a file | Eject (the engine's `eject/eject.ts`, called by `model/handoff.ts`) |
-| How to run it on your computer | The README's "Run it on your computer" section; the landing's HONEST LIMITS card (`#own-file`) links to it, and so does the demo's second hero button ("Use your own file: run it on your computer") |
+| How to run it on your computer | The README's "Run it on your computer" section, in the demo's own words from `model/runLocally.ts` (what you need, three commands, where it opens): the landing's HONEST LIMITS card (`#own-file`) lists them and links to the README, so does the demo's second hero button ("Use your own file: run it on your computer"), and Step by step's dead end opens them inline |
 | needs live | Replay mode, a question with no bundled recording for the spec it would run against (`Availability` 'none'): it can only be answered by the version on your computer |
 | See the checks (step 5) | The check trace of the run that gave the answer, collapsed under the answer (`start/derive.ts` `traceSummary`, `zen/ZenProof.tsx`). Not "See the calculation", which on the landing opens the example's code |
 | "Demo · recorded answers, real checks" | `state.mode === 'replay'` (the top bar's mode pill: a disclosure whose note says what runs where and what leaves the browser) |
@@ -204,7 +269,7 @@ App.tsx                   hash router (#/ , #/start, #/zen), skip link, <main id
 tokens.css  base.css      design tokens (colours, shadows, radii, type) and page base; self-hosted Geist + Geist Mono
 icons.tsx                 inline SVG glyphs from the design (check disc, thrown-out square, ask diamond, lock, arrow, replay, file, …)
 components/               presentational + small stateful pieces shared by both pages (one .tsx + one .css each)
-model/                    pure, unit-tested view-models (no DOM): figures, lanes, trace script, answer, agreement, questions, samples, privacy
+model/                    pure, unit-tested view-models (no DOM): figures, lanes, trace script, answer, agreement, questions, samples, privacy, runLocally (the README's steps, tied to it by a test)
 landing/                  Landing.tsx + one file per section (+ css)
 start/                    Start.tsx + one file per section (+ css)
 ```

@@ -8,6 +8,7 @@ import {
   canContinue,
   CONTINUE_WHY_ID,
   continueReason,
+  forwardLabel,
   hashForStep,
   holdManualScroll,
   isTypedQuestion,
@@ -51,6 +52,38 @@ describe('canContinue', () => {
     expect(canContinue(2, { ...s, needsLive: false })).toBe(true);
     // pane 1 is about the data, not the question
     expect(canContinue(1, { ...s, needsLive: true })).toBe(true);
+  });
+});
+
+describe('forwardLabel: the forward button’s words and look on each pane', () => {
+  const modes = [
+    { ownData: false, replay: false },
+    { ownData: false, replay: true },
+    { ownData: true, replay: false },
+    { ownData: true, replay: true },
+  ];
+
+  it('the demo, your own file bound on the first pane: it says what it opens and is secondary (still a button that goes on)', () => {
+    expect(forwardLabel(1, { ownData: true, replay: true })).toEqual({ label: "See what's in your file", variant: 'secondary' });
+  });
+
+  it('the first pane is "Continue", primary, in every other case: a sample in the demo, anything on a copy that runs on your computer', () => {
+    for (const s of modes.filter((m) => !(m.ownData && m.replay))) expect(forwardLabel(1, s)).toEqual({ label: 'Continue', variant: 'primary' });
+    // live mode with the viewer's own file renders exactly as it always did
+    expect(forwardLabel(1, { ownData: true, replay: false })).toEqual({ label: 'Continue', variant: 'primary' });
+  });
+
+  it('only the first pane changes: the question pane is "Continue", the checks pane "Run the checks", in both modes and for your own file too', () => {
+    for (const s of modes) {
+      expect(forwardLabel(2, s)).toEqual({ label: 'Continue', variant: 'primary' });
+      expect(forwardLabel(3, s)).toEqual({ label: 'Run the checks', variant: 'primary' });
+      expect(forwardLabel(4, s)).toEqual({ label: 'See the answer', variant: 'primary' });
+      expect(forwardLabel(5, s)).toEqual({ label: 'Ask another question', variant: 'secondary' });
+    }
+  });
+
+  it('it says nothing of answers or checks on the pane that cannot give one', () => {
+    expect(forwardLabel(1, { ownData: true, replay: true }).label).not.toMatch(/answer|check|run/i);
   });
 });
 

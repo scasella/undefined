@@ -28,6 +28,17 @@
 //      made from a walk-through pane inherits 'manual'), and every Back and Forward onto Step by step lands at scrollY 0.
 //      Also the router's cross-route behaviour: landing -> Step by step focuses #main, a pane change does not, and an anchor on a pane
 //      ('#/zen/3#main') neither scrolls nor focuses.
+//   3a/3b/3f. the own-file path (docs/FRONT-DOOR.md "Your own file in the demo"): both pickers (Full view, Step by step) say what the
+//      demo cannot do with a file of your own under the drop zone BEFORE one is dropped (one caveat, the same words); once an
+//      own CSV is bound (a pasted one on Step by step, a dropped one on the Full view) the picker stays open, the sample
+//      files stay in sight, a short note sits directly above them, and the forward button on Step by step reads "See
+//      what's in your file" (secondary, enabled, focused); the note about columns read as text is said once, above the
+//      suggestions (before the buttons), not under them; the dead end has the steps inline and OPEN (what you need, the three
+//      commands exactly, where it opens, the README link) with no horizontal scroll at 390 px, and a fold the viewer made
+//      survives typing a question; the own-file note names orders.csv (the sample that has recordings); a refusal holds Step
+//      by step's picker open in the demo; the landing's limits card lists the same steps and the columns come out level;
+//      the sample path is unchanged ("Continue" primary, the picker folded). A copy that runs on your computer (the
+//      generation service's health stubbed as up) draws none of it, and a refusal there folds the picker as it always did.
 //   4. the same page with orders-agreement.json unavailable (the request for the recordings index is answered without it:
 //      what a re-spec'd agreement whose recording no longer matches looks like; the page's own seed switch is not
 //      reachable from the built bundle). The seeded agreement is then not installed and the question falls back to the
@@ -303,6 +314,27 @@ try {
   const bindOrders = async () =>
     waitFor(() => window.__undefined.state.value.datasets.some((d) => d.name === 'rows') && document.body.innerText.includes('orders.csv'), null, 30000);
   const LEAD = ['Chef Ravioli Starbright', 2252.07];
+  /** A file of the viewer's own, with the three kinds of text that look like numbers or dates (model/columnNotes.ts). */
+  const OWN_CSV = 'Order,Customer,Region,Net Amt (USD),Tax %,Shipped\n1001,Ada Lovelace,north,"1,234.50",19%,31/01/2024\n1002,Grace Hopper,south,"980.00",7%,15/02/2024\n1003,Linus Torvalds,east,"45.25",19%,03/03/2024\n1004,Ada Lovelace,north,"2,310.10",19%,21/03/2024\n';
+  const OWN_CAVEAT = /^In this demo, only some questions about the sample file orders\.csv have recorded answers\. Your own file loads and previews here; asking about it needs the version on your computer\.$/;
+  const RUN_COMMANDS = ['git clone https://github.com/scasella/undefined.git && cd undefined', 'npm install', 'npm run dev'];
+  /** How many words sit on the last line of a paragraph (a one-word last line is a widow). Run in the page. */
+  const LAST_LINE_WORDS = (sel) => {
+    const el = document.querySelector(sel);
+    if (!el) return null;
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    const tops = [];
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      for (const m of n.data.matchAll(/\S+/g)) {
+        const r = document.createRange();
+        r.setStart(n, m.index);
+        r.setEnd(n, m.index + m[0].length);
+        tops.push(Math.round(r.getBoundingClientRect().top));
+      }
+    }
+    const last = tops[tops.length - 1];
+    return { lines: new Set(tops).size, lastLine: tops.filter((t) => t === last).length };
+  };
 
   // ── 3. seeded: the recording of the agreement is bundled, so the page installs it and the answer is Full checks ──
   await openApp(p, srv.url + '#/start');
@@ -412,6 +444,39 @@ try {
   await unrecorded('seeded');
   check(consoleErrors.length === 0, "seeded: '#/start' logs no console errors (besides the replay /generate/health 404)", consoleErrors);
 
+  // ── 3a. the Full view says what the demo cannot do with a file of your own before one is dropped, and keeps the samples in sight after ──
+  try {
+    await p.getByRole('button', { name: 'Change' }).click(); // the sample is bound on arrival: its picker is folded behind the chip
+    await waitFor(() => document.querySelector('.fd-bring__caveat')?.getBoundingClientRect().height > 0, null, 10000);
+    const pre = await p.evaluate(() => {
+      const c = document.querySelector('.fd-bring__caveat');
+      const zone = document.querySelector('.fd-bring__zone');
+      return { text: c?.innerText.replace(/\s+/g, ' ').trim(), visible: !!c && c.getBoundingClientRect().height > 0, afterZone: !!zone && !!c && !!(zone.compareDocumentPosition(c) & Node.DOCUMENT_POSITION_FOLLOWING), notes: document.querySelectorAll('.fd-bring__note').length };
+    });
+    check(OWN_CAVEAT.test(pre.text ?? '') && pre.visible && pre.afterZone && pre.notes === 0, "full view: opening the picker (sample bound) shows the one demo caveat under the drop zone, before anything is dropped, and no own-file note", pre);
+    await p.locator('input[type=file]').setInputFiles({ name: 'mine.csv', mimeType: 'text/csv', buffer: Buffer.from(OWN_CSV) });
+    await waitFor(() => document.querySelector('.fd-bring__bound-text')?.innerText.startsWith('mine.csv'), null, 20000);
+    const kept = await p.evaluate(() => {
+      const samples = [...document.querySelectorAll('.fd-bring__sample')];
+      const picker = document.querySelector('.fd-bring__picker');
+      const ch = document.querySelector('.fd-bring__change');
+      return {
+        picker: picker ? getComputedStyle(picker).display : null,
+        samples: samples.map((b) => b.querySelector('.fd-bring__sample-name')?.innerText.trim()),
+        visible: samples.every((b) => b.getBoundingClientRect().height > 0),
+        note: document.querySelector('.fd-bring__note:not(.fd-bring__note--paste)')?.innerText.replace(/\s+/g, ' ').trim(),
+        caveat: document.querySelector('.fd-bring__caveat')?.innerText.replace(/\s+/g, ' ').trim(),
+        change: `${ch?.innerText.trim()}/${ch?.getAttribute('aria-expanded')}`,
+      };
+    });
+    check(kept.picker === 'flex' && kept.samples.join() === 'orders.csv,sales-q3.csv' && kept.visible && kept.note === 'Your file stays in this browser. To see the checks run, try orders.csv.' && OWN_CAVEAT.test(kept.caveat ?? '') && kept.change === 'Change/true', "full view: your own file bound in the demo keeps the picker open (the sample files stay in sight) with the trimmed note, the caveat stays, and the chip's button reads 'Change'", kept);
+    await p.getByRole('radio', { name: /orders\.csv/ }).click();
+    await waitFor(() => document.querySelector('.fd-bring__bound-text')?.innerText.startsWith('orders.csv') && getComputedStyle(document.querySelector('.fd-bring__picker')).display === 'none', null, 20000);
+    check(await waitFor(() => document.activeElement?.className.includes('fd-bring__change'), null, 5000), "full view: picking a sample folds the picker again and focus lands on 'Change' (the Full view is as it was)", await p.evaluate(() => `${document.activeElement?.tagName}.${document.activeElement?.className}`));
+  } catch (e) {
+    check(false, "full view: the own-file path ran without throwing", String(e));
+  }
+
   // ── 3b. step by step (#/zen), the first-run path: the same session, checks and answer, one pane at a time ──
   consoleErrors.length = 0;
   try {
@@ -427,10 +492,144 @@ try {
     check(off.disabled === 'true' && off.by === 'zen-why' && off.why === 'Choose a sample or bring a file to continue.', "step by step 1: with no data Continue is off and says why ('Choose a sample or bring a file to continue.'), tied to the button", off);
     const hashNow = () => p.evaluate(() => location.hash);
     check((await hashNow()) === '#/zen/1', "step by step: a bare '#/zen' opens the first pane and is rewritten to '#/zen/1'", await hashNow());
+    // ── the own-file path: the demo says what it cannot do BEFORE a file of your own is dropped, and keeps the samples in sight after ──
+    const pane1 = await p.evaluate(() => {
+      const zone = document.querySelector('.zd__zone');
+      const c = document.querySelector('.zd__caveat');
+      return { text: c?.innerText.replace(/\s+/g, ' ').trim(), visible: !!c && c.getBoundingClientRect().height > 0, afterZone: !!zone && !!c && !!(zone.compareDocumentPosition(c) & Node.DOCUMENT_POSITION_FOLLOWING), picker: !!document.getElementById('zd-picker'), noteText: document.querySelector('.zd__note')?.innerText ?? null, btn: document.getElementById('zen-continue').className };
+    });
+    check(OWN_CAVEAT.test(pane1.text ?? '') && pane1.visible && pane1.afterZone && pane1.picker && pane1.noteText === null && /fd-btn--primary/.test(pane1.btn), "step by step 1: with nothing bound the picker shows the one demo caveat under the drop zone, before anything is dropped (the same words as the Full view), and no own-file note yet", pane1);
+    await p.getByRole('button', { name: 'Paste data' }).click();
+    await p.locator('#zen-paste').fill(OWN_CSV);
+    await p.getByRole('button', { name: 'Use this data' }).click();
+    check(await waitFor(() => !!document.querySelector('.zd__chip') && document.activeElement?.id === 'zen-continue', null, 20000), 'step by step 1: an own CSV pasted into pane 1 binds, and focus goes to the forward button', await p.evaluate(() => `${document.activeElement?.tagName}#${document.activeElement?.id}`));
+    const own = await p.evaluate(() => {
+      const el = (x) => document.querySelector(x);
+      const samples = [...document.querySelectorAll('.zd__sample')];
+      const note = el('.zd__own');
+      const smp = el('.zd__samples');
+      const btn = el('#zen-continue');
+      const ch = el('.zd__change');
+      const before = (a, b) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+      return {
+        picker: !!el('#zd-picker'),
+        samples: samples.map((b) => b.innerText.trim()),
+        visible: samples.every((b) => b.getBoundingClientRect().height > 0),
+        note: note?.innerText.replace(/\s+/g, ' ').trim(),
+        live: note?.getAttribute('role'),
+        directlyAboveSamples: !!note && note.nextElementSibling === smp,
+        beforeStatusAndProblem: !!note && before(note, el('.zd__status')),
+        caveat: el('.zd__caveat')?.innerText.replace(/\s+/g, ' ').trim(),
+        change: `${ch?.innerText.trim()}/${ch?.getAttribute('aria-expanded')}`,
+        label: btn.innerText.trim(),
+        secondary: btn.classList.contains('fd-btn--secondary'),
+        primary: btn.classList.contains('fd-btn--primary'),
+        disabled: btn.getAttribute('aria-disabled'),
+        said: [...document.querySelectorAll('.zd .fd-sr[role=status]')].map((e) => e.textContent).join(),
+      };
+    });
+    check(own.picker && own.samples.join() === 'orders.csv,sales-q3.csv' && own.visible && OWN_CAVEAT.test(own.caveat ?? '') && own.change === 'Change/true', "step by step 1: your own file bound in the demo keeps the picker open: the sample files stay in sight and 'Change' reads 'Change'", own);
+    check(own.note === 'Read in this browser. To see the checks run, try orders.csv.' && own.live === 'status' && own.directlyAboveSamples && own.beforeStatusAndProblem, "step by step 1: the own-file note (the pasted rows' wording: 'Read in this browser') is a status region directly above the samples (not after the status and problem lines), names orders.csv and does not repeat the caveat", own);
+    check(own.label === "See what's in your file" && own.secondary && !own.primary && own.disabled === null && /is loaded\.$/.test(own.said), "step by step 1: the forward button reads \"See what's in your file\" (secondary, still enabled), and a screen reader hears that the file is loaded", own);
+    await cont.click();
+    check(await h1Is('Ask a question') && (await hashNow()) === '#/zen/2', "step by step: 'See what's in your file' opens pane 2 at '#/zen/2'", { h1: await p.evaluate(() => document.querySelector('h1')?.innerText), hash: await hashNow() });
+    await waitFor(() => document.querySelectorAll('.zp__chip .zp__live').length >= 1 && !!document.querySelector('.fd-rl'), null, 30000);
+    await waitFor(() => document.activeElement?.id === 'zen-title', null, 5000); // the new pane has spoken its heading; now the checks below may move focus
+    const q2 = await p.evaluate(() => {
+      const el = (x) => document.querySelector(x);
+      const note = el('.zp__colnote');
+      const before = (a, b) => !!(a && b && a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+      return {
+        count: document.querySelectorAll('.zp__colnote').length,
+        said: (document.body.innerText.match(/Read as text, so questions about/g) ?? []).length,
+        text: note?.innerText.replace(/\s+/g, ' ').trim(),
+        beforeChips: before(note, el('.zp__chips')),
+        beforeLegend: before(note, el('.zp__legend')),
+        beforeNav: before(note, el('.zen__nav')),
+        navBeforeTable: before(el('.zen__nav'), el('.zp__data')),
+        underTable: !!el('.zt__note'),
+      };
+    });
+    check(q2.count === 1 && q2.said === 1 && /^Read as text, so questions about totals or dates can't use them as they are: Net Amt \(USD\), Tax %, Shipped\./.test(q2.text ?? '') && q2.beforeChips && q2.beforeLegend && q2.beforeNav && q2.navBeforeTable && !q2.underTable, "step by step 2: the note about columns read as text is said once, above the suggestions and the buttons (before the nav in the page), and the table under the nav does not repeat it", q2);
+    const dead = await p.evaluate(() => {
+      const why = document.getElementById('zen-why');
+      const d = document.querySelector('.fd-rl__d');
+      const c = document.getElementById('zen-continue');
+      return { why: why.innerText.replace(/\s+/g, ' ').trim(), role: why.getAttribute('role'), stepsInWhy: !!why.querySelector('.fd-rl'), hand: document.querySelector('.fd-rl__hand')?.innerText, open: d?.open, summary: document.querySelector('.fd-rl__sum')?.innerText.trim(), by: c.getAttribute('aria-describedby'), off: c.getAttribute('aria-disabled'), plainLink: !!why.querySelector('a'), cmdsShown: !!document.querySelector('.fd-rl__cmds')?.getBoundingClientRect().height };
+    });
+    dead.widow = await p.evaluate(LAST_LINE_WORDS, '.fd-rl__hand');
+    check(/^In this demo, answers are recorded, so questions about your own file need the version on your computer\./.test(dead.why) && dead.role === 'status' && !dead.stepsInWhy && !dead.plainLink && dead.hand === 'If this is not your world, send this page to someone on your data team.' && dead.open === true && dead.summary === 'How to run it on your computer' && dead.by === 'zen-why' && dead.off === 'true' && dead.cmdsShown && dead.widow?.lastLine >= 2, "step by step 2: the dead end says why in its status region, then one plain sentence for someone who does not run commands (no one-word last line), then the steps OPEN under 'How to run it on your computer' (the three commands are on screen without a click); Continue stays off and described by the reason", dead);
+    await p.locator('.fd-rl__sum').focus();
+    await p.keyboard.press('Enter');
+    check(await waitFor(() => document.querySelector('.fd-rl__d')?.open === false, null, 3000), "step by step 2: the disclosure folds from the keyboard (Enter on the real <summary>)", await p.evaluate(() => document.querySelector('.fd-rl__d')?.open));
+    // a fold the viewer made survives the message being redrawn: typing a question and pressing Enter selects it, and the dead end unmounts its steps
+    // while the answer on file is looked up (state kept in the component would come back open, the default)
+    await p.locator('#zen-question').fill('how many customers are there');
+    await p.keyboard.press('Enter');
+    await waitFor(() => document.querySelector('.zp__picked')?.innerText.includes('how many customers are there'), null, 15000);
+    await p.waitForTimeout(600);
+    check(await p.evaluate(() => document.querySelector('.fd-rl__d')?.open === false && !!document.querySelector('.fd-rl__sum')), "step by step 2: a disclosure the viewer folded stays folded after they type a question and press Enter", await p.evaluate(() => ({ open: document.querySelector('.fd-rl__d')?.open, picked: document.querySelector('.zp__picked')?.innerText })));
+    await p.locator('.fd-rl__sum').focus();
+    await p.keyboard.press('Enter');
+    check(await waitFor(() => document.querySelector('.fd-rl__d')?.open === true, null, 3000), "step by step 2: the disclosure opens again from the keyboard", await p.evaluate(() => document.querySelector('.fd-rl__d')?.open));
+    await p.locator('#zen-question').fill('how many orders were refunded');
+    await p.keyboard.press('Enter');
+    await waitFor(() => document.querySelector('.zp__picked')?.innerText.includes('how many orders were refunded'), null, 15000);
+    await p.waitForTimeout(600);
+    check(await p.evaluate(() => document.querySelector('.fd-rl__d')?.open === true), "step by step 2: a disclosure the viewer left open stays open after they type a question and press Enter", await p.evaluate(() => document.querySelector('.fd-rl__d')?.open));
+    for (let i = 0; i < 4 && (await p.locator('.zp__remove').count()) > 0; i++) {
+      await p.locator('.zp__remove').first().click(); // the two questions typed above go again: the walk below starts from the suggestions
+      await p.waitForTimeout(250);
+    }
+    const stepsNow = () => p.evaluate(() => {
+      const cmds = document.querySelector('.fd-rl__cmds');
+      const link = document.querySelector('.fd-rl__readme');
+      return {
+        needs: [...document.querySelectorAll('.fd-rl__list li')].map((e) => e.innerText.replace(/\s+/g, ' ').trim()),
+        cmds: cmds?.textContent.split('\n'),
+        mono: cmds && getComputedStyle(cmds).fontFamily.includes('Geist Mono'),
+        wraps: cmds && getComputedStyle(cmds).whiteSpace,
+        cmdsScrolls: cmds ? cmds.scrollWidth > cmds.clientWidth : null,
+        opens: document.querySelector('.fd-rl__opens')?.innerText.replace(/\s+/g, ' ').trim(),
+        link: link && { href: link.getAttribute('href'), target: link.target, rel: link.rel, text: link.firstChild?.textContent },
+        pageScrolls: document.documentElement.scrollWidth > innerWidth,
+      };
+    });
+    const at1440 = await stepsNow();
+    check(at1440.needs.join(' | ') === 'Node ^20.19 or >=22.12 | Codex CLI 0.157 or later (npm i -g @openai/codex), signed in with codex login | No API keys, and no other account' && at1440.cmds.join('|') === RUN_COMMANDS.join('|') && at1440.mono && at1440.opens === 'It opens at http://localhost:5173/#/zen' && at1440.link?.href === 'https://github.com/scasella/undefined#run-it-on-your-computer' && at1440.link?.target === '_blank' && /noopener/.test(at1440.link?.rel) && at1440.link?.text === 'Full steps in the README' && !at1440.pageScrolls, "step by step 2: the steps list what you need, the three commands exactly (set in the mono face), where it opens and the README link, with no horizontal scroll at 1440", at1440);
+    await p.setViewportSize({ width: 390, height: 844 });
+    await p.waitForTimeout(300);
+    const at390 = await stepsNow();
+    check(!at390.pageScrolls && at390.cmdsScrolls === false && at390.wraps === 'pre-wrap' && at390.cmds.join('|') === RUN_COMMANDS.join('|'), "step by step 2: at 390 px the commands wrap (pre-wrap, no scroll region needed), the page does not scroll sideways, and the commands still read exactly as the README's", at390);
+    await p.setViewportSize({ width: 1440, height: 900 });
+    await p.getByRole('button', { name: 'Back' }).click();
+    check(await h1Is('Bring your data', 10000) && (await waitFor(() => !!document.querySelector('.zd__sample') && !!document.getElementById('zd-picker'), null, 5000)), "step by step: Back to pane 1 with your own file still bound shows the picker open, with the samples in sight", await hashNow());
+    await waitFor(() => document.activeElement?.id === 'zen-title', null, 5000); // the new pane has spoken its heading; the next step may move focus
     await p.getByRole('button', { name: 'orders.csv', exact: true }).focus();
     await p.keyboard.press('Enter');
     check(await bindOrders(), 'step by step 1: a sample binds orders.csv (as rows)', (await body()).slice(0, 300));
     check(await waitFor(() => document.activeElement?.id === 'zen-continue', null, 10000), 'step by step 1: choosing a sample leaves focus on Continue, not <body>', await p.evaluate(() => `${document.activeElement?.tagName}#${document.activeElement?.id}`));
+    const samplePath = await p.evaluate(() => {
+      const btn = document.getElementById('zen-continue');
+      return { label: btn.innerText.trim(), primary: btn.classList.contains('fd-btn--primary'), secondary: btn.classList.contains('fd-btn--secondary'), picker: !!document.getElementById('zd-picker'), caveat: !!document.querySelector('.zd__caveat'), own: !!document.querySelector('.zd__own'), chip: document.querySelector('.zd__chip-text')?.innerText };
+    });
+    check(samplePath.label === 'Continue' && samplePath.primary && !samplePath.secondary && !samplePath.picker && !samplePath.caveat && !samplePath.own && /^orders\.csv/.test(samplePath.chip), "step by step 1: the sample path is unchanged: with a sample bound Continue is primary, the picker is folded behind the chip, and nothing new is on the pane", samplePath);
+    await p.getByRole('button', { name: 'Change' }).click();
+    const openSample = await p.evaluate(() => ({ caveat: document.querySelector('.zd__caveat')?.innerText.replace(/\s+/g, ' ').trim(), own: document.querySelector('.zd__own')?.innerText ?? null, change: document.querySelector('.zd__change').innerText.trim() }));
+    check(OWN_CAVEAT.test(openSample.caveat ?? '') && openSample.own === '' && openSample.change === 'Close', "step by step 1: with a sample bound, opening the picker shows only the caveat (no own-file note) and the chip's button reads 'Close'", openSample);
+    await p.getByRole('button', { name: 'Close' }).click();
+    check(await waitFor(() => !document.getElementById('zd-picker'), null, 3000), "step by step 1: 'Close' folds the picker again (a sample is bound)", await p.evaluate(() => !!document.getElementById('zd-picker')));
+    // a refusal holds the picker open in the demo (the Full view's rule), and "Change" then moves in instead of closing; a good pick clears it again
+    await p.getByRole('button', { name: 'Change' }).click();
+    await p.locator('input[type=file]').setInputFiles({ name: 'fake.xlsx', mimeType: 'application/vnd.ms-excel', buffer: Buffer.from('PK') });
+    await waitFor(() => !!document.querySelector('.zd__problem'), null, 10000);
+    const refusedDemo = await p.evaluate(() => ({ problem: document.querySelector('.zd__problem')?.innerText, change: document.querySelector('.zd__change').innerText.trim(), expanded: document.querySelector('.zd__change').getAttribute('aria-expanded'), picker: !!document.getElementById('zd-picker') }));
+    await p.locator('.zd__change').click();
+    const movedIn = await p.evaluate(() => ({ picker: !!document.getElementById('zd-picker'), inside: !!document.getElementById('zd-picker')?.contains(document.activeElement) }));
+    check(/fake\.xlsx/.test(refusedDemo.problem ?? '') && refusedDemo.change === 'Change' && refusedDemo.expanded === 'true' && refusedDemo.picker && movedIn.picker && movedIn.inside, "step by step 1 (demo): a refusal holds the picker open: the chip's button reads 'Change' (aria-expanded true) and pressing it moves focus into the picker instead of closing it", { refusedDemo, movedIn });
+    await p.getByRole('button', { name: 'orders.csv', exact: true }).click();
+    check(await waitFor(() => !document.getElementById('zd-picker') && !document.querySelector('.zd__problem'), null, 10000), "step by step 1 (demo): picking a sample clears the refusal and folds the picker again", await p.evaluate(() => ({ picker: !!document.getElementById('zd-picker'), problem: document.querySelector('.zd__problem')?.innerText })));
+    await waitFor(() => document.activeElement?.id === 'zen-continue', null, 5000);
     await cont.click();
     check(await h1Is('Ask a question') && (await hashNow()) === '#/zen/2', "step by step: Continue opens pane 2 (Ask a question) at '#/zen/2'", { h1: await p.evaluate(() => document.querySelector('h1')?.innerText), hash: await hashNow() });
     await waitFor(() => document.querySelectorAll('.zp__chip .zp__live').length === 2, null, 30000);
@@ -455,9 +654,9 @@ try {
     const wx = await p.evaluate(() => {
       const chip = [...document.querySelectorAll('.zp__chip')].find((b) => /weather/.test(b.innerText));
       const c = document.getElementById('zen-continue');
-      return { chip: chip?.innerText.replace(/\s+/g, ' '), disabled: c.getAttribute('aria-disabled'), why: document.getElementById('zen-why')?.innerText.replace(/\s+/g, ' '), tryIt: !!document.querySelector('#zen-why button'), link: document.querySelector('#zen-why a')?.href };
+      return { chip: chip?.innerText.replace(/\s+/g, ' '), disabled: c.getAttribute('aria-disabled'), why: document.getElementById('zen-why')?.innerText.replace(/\s+/g, ' '), tryIt: !!document.querySelector('#zen-why button'), steps: document.querySelector('.fd-rl__sum')?.innerText.trim(), link: document.querySelector('.fd-rl__readme')?.href };
     });
-    check(wx.chip === 'What is the weather in Paris? needs live' && !/checks/i.test(wx.chip) && wx.disabled === 'true' && /^In this demo, answers are recorded/.test(wx.why) && wx.tryIt && /#run-it-on-your-computer$/.test(wx.link ?? ''), "step by step 2: a typed question the demo cannot answer reads 'needs live' alone (no level), Continue is off, and the reason has a try-it button and the way to run it on your computer", wx);
+    check(wx.chip === 'What is the weather in Paris? needs live' && !/checks/i.test(wx.chip) && wx.disabled === 'true' && /^In this demo, answers are recorded/.test(wx.why) && wx.tryIt && wx.steps === 'How to run it on your computer' && /#run-it-on-your-computer$/.test(wx.link ?? ''), "step by step 2: a typed question the demo cannot answer reads 'needs live' alone (no level), Continue is off, and the reason has a try-it button, and the way to run it on your computer follows it inline (the steps' disclosure, ending in the README link)", wx);
     await p.locator('#zen-why button').click();
     const tried = await waitFor(() => document.activeElement?.id === 'zen-continue' && document.getElementById('zen-continue').getAttribute('aria-disabled') !== 'true', null, 10000);
     check(tried, "step by step 2: 'try it' selects the question that has a recorded answer and makes Continue available (focus on it)", await p.evaluate(() => ({ active: document.activeElement?.id, picked: document.querySelector('.zp__picked')?.innerText })));
@@ -1000,6 +1199,115 @@ try {
     check(false, 'scrollRestoration sequences and router behaviour', e.stack?.split('\n').slice(0, 3).join(' | ') ?? String(e));
   } finally {
     await p.setViewportSize({ width: 1440, height: 900 });
+  }
+
+  // ── 3g. the landing's limits card in the demo lists the steps, and the two columns come out level (the closing card sits under the zip card) ──
+  try {
+    await p.setViewportSize({ width: 1440, height: 900 });
+    await p.goto(srv.url + '#/');
+    await p.waitForSelector('#own-file .fd-rl__cmds', { timeout: 15000 });
+    const landing = () =>
+      p.evaluate(() => {
+        const box = (sel) => {
+          const e = document.querySelector(sel);
+          if (!e) return null;
+          const r = e.getBoundingClientRect();
+          return { l: Math.round(r.left), t: Math.round(r.top), r: Math.round(r.right), b: Math.round(r.bottom) };
+        };
+        const cmds = document.querySelector('#own-file .fd-rl__cmds');
+        return {
+          zip: box('.fd-tf__zipcard'),
+          lim: box('.fd-tf__limits'),
+          close: box('.fd-tf__close'),
+          needs: [...document.querySelectorAll('#own-file .fd-rl__list li')].length,
+          cmds: cmds?.textContent.split('\n'),
+          cmdsScroll: cmds ? cmds.scrollWidth > cmds.clientWidth : null,
+          readme: !!document.querySelector('#own-file .fd-tf__run'),
+          pageScrolls: document.documentElement.scrollWidth > innerWidth,
+        };
+      });
+    const wide = await landing();
+    const widow = await p.evaluate(LAST_LINE_WORDS, '#own-file .fd-rl__hand');
+    check(
+      !!wide.zip && !!wide.lim && !!wide.close && wide.close.t >= wide.zip.b && wide.close.l === wide.zip.l && wide.lim.l >= wide.zip.r && Math.abs(wide.close.b - wide.lim.b) <= 60 && wide.needs === 3 && wide.cmds.join('|') === RUN_COMMANDS.join('|') && wide.readme && !wide.pageScrolls && widow?.lastLine >= 2,
+      "landing, demo, 1440: the limits card lists the steps (three needs, the three commands, the README link), the closing card sits under the zip card with the two columns level (bottoms within 60 px), and the one plain sentence has no one-word last line",
+      { wide, widow },
+    );
+    await p.setViewportSize({ width: 1024, height: 900 });
+    await p.waitForTimeout(200);
+    const mid = await landing();
+    check(!!mid.zip && mid.close.t >= mid.zip.b && mid.lim.l >= mid.zip.r && Math.abs(mid.close.b - mid.lim.b) <= 140 && !mid.pageScrolls, 'landing, demo, 1024: still two columns, the closing card under the zip card and the columns roughly level', mid);
+    await p.setViewportSize({ width: 390, height: 844 });
+    await p.waitForTimeout(200);
+    const narrow = await landing();
+    check(narrow.zip.b <= narrow.lim.t && narrow.lim.b <= narrow.close.t && narrow.cmdsScroll === false && !narrow.pageScrolls, 'landing, demo, 390: one column in reading order (zip, limits with the steps, closing); the commands wrap and the page does not scroll sideways', narrow);
+  } catch (e) {
+    check(false, 'landing in the demo: the limits card and the layout ran without throwing', String(e));
+  } finally {
+    await p.setViewportSize({ width: 1440, height: 900 });
+  }
+
+  // ── 3f. a copy that runs on your computer (the generation service's health check answers "up", stubbed on a second browser context; nothing is asked of
+  // it): none of the own-file path's words or elements is drawn, and the picker folds, the forward button reads "Continue" and the landing's
+  // limits card has no steps, exactly as before ──
+  consoleErrors.length = 0;
+  let lctx = null;
+  let lp = null;
+  try {
+    // its own browser context: the first page holds this origin's IndexedDB open, and openApp clears it (a second page of one context would block that)
+    lctx = await b.browser.newContext({ viewport: { width: 1440, height: 900 } });
+    lp = await lctx.newPage();
+    lp.on('console', (m) => m.type() === 'error' && consoleErrors.push(m.text()));
+    lp.on('pageerror', (e) => consoleErrors.push(`pageerror: ${e.message}`));
+    await lp.route('**/generate/health', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, codexVersion: '0.157.0', model: 'gpt-6-luna', effort: 'low' }) }));
+    await openApp(lp, srv.url + '#/zen');
+    const liveMode = await lp.evaluate(() => window.__undefined.state.value.mode);
+    await lp.waitForSelector('#zen-continue', { timeout: 15000 });
+    const fresh = await lp.evaluate(() => ({ caveat: document.querySelectorAll('.zd__caveat').length, own: document.querySelectorAll('.zd__own').length, picker: !!document.getElementById('zd-picker') }));
+    check(liveMode === 'live' && fresh.caveat === 0 && fresh.own === 0 && fresh.picker, 'live look, step by step 1: a copy that runs on your computer draws no caveat and no note region under the drop zone', { liveMode, fresh });
+    await lp.getByRole('button', { name: 'Paste data' }).click();
+    await lp.locator('#zen-paste').fill(OWN_CSV);
+    await lp.getByRole('button', { name: 'Use this data' }).click();
+    await lp.waitForFunction(() => !!document.querySelector('.zd__chip') && document.activeElement?.id === 'zen-continue', null, { timeout: 20000 });
+    const liveOwn = await lp.evaluate(() => {
+      const btn = document.getElementById('zen-continue');
+      return { picker: !!document.getElementById('zd-picker'), label: btn.innerText.trim(), primary: btn.classList.contains('fd-btn--primary'), secondary: btn.classList.contains('fd-btn--secondary'), change: document.querySelector('.zd__change').innerText.trim(), expanded: document.querySelector('.zd__change').getAttribute('aria-expanded'), note: !!document.querySelector('.zd__note, .zd__own, .zd__caveat'), said: [...document.querySelectorAll('.zd .fd-sr[role=status]')].map((e) => e.textContent).join(), body: /In this demo/.test(document.body.innerText) };
+    });
+    check(!liveOwn.picker && liveOwn.label === 'Continue' && liveOwn.primary && !liveOwn.secondary && liveOwn.change === 'Change' && liveOwn.expanded === 'false' && !liveOwn.note && /is ready\.$/.test(liveOwn.said) && !liveOwn.body, "live look, step by step 1: your own file folds the picker behind its chip, the button reads 'Continue' (primary) and the file 'is ready', with no demo words anywhere", liveOwn);
+    await lp.locator('#zen-continue').click();
+    await lp.waitForSelector('.zp__chip', { timeout: 15000 });
+    await lp.waitForTimeout(800);
+    const liveQ = await lp.evaluate(() => ({ note: document.querySelectorAll('.zp__colnote').length, steps: document.querySelectorAll('.fd-rl').length, demo: /In this demo/.test(document.body.innerText), why: document.getElementById('zen-why')?.innerText ?? null, noteBeforeChips: !!(document.querySelector('.zp__colnote')?.compareDocumentPosition(document.querySelector('.zp__chips')) & Node.DOCUMENT_POSITION_FOLLOWING) }));
+    check(liveQ.note === 1 && liveQ.noteBeforeChips && liveQ.steps === 0 && !liveQ.demo, "live look, step by step 2: the column note is above the suggestions here too, and there are no run-it-on-your-computer steps (this copy is that)", liveQ);
+    await lp.goto(srv.url + '#/start');
+    await lp.waitForSelector('.fd-bring', { timeout: 15000 });
+    const liveFull = await lp.evaluate(() => ({ caveat: document.querySelectorAll('.fd-bring__caveat').length }));
+    await lp.goto(srv.url + '#/');
+    await lp.waitForSelector('#own-file', { timeout: 15000 });
+    const liveLanding = await lp.evaluate(() => ({ steps: document.querySelectorAll('.fd-tf__steps, .fd-rl').length, readme: !!document.querySelector('.fd-tf__run'), second: [...document.querySelectorAll('a.fd-btn--secondary')].map((a) => a.innerText.replace(/\s+/g, ' ').trim()).filter((t) => /own file/.test(t)) }));
+    check(liveFull.caveat === 0 && liveLanding.steps === 0 && liveLanding.readme && liveLanding.second.length > 0 && liveLanding.second.every((t) => t === 'Use your own file'), "live look: the Full view draws no caveat, and the landing's limits card has no steps (its README link stays) and the own-file buttons read 'Use your own file'", { liveFull, liveLanding });
+    // a refusal in live mode does not hold Step by step's picker: "Close" shuts it, as it always did (the demo's rule is the demo's)
+    await lp.goto(srv.url + '#/zen/1');
+    await lp.waitForSelector('.zd__chip, .zd__sample', { timeout: 15000 });
+    if (!(await lp.locator('.zd__chip').count())) {
+      await lp.getByRole('button', { name: 'orders.csv', exact: true }).click();
+      await lp.waitForSelector('.zd__chip', { timeout: 30000 });
+    }
+    await lp.locator('.zd__change').click();
+    await lp.waitForSelector('#zd-picker', { timeout: 5000 });
+    await lp.locator('input[type=file]').setInputFiles({ name: 'fake.xlsx', mimeType: 'application/vnd.ms-excel', buffer: Buffer.from('PK') });
+    await lp.waitForSelector('.zd__problem', { timeout: 10000 });
+    const shape = () => lp.evaluate(() => ({ change: document.querySelector('.zd__change').innerText.trim(), expanded: document.querySelector('.zd__change').getAttribute('aria-expanded'), picker: !!document.getElementById('zd-picker'), problem: !!document.querySelector('.zd__problem') }));
+    const refusedLive = await shape();
+    await lp.locator('.zd__change').click();
+    await lp.waitForTimeout(300);
+    const closedLive = await shape();
+    check(refusedLive.change === 'Close' && refusedLive.expanded === 'true' && refusedLive.picker && closedLive.change === 'Change' && closedLive.expanded === 'false' && !closedLive.picker && closedLive.problem, "live look, step by step 1: after a refusal the chip's button still reads 'Close' (aria-expanded true) and pressing it folds the picker, with the refusal staying under the chip: a refusal does not hold the picker here", { refusedLive, closedLive });
+    check(consoleErrors.length === 0, "live look: no console errors", consoleErrors);
+  } catch (e) {
+    check(false, 'live look (a copy that runs on your computer, health stubbed up)', e.stack?.split('\n').slice(0, 3).join(' | ') ?? String(e));
+  } finally {
+    await lctx?.close();
   }
 
   // ── 4. seed off: no recording of the agreement (the recordings index is served without it), so the spec-less answer ──

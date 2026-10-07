@@ -6,7 +6,10 @@
  * behind the file's one-line chip and a "Change" button, so the Ask card and the check trace are what the page shows
  * (the fold itself is CSS, DataBringer.css; this file only decides when). "Change" opens the picker and moves focus
  * into it; closing it, or picking a file, puts focus back on the button, so it never falls to the page. The fold never
- * hides the demo's own-file note or a refusal: while either is showing, the picker stays open.
+ * hides the demo's own-file note or a refusal: while either is showing, the picker stays open (startView.ts pickerFold, the
+ * one rule, which Step by step's picker uses too). In the demo the picker also says, under the tabs and before anything is
+ * dropped, what the demo cannot do with a file of your own (startView.ts DEMO_OWN_FILE_CAVEAT); a copy that runs on your
+ * computer draws none of it.
  */
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { TargetedDragEvent, TargetedEvent, TargetedKeyboardEvent } from 'preact';
@@ -16,7 +19,7 @@ import { Segmented } from '../components/Segmented';
 import { DropGrid, FileGlyph } from '../icons';
 import { sampleFiles, type SampleId } from '../model/samples';
 import { sessionFor } from './session';
-import { ACCEPT, DROP_NOTE, PASTE_NOTE, radioKeyIndex, showOwnFileNote } from './startView';
+import { ACCEPT, DROP_NOTE, ownFileCaveat, PASTE_NOTE, pickerFold, radioKeyIndex, showOwnFileNote } from './startView';
 import './DataBringer.css';
 
 type Mode = 'drop' | 'paste';
@@ -52,9 +55,10 @@ export function DataBringer({ engine }: { engine: Engine }) {
   const ownNote = showOwnFileNote(source, mode);
   const samples = sampleFiles();
   const bound = source !== 'none';
+  const caveat = ownFileCaveat(mode);
   // the picker folds away once something is bound, unless the note or a refusal below is what the viewer needs
-  const forced = ownNote || !!intake.problem;
-  const folded = bound && !open && !forced;
+  const fold = pickerFold({ bound, open, ownNote, problem: !!intake.problem });
+  const { forced, folded } = fold;
   const chip = s.fileChip.value ?? s.fileName.value;
   // after a successful pick the picker closes again (a refusal keeps it open, with the problem under it). If focus was
   // in the picker it goes to the "Change" button, which is still there: a hidden control cannot keep it.
@@ -77,8 +81,8 @@ export function DataBringer({ engine }: { engine: Engine }) {
     if (folded) {
       wantFocus.current = true;
       setOpen(true);
-    } else if (forced && !open) {
-      // already on screen (the note or a refusal is showing): just move in
+    } else if (forced) {
+      // on screen and cannot be closed (the note or a refusal is showing), whether or not it was also opened by hand: move in
       picker.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus();
     } else {
       setOpen(false);
@@ -148,12 +152,12 @@ export function DataBringer({ engine }: { engine: Engine }) {
             ref={changeBtn}
             type="button"
             class="fd-bring__change"
-            aria-expanded={folded ? 'false' : 'true'}
+            aria-expanded={fold.expanded ? 'true' : 'false'}
             aria-controls={PICKER_ID}
             aria-disabled={canChange ? undefined : 'true'}
             onClick={onChange}
           >
-            {folded || forced ? 'Change' : 'Close'}
+            {fold.button}
           </button>
         </div>
       )}
@@ -220,6 +224,8 @@ export function DataBringer({ engine }: { engine: Engine }) {
             </div>
             {ownNote && <p class="fd-bring__note fd-bring__note--paste">{PASTE_NOTE}</p>}
           </div>
+
+          {caveat && <p class="fd-bring__caveat">{caveat}</p>}
 
           <div class="fd-bring__status" role="status">
             {busyText}

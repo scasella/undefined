@@ -44,13 +44,108 @@ export function rememberedSample(raw: string | null | undefined): SampleId {
 }
 
 export const ACCEPT = '.csv,.tsv,.json,.jsonl,.ndjson,.txt';
-export const DROP_NOTE =
-  'In this demo, answers are recorded, so questions about your own file need the version on your computer. Your file would still stay in this browser. Try a sample file for now.';
-export const PASTE_NOTE = 'Read in this browser. In this demo, questions about your own data need the version on your computer. Try a sample file for now.';
+
+/**
+ * The one sample file the demo has recorded answers for (and only for some of its questions). The pre-bind caveat and the two
+ * notes that follow it all name it from here, so none of them sends the viewer to "a sample file" in general: sales-q3.csv, the
+ * other sample, has no recorded answer at all. Typed once, on purpose: reading model/samples.ts here would build (parse and type)
+ * the sample at import time; start/ownFileCaveat.test.ts ties this name to sampleFile('orders').filename.
+ */
+const RECORDED_SAMPLE_FILE = 'orders.csv';
+
+/**
+ * What the demo can and cannot do with a file of your own, said under the drop zone BEFORE anything is dropped (Step by
+ * step's picker and the Full view's DataBringer both draw this one string, in the demo only: ownFileCaveat). It agrees
+ * with the legend on the question pane ("needs live: this demo has recorded answers for one question; the others need
+ * the version on your computer", start/AskCard.tsx needsLiveLegend): the recordings are for questions about orders.csv, and
+ * only for some of them; sales-q3.csv, the other sample, has none, so this does not say "the sample files".
+ */
+export const DEMO_OWN_FILE_CAVEAT = `In this demo, only some questions about the sample file ${RECORDED_SAMPLE_FILE} have recorded answers. Your own file loads and previews here; asking about it needs the version on your computer.`;
+
+/** The caveat, in the demo; null on a copy that already runs on your computer (nothing new is drawn there). */
+export function ownFileCaveat(mode: 'live' | 'replay'): string | null {
+  return mode === 'replay' ? DEMO_OWN_FILE_CAVEAT : null;
+}
+
+/**
+ * Whether Step by step's picker draws the own-file note's status region (a region that exists, empty, before it has words, so
+ * what changes is spoken). The demo only: a copy that runs on your computer draws nothing new.
+ */
+export function ownFileRegion(mode: 'live' | 'replay'): boolean {
+  return mode === 'replay';
+}
+
+/**
+ * Said once the viewer's own data is bound (the caveat above stays; this says what to do next, and that the file stays put).
+ * They do not repeat the caveat: it is the caveat that says what the demo cannot answer. They name the sample that CAN run
+ * checks, because the sample buttons sit right under the note and one of them (sales-q3.csv) has no recorded answer.
+ */
+export const DROP_NOTE = `Your file stays in this browser. To see the checks run, try ${RECORDED_SAMPLE_FILE}.`;
+export const PASTE_NOTE = `Read in this browser. To see the checks run, try ${RECORDED_SAMPLE_FILE}.`;
+
+/**
+ * The file name the session gives data that was pasted rather than dropped (start/session.ts `PASTED`, which is not exported;
+ * start/ownFileCaveat.test.ts reads the session's source and fails if the two drift).
+ */
+export const PASTED_NAME = 'pasted data';
+
+/** The note under Step by step's drop zone for your own data: pasted rows were "read" here, a dropped file "stays" here. */
+export function ownFileNote(fileName: string): string {
+  return fileName === PASTED_NAME ? PASTE_NOTE : DROP_NOTE;
+}
 
 /** The replay note shows only once the user's own data is bound and the page replays recorded answers. */
 export function showOwnFileNote(source: 'sample' | 'own' | 'none', mode: 'live' | 'replay'): boolean {
   return source === 'own' && mode === 'replay';
+}
+
+/**
+ * Whether the bring-a-file picker is folded behind the bound file's chip, and what the chip's button says. Once something is
+ * bound the picker folds away, unless it was opened ("Change") or what it holds is what the viewer needs: the demo's own-file
+ * note (the sample buttons stay in sight) or a refusal. Then "Change" does not close anything, it moves in (the page moves
+ * focus into the picker), and says so (`expanded`).
+ *
+ * The Full view (DataBringer) applies it as is. Step by step goes through zenPickerFold, which keeps the refusal clause to the
+ * demo: a copy that runs on your computer folds that picker exactly as it always did.
+ */
+export interface PickerFold {
+  /** The picker is out of sight. */
+  folded: boolean;
+  /** It stays open whatever the viewer pressed: the own-file note or a refusal is showing. */
+  forced: boolean;
+  /** The chip button's words: "Change" while the picker is folded or cannot be closed, "Close" while it is open by choice. */
+  button: 'Change' | 'Close';
+  /** aria-expanded of that button: the picker is on screen. */
+  expanded: boolean;
+}
+
+export function pickerFold(s: { bound: boolean; open: boolean; ownNote: boolean; problem: boolean }): PickerFold {
+  const forced = s.ownNote || s.problem;
+  const folded = s.bound && !s.open && !forced;
+  return { folded, forced, button: folded || forced ? 'Change' : 'Close', expanded: !folded };
+}
+
+/**
+ * Step by step's picker: pickerFold with the demo's two reasons to stay open, both for the demo only. In live mode the own-file
+ * note is never drawn (showOwnFileNote) and a refusal does not hold the picker either: it folds behind the chip, "Close" shuts
+ * it, exactly as before this path existed (a refusal still shows under the chip, in both modes).
+ */
+export function zenPickerFold(s: {
+  bound: boolean;
+  open: boolean;
+  source: 'sample' | 'own' | 'none';
+  mode: 'live' | 'replay';
+  problem: boolean;
+}): PickerFold {
+  return pickerFold({ bound: s.bound, open: s.open, ownNote: showOwnFileNote(s.source, s.mode), problem: s.mode === 'replay' && s.problem });
+}
+
+/**
+ * What a screen reader is told when data is bound ("<file> is ready."). The demo cannot answer questions about the viewer's
+ * own file, so for that file "ready" would promise too much: it is loaded.
+ */
+export function boundAnnouncement(chip: string | null, ownNote: boolean): string {
+  return `${chip ?? 'Your data'} ${ownNote ? 'is loaded' : 'is ready'}.`;
 }
 
 /** Roving radiogroup: the index arrow keys / Home / End move to, or -1 for any other key. */

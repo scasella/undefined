@@ -6,7 +6,8 @@
  * instead. Pure: it never changes how anything is read, and it reads every value it is given, not a preview of them
  * (a column qualifies only when EVERY non-empty value has the shape, like columnKind's own rule for dates).
  *
- * Used by the first run's column preview (start/startView.ts previewModel); step by step can call the same functions.
+ * Used by the Full view's column preview (start/startView.ts previewModel) and by Step by step's question pane
+ * (zen/ZenPanes.tsx ZenQuestion), which says it once, above the suggestions it limits.
  */
 import type { DataRow } from './figures';
 import type { ColumnKind } from './samples';

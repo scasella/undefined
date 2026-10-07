@@ -1,10 +1,13 @@
 /** Step by step · the panes that are not already a shared component: the question (2) and "what your answer must pass" (3). */
-import { useRef, useState } from 'preact/hooks';
+import { useMemo, useRef, useState } from 'preact/hooks';
 import type { Engine } from '@scasella/undefined-engine/types';
 import { NotChecked } from '../icons';
+import { columnNote } from '../model/columnNotes';
 import { matchQuestion } from '../model/questions';
+import { runLocallyView } from '../model/runLocally';
+import { describeColumns } from '../model/samples';
 import { chipsOf, NeedsLiveLegend, needsLiveLegend, NoRecordingSentence } from '../start/AskCard';
-import { RUN_LOCALLY_URL } from '../components/DemoNote';
+import { RunLocally } from '../components/DemoNote';
 import type { NoRecordingView } from '../start/derive';
 import { sessionFor } from '../start/session';
 import { CONTINUE_WHY_ID, isTypedQuestion, zenChecks, zenChecksSummary, type ZenCheck } from './flow';
@@ -26,26 +29,24 @@ const OWN_REPLAY_NOTE = 'In this demo, answers are recorded, so a question you t
 /**
  * Why Continue / Run is off, said where the cause is: right under the selected question (a status region that exists
  * before it has text, so the change is spoken; the buttons point at it with aria-describedby). `view` is the
- * no-recording sentence in pieces (its `try it` is a real button) followed by the way to run it on the viewer's
- * computer; `text` is any other reason ("Pick a question to continue."). Replay only for the first: in live mode no
- * question needs the version on the viewer's computer, so there is nothing to say and nothing is drawn.
+ * no-recording sentence in pieces (its `try it` is a real button); `text` is any other reason ("Pick a question to
+ * continue."). Replay only for the first: in live mode no question needs the version on the viewer's computer, so there
+ * is nothing to say and nothing is drawn. When it is the no-recording sentence, the way to run it on the viewer's computer
+ * follows it, inline (model/runLocally.ts, components/DemoNote.tsx RunLocally): one plain sentence for the person who does
+ * not run commands, then the steps in a disclosure that starts open (the viewer can fold it away; it stays as they left it
+ * when the message is redrawn), so nobody has to leave the page. The status region holds only the sentence, so what the
+ * buttons are described by stays short.
  */
 function Why({ text, view, replay, onTry }: { text: string; view: NoRecordingView | null; replay: boolean; onTry: (id: string) => void }) {
   if (!replay && !text) return null;
+  const steps = view ? runLocallyView(replay ? 'replay' : 'live') : null;
   return (
-    <p id={CONTINUE_WHY_ID} class="zp__why" role="status">
-      {view ? (
-        <>
-          <NoRecordingSentence view={view} onTry={onTry} />{' '}
-          <a class="fd-ask__run" href={RUN_LOCALLY_URL} target="_blank" rel="noopener">
-            How to run it on your computer
-            <span class="fd-sr"> (the README on GitHub, opens in a new tab)</span>
-          </a>
-        </>
-      ) : (
-        text
-      )}
-    </p>
+    <>
+      <p id={CONTINUE_WHY_ID} class="zp__why" role="status">
+        {view ? <NoRecordingSentence view={view} onTry={onTry} /> : text}
+      </p>
+      {steps && <RunLocally view={steps} disclosure link />}
+    </>
   );
 }
 
@@ -71,6 +72,11 @@ export function ZenQuestion({ engine, why = '', whyView = null, onTry = () => un
   const legend = needsLiveLegend(chips, mode);
   // the words of a question that is already on the list select it: nothing is added, so the note about a new one is not said
   const already = text.trim().length >= 3 && matchQuestion(text, s.questions.value) !== null;
+  // columns that look like numbers or dates but were read as text: said ONCE, here, above the suggestions they limit (it reads
+  // every value, so once per file, not per keystroke)
+  const dataset = s.dataset.value;
+  const rows = s.rows.value;
+  const colNote = useMemo(() => (dataset && rows ? columnNote(describeColumns(dataset.columns, rows), rows) : null), [dataset, rows]);
 
   const submit = (e?: Event) => {
     e?.preventDefault();
@@ -81,6 +87,7 @@ export function ZenQuestion({ engine, why = '', whyView = null, onTry = () => un
   return (
     <div class="zp">
       <p class="zp__lede">Pick a suggestion (worked out from your columns, no AI) or type your own. Scroll your data below to see what you can ask about.</p>
+      {colNote && <p class="zp__colnote">{colNote}</p>}
       <div role="group" aria-label="Suggested questions" class="zp__chips" ref={group}>
         {chips.map((c) => (
           <div key={c.id} class="zp__item">
@@ -111,7 +118,7 @@ export function ZenQuestion({ engine, why = '', whyView = null, onTry = () => un
           </div>
         ))}
       </div>
-      {/* the dead-end message below carries the same link: not twice */}
+      {/* the dead-end message below carries the steps and the same link, in its disclosure: not twice */}
       {legend && <NeedsLiveLegend text={legend} class="zp__legend" link={whyView === null} />}
       <form class="zp__form" onSubmit={submit}>
         <label for={ZEN_QUESTION_ID} class="zp__label">

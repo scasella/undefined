@@ -1,10 +1,10 @@
 /**
  * Step by step · the whole table, scrollable. Rows are windowed (only the ones in view are drawn, on a fixed row height) so a
- * 20,000-row file scrolls as smoothly as the 48-row sample. Sticky header with each column's worked-out type.
+ * 20,000-row file scrolls as smoothly as the 48-row sample. Sticky header with each column's worked-out type. (The note about
+ * columns read as text is said once, above the suggestions: zen/ZenPanes.tsx ZenQuestion.)
  */
 import { useMemo, useRef, useState } from 'preact/hooks';
 import type { DatasetRef } from '@scasella/undefined-engine/types';
-import { columnNote } from '../model/columnNotes';
 import { formatCount, type DataRow } from '../model/figures';
 import { cellFormatter, describeColumns } from '../model/samples';
 import './ZenTable.css';
@@ -25,8 +25,6 @@ export function ZenTable({ dataset, rows, name }: { dataset: Pick<DatasetRef, 'c
   const raf = useRef(0);
   const cols = useMemo(() => describeColumns(dataset.columns, rows), [dataset, rows]);
   const fmt = useMemo(() => cellFormatter(cols, rows), [cols, rows]);
-  // columns that look like numbers or dates but were read as Text (it reads every value, so once per file)
-  const note = useMemo(() => columnNote(cols, rows), [cols, rows]);
   const { from, to } = windowOf(top, rows.length);
   return (
     <div class="zt">
@@ -81,7 +79,6 @@ export function ZenTable({ dataset, rows, name }: { dataset: Pick<DatasetRef, 'c
           </tbody>
         </table>
       </div>
-      {note && <p class="zt__note">{note}</p>}
       <p class="zt__foot">
         {formatCount(rows.length)} {rows.length === 1 ? 'row' : 'rows'} · types worked out from the values · nothing in your file is changed
       </p>

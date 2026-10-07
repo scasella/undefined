@@ -35,6 +35,7 @@ import {
   canContinue,
   CONTINUE_WHY_ID,
   continueReason,
+  forwardLabel,
   hashForStep,
   holdManualScroll,
   isZenHash,
@@ -198,6 +199,8 @@ export function Zen({ engine, initError }: { engine: Engine; initError: string |
   const bound = !!s && s.source.value !== 'none';
   const can = s ? canContinue(step, { bound, question: picked !== null, busy, needsLive }) : false;
   const ownData = s?.source.value === 'own';
+  // the forward button's words and look (flow.ts forwardLabel): your own file in the demo opens "See what's in your file", secondary
+  const fwd = forwardLabel(step, { ownData, replay: st.mode === 'replay' });
   const other = s?.recordedOther.value ?? null;
   const why = s ? continueReason(step, { question: picked !== null, needsLive, bound }, noRecordingText(ownData, other)) : '';
   // the reason as the no-recording sentence in pieces (its `try it` is a button), when that is the reason
@@ -296,8 +299,8 @@ export function Zen({ engine, initError }: { engine: Engine; initError: string |
                   </Button>
                 )}
                 {step === 5 && (
-                  <Button variant="secondary" onClick={() => go(2)}>
-                    Ask another question
+                  <Button variant={fwd.variant} onClick={() => go(2)}>
+                    {fwd.label}
                   </Button>
                 )}
                 {step === 5 && (
@@ -307,18 +310,18 @@ export function Zen({ engine, initError }: { engine: Engine; initError: string |
                 )}
                 <span class="zen__spacer" />
                 {step < 3 && (
-                  <Button id={ZEN_CONTINUE_ID} variant="primary" icon="arrow" aria-disabled={can ? undefined : 'true'} {...describedBy} onClick={() => can && go((step + 1) as ZenStep)}>
-                    Continue
+                  <Button id={ZEN_CONTINUE_ID} variant={fwd.variant} icon="arrow" aria-disabled={can ? undefined : 'true'} {...describedBy} onClick={() => can && go((step + 1) as ZenStep)}>
+                    {fwd.label}
                   </Button>
                 )}
                 {step === 3 && (
-                  <Button id={ZEN_CONTINUE_ID} variant="primary" icon="arrow" aria-disabled={can && s.canAsk.value ? undefined : 'true'} {...describedBy} onClick={run}>
-                    Run the checks
+                  <Button id={ZEN_CONTINUE_ID} variant={fwd.variant} icon="arrow" aria-disabled={can && s.canAsk.value ? undefined : 'true'} {...describedBy} onClick={run}>
+                    {fwd.label}
                   </Button>
                 )}
                 {step === 4 && done && (
-                  <Button id={ZEN_SEE_ANSWER_ID} variant="primary" icon="arrow" onClick={() => go(5)}>
-                    See the answer
+                  <Button id={ZEN_SEE_ANSWER_ID} variant={fwd.variant} icon="arrow" onClick={() => go(5)}>
+                    {fwd.label}
                   </Button>
                 )}
               </nav>

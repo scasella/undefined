@@ -48,6 +48,29 @@ export function canContinue(step: ZenStep, s: { bound: boolean; question: boolea
   return false;
 }
 
+/** The walk-through's forward button: its words and its look. The id stays ZEN_CONTINUE_ID (below) on panes 1 to 3. */
+export interface ForwardButton {
+  label: string;
+  /** The two looks this button takes (a subset of the shared Button's variants; this module stays free of component imports). */
+  variant: 'primary' | 'secondary';
+}
+
+/**
+ * The forward button's words on each pane. Panes 1 and 2 say "Continue" and pane 3 "Run the checks", all primary; pane 4's
+ * button (once the run has settled) is "See the answer" and pane 5 offers "Ask another question". One exception, in the
+ * demo: the viewer's OWN file is bound on pane 1. The next pane shows its columns and the questions worked out for it, but
+ * the demo cannot answer a question about it, so the button must not look like the way to an answer: it says what it opens
+ * ("See what's in your file") and is secondary, and the sample files above it stay the way to see a full run. It is still
+ * enabled. On a copy that runs on your computer (`replay` false), and for a sample, nothing differs.
+ */
+export function forwardLabel(step: ZenStep, s: { ownData: boolean; replay: boolean }): ForwardButton {
+  if (step === 1 && s.ownData && s.replay) return { label: "See what's in your file", variant: 'secondary' };
+  if (step === 3) return { label: 'Run the checks', variant: 'primary' };
+  if (step === 4) return { label: 'See the answer', variant: 'primary' };
+  if (step === 5) return { label: 'Ask another question', variant: 'secondary' };
+  return { label: 'Continue', variant: 'primary' };
+}
+
 /** The element that says why Continue / Run is off (it sits under the selected question; the buttons point at it). */
 export const CONTINUE_WHY_ID = 'zen-why';
 

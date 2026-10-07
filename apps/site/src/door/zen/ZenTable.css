@@ -12,4 +12,3 @@
 .zt__idx { color: var(--fd-ink-3) !important; text-align: right; width: 1%; position: sticky; left: 0; background: var(--fd-surface-3); }
 .zt__table th.zt__idx { z-index: 2; }
 .zt__foot { margin: 0; font-size: 12px; line-height: 17px; color: var(--fd-ink-3); }
-.zt__note { margin: 0; max-width: var(--fd-measure); font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }

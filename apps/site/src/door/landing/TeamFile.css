@@ -32,6 +32,19 @@
   margin: 12px 0 0; padding: 0 0 0 18px; font-size: var(--fd-fs-row); line-height: var(--fd-lh-row); color: var(--fd-ink-2);
   display: flex; flex-direction: column; gap: 8px;
 }
+.fd-tf__steps { margin-top: 20px; }
 .fd-tf__run { display: inline-flex; align-items: center; min-height: 44px; margin-top: 8px; font-size: var(--fd-fs-row); font-weight: 500; }
 .fd-tf__claim { font-size: 28px; line-height: 32px; font-weight: 600; letter-spacing: -0.015em; }
 .fd-tf__ctas { margin-top: 20px; display: flex; flex-wrap: wrap; gap: 12px; }
+
+/* In the demo the limits card also lists the steps to run it (model/runLocally.ts), so it is the tall one: beside the zip card alone,
+   a column stood empty under it. From two-up width the closing card moves under the zip card, the two columns come out level, and the
+   source order (zip, limits, closing) is still the reading order. A copy that runs on your computer has no steps and keeps the layout above. */
+/* 809px: where the auto-fit grid above first fits two 360px columns (2 x 360 + 24 within the wrap's 4vw gutters) */
+@media (min-width: 809px) {
+  .fd-tf__grid--steps { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-areas: 'zip limits' 'close limits'; }
+  .fd-tf__grid--steps .fd-tf__side { display: contents; }
+  .fd-tf__grid--steps .fd-tf__zipcard { grid-area: zip; }
+  .fd-tf__grid--steps .fd-tf__limits { grid-area: limits; min-width: 0; }
+  .fd-tf__grid--steps .fd-tf__close { grid-area: close; }
+}
