@@ -38,3 +38,5 @@
 .zen__nav .fd-btn--secondary:active:not([aria-disabled='true']) { background: var(--fd-surface-2); }
 /* why Continue is off on the first pane: plain text above the buttons, in the body ink (the other panes say it under the question) */
 .zen__why { margin: 0; max-width: var(--fd-measure); font-size: 14px; line-height: 20px; color: var(--fd-ink); }
+/* how the checks went, once they have: one plain line above Back and "See the answer" (the answer pane's own line, ZenProof) */
+.zen__verdict { margin: 0; max-width: var(--fd-measure); font-size: 14px; line-height: 20px; color: var(--fd-ink-2); text-wrap: balance; overflow-wrap: anywhere; }

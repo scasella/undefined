@@ -38,6 +38,22 @@
 .fd-trace__timer { display: grid; justify-items: end; flex: none; }
 .fd-trace__timer-a { color: var(--tr-pen); }
 .fd-trace__timer-b { color: var(--tr-text-2); }
+/* Drafting (RunPanel's draftingView): three ticks, the trace's own mark, rise and fade in turn beside the footer's "drafting ·
+   checks start next" label (under it). They live in the FOOTER, not the header, on purpose: the header holds the title and the seconds
+   counter and has no room to spare at some width or another, so anything added there can cost the title a line (it did, as an
+   orphaned word near 950px) or the counter a second one; the footer's label is a short line in a row that wraps.
+   Indeterminate on purpose: nothing is measured while the AI writes, so no percentage and no bar that fills. transform and
+   opacity only. The static values below are the picture reduced motion keeps (a trail of three ticks, not a finished row). */
+.fd-trace__pen { display: inline-flex; align-items: center; gap: 3px; flex: none; }
+.fd-trace__pen > span { width: 6px; height: 12px; border-radius: var(--fd-r-xs); background: var(--tr-pen); transform-origin: 50% 100%; }
+.fd-trace__pen > span:nth-child(1) { opacity: 0.35; }
+.fd-trace__pen > span:nth-child(2) { opacity: 0.65; }
+.fd-trace__pen > span:nth-child(3) { opacity: 1; }
+/* ease-in-out on purpose: this one LOOPS, like the mode dot's pulse (fd-pill-pulse, TelemetryBar.css); the one ease-out is for arrivals. */
+@keyframes tpen { 0%, 100% { opacity: 0.3; transform: scaleY(0.55); } 45% { opacity: 1; transform: scaleY(1); } }
+.fd-trace__pen > span { animation: tpen 1.8s ease-in-out infinite; }
+.fd-trace__pen > span:nth-child(2) { animation-delay: -1.6s; }
+.fd-trace__pen > span:nth-child(3) { animation-delay: -1.4s; }
 .fd-trace__timer-b--ask { color: var(--tr-ask); }
 .fd-trace__hidden { opacity: 0; }
 /* opacity alone leaves text in the accessibility tree: every .fd-trace__hidden element also carries aria-hidden (or is
@@ -171,6 +187,15 @@
 }
 .fd-trace__foot-text { margin: 0; max-width: var(--fd-measure); font-size: 13px; line-height: 19px; color: var(--tr-text-2); flex: 1 1 360px; }
 .fd-trace__foot-meta { font-size: 12px; line-height: 17px; font-weight: 500; color: var(--tr-text-3); }
+/* While the AI writes the mark sits UNDER the label, in a column as wide as the label: after it the cell would be 34px wider and
+   take that from the footer's text (or drop the label under the text where the column is about 620px, which is Step by step's
+   own width on a desktop). Under it, the mark fills the empty part of the cell's column beside a text of two lines or more. */
+.fd-trace__foot-meta--drafting { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+/* Where the label has dropped under the text and is alone in its row (the text keeps 360px, the gap is 24px, the label is 28
+   characters of 12px mono, 202px: 586px of trace content), the mark goes beside it instead, so no row is added. */
+@container fd-trace (width < 586px) {
+  .fd-trace__foot-meta--drafting { flex-direction: row; align-items: center; gap: 10px; }
+}
 
 /* ── the design's keyframes; a and b are identical so alternating names restarts a replay ── */
 @keyframes tka { from { background: var(--tr-cell); box-shadow: 0 0 0 1px var(--tr-pen); } to { background: var(--tr-pass); box-shadow: 0 0 0 1px rgba(210, 255, 63, 0); } }

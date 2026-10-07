@@ -11,7 +11,7 @@ import { CheckTrace } from '../components/CheckTrace';
 import { Button } from '../components/LinkButton';
 import { downloadBytes, HANDOFF_LABEL, handoffView, handoffZip, loadEject, type EjectModule } from '../model/handoff';
 import { LIVE_TIMING } from '../model/traceScript';
-import { giveUpOnStress, matchRun, STRESS_PATIENCE_MS } from './derive';
+import { giveUpOnStress, matchRun, STRESS_PATIENCE_MS, traceSummary, type TraceView } from './derive';
 import { RunStates } from './RunStates';
 import { sessionFor, type Session } from './session';
 import './RunPanel.css';
@@ -29,6 +29,32 @@ export interface DraftingView {
   runningText: string;
   footer: { text: string; meta: string };
   liveText: string;
+}
+
+/**
+ * What the trace says aloud once the run is over, on a page that does NOT put the answer beside it (Step by step's
+ * "Checking" pane: the answer comes only when the viewer asks). The trace's own sentence ends "… Showing the answer.", which
+ * is true on `#/start` and not there, so the words are the pane's own one-line summary (traceSummary: the seal's words and the
+ * real run). Anything that is not a run that passed keeps the trace's sentence as it is; so does a run still going.
+ */
+export function settledLiveText(t: Pick<TraceView, 'header' | 'footer' | 'liveText'>): string {
+  if (!t.header.done) return t.liveText;
+  return traceSummary(t) ?? t.liveText.replace(/\s*Showing the answer\.$/, '');
+}
+
+/**
+ * The sentence the trace's live region speaks, by where the trace is. While the AI is still writing: the drafting words (the
+ * checks have not started). On Step by step's "Checking" pane (`zen` and part 'run'): once the run is over, settledLiveText,
+ * because the answer is not beside the trace there. EVERYWHERE ELSE the trace's own sentence goes through untouched, the Full
+ * view above all: "… Showing the answer." is true on `#/start`, where the answer card is on the same page, and it must stay
+ * exactly as the trace words it.
+ */
+export function traceLiveText(
+  t: Pick<TraceView, 'header' | 'footer' | 'liveText'>,
+  where: { drafting: DraftingView | null; zen: boolean; part: 'all' | 'run' | 'answer' },
+): string {
+  if (where.drafting) return where.drafting.liveText;
+  return where.zen && where.part === 'run' ? settledLiveText(t) : t.liveText;
 }
 
 /** '4 s', '1 min 5 s': whole seconds, the way the counter under the trace reads. */
@@ -135,8 +161,8 @@ export function RunPanel({
           ghost={t.ghost}
           header={t.header}
           footer={drafting ? drafting.footer : t.footer}
-          liveText={drafting ? drafting.liveText : t.liveText}
-          {...(drafting ? { runningText: drafting.runningText } : {})}
+          liveText={traceLiveText(t, { drafting, zen, part })}
+          {...(drafting ? { runningText: drafting.runningText, drafting: true } : {})}
           {...(onSettled ? { onSettled } : {})}
         />
       )}

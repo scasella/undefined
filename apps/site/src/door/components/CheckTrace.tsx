@@ -34,6 +34,13 @@ export interface CheckTraceProps {
    * seconds) while the AI is still writing. While only the stress test is left the header's own words are used.
    */
   runningText?: string;
+  /**
+   * Live feed only: the AI is still writing the draft (RunPanel's draftingView; no check has run yet). A small indeterminate
+   * mark sits under the footer's "drafting · checks start next" label (beside it where the label has its own row) so the wait is
+   * not a still picture (the footer, not the header: the header's title and seconds counter have no room to give). Nothing is
+   * measured while the AI writes, so it shows no percentage and no bar that fills. Gone the moment the checks start.
+   */
+  drafting?: boolean;
 }
 
 const SETTLED: ReadonlySet<LaneState> = new Set(['passed', 'failed', 'stopped']);
@@ -104,6 +111,8 @@ export function CheckTrace(p: CheckTraceProps) {
       ? panelMotion(0, 'a', { seal: h.tone === 'pass', ghost: false })
       : {};
   const showVerdict = !!(h.done && h.verdict);
+  // the writing mark (in the footer, with the meta label): live feed, run going, the AI still drafting
+  const drafting = !script && !!p.drafting && !!h.running && !h.stress;
   const ghosts = p.ghost ? (Array.isArray(p.ghost) ? p.ghost : [p.ghost]) : [];
 
   // text that is faded out on screen is not read out either (aria-hidden): the header's left text once the verdict is up,
@@ -182,7 +191,16 @@ export function CheckTrace(p: CheckTraceProps) {
 
       <div class="fd-trace__foot">
         <p class="fd-trace__foot-text">{p.footer.text}</p>
-        <span class="fd-trace__foot-meta fd-trace__mono">{p.footer.meta}</span>
+        <span class={`fd-trace__foot-meta fd-trace__mono${drafting ? ' fd-trace__foot-meta--drafting' : ''}`}>
+          {p.footer.meta}
+          {drafting && (
+            <span aria-hidden="true" class="fd-trace__pen">
+              <span />
+              <span />
+              <span />
+            </span>
+          )}
+        </span>
       </div>
       <div aria-live="polite" class="fd-sr">
         {atRest ? p.liveText : ''}

@@ -19,7 +19,7 @@ spacing, colours, motion, a11y attributes), translated into Preact + CSS files w
 |---|---|---|
 | `#/` (default) | Landing: telemetry bar, hero claim, live example stage (check trace + answer + agreement rail), evidence strip, order-of-work, definition ladder, "agree once", "it asks", "says no" + privacy, team file + honest limits, footer, honesty bar | `V3-Door-Landing` |
 | `#/start` | The full first run, for people who want everything on one page (reached from the landing's footer, "Full view of the demo", and from the step-by-step page's "Full view"): a short task heading, bring a file (drop / paste / sample), ask a question, live check trace, answer, the file's columns, right rail (what the AI will see, your agreement, demo note). Not redirected; `scripts/record-door.mjs` and `replay-check.mjs` open it | `V3-Door-FirstRun` |
-| `#/zen` | **Step by step** (the route is still `#/zen`): where first-time visitors are sent (the landing's "Try the demo" buttons and the top bar's "Step by step" button; in the demo the landing's second hero button reads "Use your own file: run it on your computer" and goes to `#own-file` instead, `landing/teamFileView.ts` `ownFileCta`, and only on a live copy does it lead here). A five-pane walk-through in a bare single column (1 bring data · 2 ask · 3 what the answer must pass, the six checks each tagged in the check trace's own words: `Always` (01 and 05) or `Applies` (the other four, when they will run), `No examples yet` / `Nothing locked yet` / `No house rules yet` / `Needs your rules first` (the stress test) when there is nothing to run it on, and `Not re-run` when the agreement holds it but the answer on file was checked before it was set (`zen/flow.ts` `zenChecks`, `model/lanes.ts` `OFF_NOTES`) · 4 the live check trace, which starts the run and hands over by itself once it commits · 5 the answer, its one-line proof, download, ask again). Same session and components as `#/start`; nothing scripted. What each pane does is under "Step by step, pane by pane" below | (no board; `src/door/zen/`) |
+| `#/zen`, `#/zen/N` | **Step by step** (the route is still `#/zen`; the pane is in the address, `#/zen/1` to `#/zen/5`, and nothing moves by itself): where first-time visitors are sent (the landing's "Try the demo" buttons and the top bar's "Step by step" button; in the demo the landing's second hero button reads "Use your own file: run it on your computer" and goes to `#own-file` instead, `landing/teamFileView.ts` `ownFileCta`, and only on a live copy does it lead here). A five-pane walk-through in a bare single column (1 bring data · 2 ask · 3 what the answer must pass, the six checks each tagged in the check trace's own words: `Always` (01 and 05) or `Applies` (the other four, when they will run), `No examples yet` / `Nothing locked yet` / `No house rules yet` / `Needs your rules first` (the stress test) when there is nothing to run it on, and `Not re-run` when the agreement holds it but the answer on file was checked before it was set (`zen/flow.ts` `zenChecks`, `model/lanes.ts` `OFF_NOTES`) · 4 the live check trace, which starts the run and stays on the finished trace until the viewer presses "See the answer" · 5 the answer, its one-line proof, download, ask again). Same session and components as `#/start`; nothing scripted. What each pane does is under "Step by step, pane by pane" below | (no board; `src/door/zen/`) |
 
 ## Step by step, pane by pane (`src/door/zen/`)
 
@@ -28,6 +28,45 @@ spacing, colours, motion, a11y attributes), translated into Preact + CSS files w
   pane 5 when an answer is shown, pane 4 while a run is still going, pane 2 when a file is bound and nothing was asked, pane 1
   with no data. The carried run is never `pending` (the engine's own state says whether it is still going), and its id is
   not reused or counted twice in the telemetry.
+- **The pane is in the address** (`zen/flow.ts`). `#/zen/1` … `#/zen/5`; a bare `#/zen` resolves to the opening pane above and is
+  then rewritten (`replaceState`) to `#/zen/N`. The pane is read before any `?query` or in-page `#anchor` (`stepFromHash`:
+  `#/zen/3#x` is pane 3, not "nothing"). Moving with the page's own buttons uses `history.pushState` (it fires no
+  `hashchange`), recording `{ zenStep, zenPrev }` in `history.state`; the browser's own Back and Forward do fire it, and in
+  both cases the router leaves scroll and focus to the page (`router.ts` `pageKeepsFocus`, true only for a hash change from
+  one Step by step pane to another: the page owns that sub-path; the whole hashchange decision is `planHashChange`, a pure
+  function of the route the viewer is on, the new hash and the old address, which the handler only carries out). Everything
+  else is as it always was, so on the landing a click on the logo (`#/`) from `#/#asks` scrolls to the top, and a change of
+  route (landing to Step by step: to the top, focus on `#main`) or an in-page anchor scrolls and focuses as before. An anchor
+  after a pane (`#/zen/3#main`) is the one exception and nothing links to it: the browser fires `popstate` before `hashchange`,
+  the page's own `popstate` handler reads the pane before the `#` and rewrites the address to `#/zen/3`, and the router then reads
+  that, so the anchor is neither scrolled to nor focused when the address is changed to it (a cold load of `#/zen/1#main` is
+  different: the router reads that anchor before the page has mounted, so `#main` takes focus and the page then rewrites the
+  address to `#/zen/1`; an id the page does not have does nothing). The browser's Back and Forward then step one pane at a time, and the page
+  listens to `hashchange` and `popstate` (both idempotent: they compute the pane, compare, and only then change it). What the
+  address asks for is only a request, clamped to what the session allows (`resolveStep`): pane 1 always; 2 and 3 need data
+  bound; 4 needs a run in progress or an answer shown; 5 needs an answer shown; anything else opens where `openingStep` says.
+  A run in progress always shows pane 4 and the address is rewritten to `#/zen/4`: there is no cancel, because the engine
+  cannot cancel, so Back during a run stays on the trace (and the entry it popped to is rewritten, which is why, after that, the browser's
+  Back from the answer goes to the finished trace (pane 4) and the Back after that skips pane 3, landing on pane 2). The clamp never pushes. The page's own "Back" calls `history.back()` when the entry before is the
+  previous pane (`backPlan`), otherwise it pushes the previous pane (after "Ask another question", from a deep link, or when
+  the entry was rewritten). `backPlan` reads only the entry the viewer is on, and an entry behind it may have been rewritten
+  since (a browser Back during a run, then Forward: the entry after the rewritten one still remembers pane 3), so the page
+  also looks at where `history.back()` really landed (`afterHistoryBack`, in the `popstate` that follows) and, when that is
+  not the previous pane, pushes it: one press of "Back" always shows the pane before. "Is this a Step by step hash" has one
+  definition, `router.ts` `isZenHash` (it names the route in `parseHash`, and `zen/flow.ts` re-exports that same function for the
+  page; a test pins that they are one). A hash typed by hand that names no
+  route (`#own-file`) is put back as the pane it was on (`router.ts` `hashToKeep`; the landing and the Full view get their
+  plain route path back, as before).
+  While the walk-through is mounted the page owns the scroll: `history.scrollRestoration` is `'manual'` (`zen/flow.ts`
+  `holdManualScroll`, set on mount, quiet where the browser refuses), because the browser put an entry's old scroll offset back
+  after the pane had scrolled itself to the top and left it 2 to 4 px down on Back and Forward; every Back and Forward lands at
+  `scrollY === 0`. When the page goes, the hold gives back `'auto'`, the browser's default, and never "what it found": the
+  value belongs to a history entry, and an entry made by `pushState` or a fragment navigation from a pane inherits the pane's
+  `'manual'`, so a later visit (Back from the Full view onto a pane) finds `'manual'` on a page that never set it, and putting
+  that back would have carried it to the landing and the Full view for good (it ratcheted). The landing and the Full view run
+  with `'auto'` in every sequence (`replay-check.mjs` 3e: five sequences, hop by hop, reading the value after each). Leaving for
+  another page is otherwise unchanged: Back from Step by step to a landing that was scrolled lands at the top with or without
+  the hold (probed at 1440 and 390 px; the router's scroll to the top wins).
 - **1 · Bring your data.** Continue is aria-disabled until data is bound and says why next to it ("Choose a sample or bring a
   file to continue."), tied to the button with `aria-describedby`. Binding closes the picker and the button that was pressed
   with it, so focus is sent to Continue on purpose (`ZEN_CONTINUE_ID`) and a screen reader hears "<file> is ready.".
@@ -41,7 +80,35 @@ spacing, colours, motion, a11y attributes), translated into Preact + CSS files w
   plain dashed ring and its tag (`No examples yet` …). Green appears only after a pass (the trace, the answer). The sentence
   under the list follows the seal rule: for Full checks the answer appears after all six have run, the first five must pass,
   and the stress test reports how many of its deliberate breaks the checks caught.
-- **4 · Checking** is the live trace and hands over to pane 5 by itself once it commits.
+- **4 · Checking** is the live trace and **never hands over by itself** (there is no timer: the old 1.1 s hand-over is gone, so
+  the finished trace can be read for as long as the viewer wants). While the AI's draft is replayed (up to about 5 s in the
+  demo) the trace shows the seconds counter and, in its footer, a small indeterminate mark by the "drafting · checks start next"
+  label: three ticks that rise and fade in turn
+  (`components/CheckTrace.tsx` `drafting`, driven by `start/RunPanel.tsx` `draftingView`; transform and opacity only, 1.8 s
+  ease-in-out, which is deliberate for a loop, like the mode dot's pulse, while the one ease-out is for arrivals; `aria-hidden`;
+  no percentage and no bar, because nothing is measured while the AI writes; under reduced motion it is a static trail of
+  three ticks and the counter still ticks as text). It is in the footer and not the header on purpose: the header holds the
+  title and the counter, which have no room to give at some width or another (beside the counter the mark cost the title a line
+  near 950 px on `#/start` and the counter a second line on a phone), so the header is exactly what it was without the mark
+  and nothing there knows about it. The mark sits under the label, so the cell is as wide as the label and the footer's text
+  keeps all its room (beside it, the cell would have been 34 px wider: the label would have dropped under the text on Step by
+  step's desktop column); where the label has dropped under the text on its own row (trace content under 586 px: the text's
+  360 px, the 24 px gap and the 202 px label) the mark goes beside it instead (`components/CheckTrace.css`; a test ties the 586
+  to those three numbers). Measured mid-draft at 42 widths from 320 to 1440 px on both pages: the header (height, title lines,
+  counter lines) and the footer height are the same as they were before the mark, the mark is inside the trace, and the page
+  does not scroll sideways. (Not the mark's, and unchanged by it: without any mark the drafting header already squeezes the
+  title between about 480 and 700 px of screen, where the replay counter, `replaying the recorded draft · 4 s`, takes the room
+  beside it: up to 5 title lines at about 500 px.) The mark is also in Full view and is gone the moment the checks start.
+  When the run settles (committed, or answered from the version on file, with the seal already final: the
+  stress test has finished) the pane stays "Checking" with the finished trace, one plain line saying how the checks went (the
+  answer pane's own line, `traceSummary`), Back (secondary) and "See the answer" (primary). Focus moves to "See the answer"
+  (`ZEN_SEE_ANSWER_ID`, not the heading; only when the viewer watched this run, and wherever focus was: after a stray Tab it
+  is on the top bar's skip link, and it still moves, because nothing else on the pane takes focus while it runs), and
+  the trace's live region says the verdict once (`start/RunPanel.tsx` `settledLiveText`: the trace's own sentence ends
+  "Showing the answer.", which is true on `#/start` and not here; `traceLiveText` gives these words to Step by step's Checking
+  pane only, and `#/start` keeps the trace's sentence word for word, "Showing the answer." included, pinned in `RunPanel.test.ts`). There is no skip and no cancel: the replay generator can
+  only be aborted, which would fail the draft. Any other outcome (a question only you can answer, a refusal, nothing
+  recorded…) is shown in place with its own way forward.
 - **5 · Your answer** keeps the proof: under the answer, one line cut from the trace's own header and footer (`start/derive.ts`
   `traceSummary`: `Passed every check · stress test caught 8 of 12 · real run 0.08 s`, `Passed 2 basic checks · real run
   0.08 s`, or, for an answer certified earlier, what the footer says, never "real run"), and a "See the checks" button

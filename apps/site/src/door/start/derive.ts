@@ -401,7 +401,9 @@ export function traceView(t: TraceInput): TraceView {
  * One line for a run that passed and is over: the verdict's words (the seal for Full checks, "Passed 2 basic checks"
  * for Basic; the trace's "see the list" pointer left off) and the footer's own meta (`real run 0.08 s`; for an answer
  * certified earlier, what that says). It is cut from the very view the trace is drawn from, so it can never disagree
- * with it. null unless the run passed (step by step shows it above the collapsed trace on the answer pane).
+ * with it. null unless the run passed. Step by step uses it in three places, all the same words: the line above the collapsed
+ * trace on the answer pane (zen/ZenProof.tsx), the verdict line on the finished "Checking" pane (zen/Zen.tsx), and what the
+ * trace says aloud once that run is over (start/RunPanel.tsx settledLiveText).
  */
 export function traceSummary(t: Pick<TraceView, 'header' | 'footer'>): string | null {
   const h = t.header;
