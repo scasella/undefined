@@ -2,7 +2,9 @@
  * Landing · evidence strip (V3-Door-Landing 386-453): four tiles under the example answer, the "Why" behind the thrown-out
  * draft, and the expandable stress-test strip. Every tile reports the outcome of a run that was not recorded, so each
  * is covered by the section's ONE label (./evidenceView.ts `evidenceLabel`, which also says which parts are computed); the
- * thrown-out draft's figures in the "Why" are computed from the real orders by model/figures.ts.
+ * thrown-out draft's figures in the "Why" are computed from the real orders by model/figures.ts. The one thing that IS recorded,
+ * the stress test's result on the demo's own run (8 of 12), sits inside the stress-test tile beside the illustrated 11 of 12, marked
+ * "Recorded run" and linked to Step by step (`RecordedRun`).
  */
 import { useRef, useState } from 'preact/hooks';
 import { bundledOrders } from '../../data/orders';
@@ -12,7 +14,7 @@ import { deliberateBreaks } from '../model/lanes';
 import { DEFAULT_MADE_UP_TABLE, ILLUSTRATIVE_BREAKS, madeUpTableLabel, madeUpTableNote, thrownOutDraft } from '../model/figures';
 import { exampleCount } from './teamFileView';
 import { dotGridKey } from './dotGrid';
-import { EVIDENCE_FOOT, evidenceLabel, evidenceTiles, type EvidenceTile } from './evidenceView';
+import { EVIDENCE_FOOT, evidenceLabel, evidenceTiles, recordedRun, type EvidenceTile } from './evidenceView';
 import './EvidenceStrip.css';
 
 const DRAFT = thrownOutDraft(bundledOrders());
@@ -28,6 +30,26 @@ function Head({ t }: { t: EvidenceTile }) {
       <div class="fd-ev-big fd-mono">{t.big}</div>
       <div class="fd-ev-sub">{t.sub}</div>
     </>
+  );
+}
+
+/**
+ * The one recorded run's stress-test result, under the illustrated one it sits beside (the tiles stack at phone width, so it lives
+ * inside the tile, not under all four). It is established, not illustrative: a plain solid divider, no dashed label, and the link
+ * goes to the real thing. Its words and numbers are evidenceView.ts `recordedRun` (the pinned constant, replayed through the real engine).
+ */
+function RecordedRun() {
+  const r = recordedRun();
+  return (
+    <div class="fd-ev-rec">
+      <p class="fd-ev-rec__result">
+        <strong>{r.label}</strong> {r.result}
+      </p>
+      <p class="fd-ev-rec__what">{r.what}</p>
+      <a class="fd-ev-rec__link" href={r.link.href}>
+        {r.link.label}
+      </a>
+    </div>
   );
 }
 
@@ -144,6 +166,7 @@ export function EvidenceStrip() {
             <button type="button" class="fd-ev-link fd-ev-link--block" aria-expanded={stress ? 'true' : 'false'} onClick={() => setStress(!stress)}>
               {stress ? `Hide the ${deliberateBreaks(ILLUSTRATIVE_BREAKS.length)}` : `See all ${deliberateBreaks(ILLUSTRATIVE_BREAKS.length)} and the one they missed`}
             </button>
+            <RecordedRun />
           </div>
           <div class="fd-ev-tile">
             <Head t={tile('thrown')} />

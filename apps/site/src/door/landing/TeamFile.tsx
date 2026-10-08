@@ -6,7 +6,8 @@
  * and where it opens (model/runLocally.ts, the same strings as Step by step's dead end) above its link to the README's setup
  * steps; on a copy that runs on your computer it is the limits and the link, as ever. The zip card beside it is about handing a
  * result to a team, not about running the app. With the steps the limits card is the taller one, so in the demo the closing
- * card sits under the zip card rather than under the limits (the layout is TeamFile.css, only for `--steps`).
+ * card sits under the zip card rather than under the limits (the layout is TeamFile.css, only for `--steps`), and the two columns end level at
+ * every two-up width (the rows are `auto 1fr` and the cards stretch), whichever of them the copy makes the taller.
  * The closing card's "Try the demo" starts the step-by-step walk-through; its second button is about your own file and,
  * on the public demo, goes straight to the README's setup steps (ownFileCta).
  */

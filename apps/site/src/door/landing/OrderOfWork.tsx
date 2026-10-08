@@ -39,10 +39,7 @@ export function OrderOfWork() {
             <span class="fd-ow-step fd-ow-step--done">You see the number, with what was checked</span>
           </div>
         </div>
-        <p class="fd-ow-note">
-          Plenty of AI assistants write good formulas. The difference here is the order of work: the checking happens before
-          the answer reaches you, against rules you wrote down.
-        </p>
+        <p class="fd-ow-note">Plenty of AI assistants write good formulas. The difference is the order of work.</p>
       </div>
     </section>
   );

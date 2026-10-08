@@ -110,7 +110,7 @@ export function askQuestion(state: AsksState, f: ClashFigures): AskQuestion {
     mode: state.mode,
     head: isGap ? 'What should happen to a customer whose orders were all refunded?' : "Two of your rules can't both be true",
     body: isGap
-      ? "We tried a made-up table where that happens. Your house rules don't say. We won't guess."
+      ? "We tried a made-up table where that happens. Your house rules don't say."
       : 'Your locked answer counts every row. Your house rule counts paid orders only. No calculation can pass both, so nothing new is shown.',
     legend: isGap ? 'What should happen?' : 'Which one wins?',
     name: isGap ? 'gap-choice' : 'clash-choice',

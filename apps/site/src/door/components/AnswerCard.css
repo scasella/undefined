@@ -178,6 +178,14 @@
   letter-spacing: 0.01em; color: var(--fd-ink-3);
 }
 
+/* The landing's held card is a compact skeleton, not the answer's height under a veil: the five bars and the caption set its height (the veil is in flow),
+   and the body (still in the DOM; it is inert and aria-hidden while held) is out of layout and out of the accessibility tree. Released, none of this applies:
+   the veil is the absolutely positioned cover again (fading out in the reveal) and the card takes the answer's natural height. The first-run pages' card is
+   not touched (their veil is a cover, their body is held at full height). Where the page lands when the card grows is the stage's to decide (Stage.tsx). */
+.fd-ac--landing.fd-ac--held { padding: 0; }
+.fd-ac--landing.fd-ac--held .fd-ac__body { display: none; }
+.fd-ac--landing.fd-ac--held .fd-ac__veil { position: relative; inset: auto; }
+
 /* ───────── the timed reveal (only with .fd-ac--reveal) ───────── */
 @keyframes fd-ac-cd {
   from { transform: translateY(4px); box-shadow: var(--fd-sh-1); }

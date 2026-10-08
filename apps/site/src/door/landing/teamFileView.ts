@@ -94,6 +94,8 @@ export function ownFileCta(mode: 'live' | 'replay', place: 'hero' | 'closing'): 
   return { label: 'Use your own file: run it on your computer', target: place === 'hero' ? 'limits' : 'readme' };
 }
 
-/** The card's lead paragraph. The design said "every check"; the exported tests do not rerun the in-app speed and no-change check. */
-export const TEAM_FILE_LEAD =
-  "When an answer matters, download it. Someone on your team who codes can rerun the calculation and its checks, and get the same result. It isn't an Excel file.";
+/**
+ * The card's lead paragraph, short on purpose: that a teammate can rerun it is the heading's, what is in the file is the zip list's, and the one
+ * caveat (which check only runs inside the app) is the read-me item's, so none of them is said again here.
+ */
+export const TEAM_FILE_LEAD = "When an answer matters, download it. It isn't an Excel file.";

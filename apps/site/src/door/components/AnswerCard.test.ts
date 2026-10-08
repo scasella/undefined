@@ -78,6 +78,31 @@ describe('AnswerCard', () => {
     expect(r.nodes[0]!.props['aria-label']).toBe('Answer held until every check passes');
     expect(r.nodes.find((n) => n.props.class === 'fd-ac__body')!.props.inert).toBe(true);
   });
+  it('landing, held: the card is the compact variant, its body stays in the DOM (inert, aria-hidden) and the veil still carries the caption', () => {
+    const r = render({ ...base, variant: 'landing', held: true, heldCaption: HELD_CAPTION_WAITING });
+    expect(String(r.nodes[0]!.props.class)).toMatch(/\bfd-ac--landing\b.*\bfd-ac--held\b|\bfd-ac--held\b.*\bfd-ac--landing\b/);
+    const body = r.nodes.find((n) => n.props.class === 'fd-ac__body')!;
+    expect(body.props.inert).toBe(true);
+    expect(body.props['aria-hidden']).toBe(true);
+    expect(r.text).toContain('Chef Ravioli Starbright'); // in the DOM, so releasing it needs no new render of its content
+    expect(r.text).toContain(HELD_CAPTION_WAITING);
+    // released: the same card is not held, and the reveal keys it to the run
+    const shown = render({ ...base, variant: 'landing', held: false });
+    expect(String(shown.nodes[0]!.props.class)).toContain('fd-ac--shown');
+    expect(String(shown.nodes[0]!.props.class)).not.toContain('fd-ac--held');
+    expect(shown.nodes.find((n) => n.props.class === 'fd-ac__body')!.props.inert).toBe(false);
+  });
+  it('landing held CSS: five bars and the caption set the height (the veil in flow), the body is out of layout, the first-run card is not touched', () => {
+    const css = readFileSync(new URL('./AnswerCard.css', import.meta.url), 'utf8');
+    const rule = (sel: string): string => new RegExp(`${sel.replace(/[.\\[\]]/g, '\\$&')}\\s*\\{([^}]*)\\}`).exec(css)?.[1] ?? '';
+    expect(rule('.fd-ac--landing.fd-ac--held .fd-ac__body')).toMatch(/display:\s*none/); // out of layout and out of the accessibility tree, still in the DOM
+    expect(rule('.fd-ac--landing.fd-ac--held .fd-ac__veil')).toMatch(/position:\s*relative/);
+    expect(rule('.fd-ac--landing.fd-ac--held')).toMatch(/padding:\s*0/);
+    // nothing of this applies to the first-run pages' held card (variant start): every compact rule is scoped to the landing
+    const compact = css.split('\n').filter((l) => /fd-ac--held[^{]*\.fd-ac__(body|veil)\s*\{[^}]*(display:\s*none|position:\s*relative)/.test(l));
+    expect(compact.length).toBeGreaterThanOrEqual(2);
+    for (const l of compact) expect(l).toMatch(/^\.fd-ac--landing\.fd-ac--held /);
+  });
   it('null view is held with the start caption', () => {
     const r = render({ ...base, view: null });
     expect(r.text).toContain(HELD_CAPTION_START);

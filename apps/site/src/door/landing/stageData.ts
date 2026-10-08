@@ -13,7 +13,7 @@ import { AGREED, formatMoney, thrownOutDraft, topCustomers, type DataRow } from 
 import { shapeValue, type AnswerView } from '../model/answer';
 import type { AssumptionList } from '../model/assumptions';
 import { illustrativeAgreement, type AgreementView } from '../model/agreement';
-import { stressChecked, stressNotChecked } from '../model/lanes';
+import { stressChecked, stressNotChecked, type StressStatus } from '../model/lanes';
 import { SCRIPT_SEAL, SCRIPT_STRESS, scenarios, scenarioView, type Scenario, type ScenarioId } from '../model/traceScript';
 
 export const STAGE_QUESTION = 'Who are our top customers by revenue?';
@@ -26,6 +26,22 @@ export const STAGE_FILE = 'orders.csv';
  * through the real engine and pins this number to what it commits.
  */
 export const STAGE_VERSION = 4;
+
+/**
+ * What the stress test came to in the ONE recorded run (orders.csv, "top customers by revenue", the first draft accepted, Version 4):
+ * 12 deliberate breaks, 8 caught, 4 missed. Not typed from memory: stageData.test.ts replays the bundled recording through the real
+ * engine, lets its stress test finish and pins this to what the engine reports, so a re-recording or an engine change fails a test
+ * instead of letting the landing drift. The illustration above it (traceScript.ts SCRIPT_STRESS) has its own, labelled numbers.
+ */
+export const RECORDED_STRESS: Extract<StressStatus, { kind: 'done' }> = { kind: 'done', total: 12, caught: 8, missed: 4 };
+/** The recorded run's first draft was accepted: nothing was thrown out (the illustration throws one out, to show what a rejection looks like). */
+export const RECORDED_DRAFTS_THROWN_OUT = 0;
+
+/**
+ * The name of the stage's pass playback, as its toggle reads. The evidence section's recorded-run block points at it by this name
+ * ('The "Watch it pass" playback above throws one out'), because the other playback ("Watch it stop and ask") throws nothing out.
+ */
+export const WATCH_PASS_LABEL = 'Watch it pass';
 
 /**
  * The stage's ONE label, the small mono caption under the trace: the playback, and the example answer it leads to, are an
@@ -175,6 +191,37 @@ let cached: StageData | null = null;
 /** The stage over the bundled sample (orders.csv, 332 rows), computed once. */
 export function landingStage(): StageData {
   return (cached ??= buildStage(bundledOrders()));
+}
+
+/**
+ * When the landing's answer card is released, in ms after the playback (re)starts: at the scenario's reveal (`tRev`). null: never;
+ * the stop scenario holds the card until the viewer decides, whatever the clock says.
+ */
+export function cardReleaseMs(s: Scenario): number | null {
+  return s.id === 'stop' ? null : Math.round(s.tRev * 1000);
+}
+
+/** Whether the landing's answer card is still held (a compact skeleton, nothing of the answer in layout or in the accessibility tree). */
+export function cardHeld(s: Scenario, released: boolean): boolean {
+  return s.id === 'stop' || !released;
+}
+
+/**
+ * Whether a viewer keeps their place when the card is released: `cardTop` is the card's top edge in the window (getBoundingClientRect().top).
+ * The card grows by about 870 px (about 1,450 px on a phone) and everything under it moves down by the same distance. A viewer whose window
+ * has the start of the card in it is watching it fill, so it grows under them. A viewer whose window starts below the card's top (above
+ * zero) is reading something under it, the evidence or, on a phone, the agreement: the page is moved back by the distance, so their line
+ * does not jump. Not "the card is wholly above the window": the section under the card sits 24 px below it, so that rule only protected a
+ * viewer within 24 px of the evidence, and a viewer reading a few hundred px into it still saw the whole section leave.
+ */
+export function keepsPlaceAtRelease(cardTop: number): boolean {
+  return cardTop < 0;
+}
+
+/** How far to scroll to put a line back where it was: its top in the window before the release and after it. Under a pixel is not worth a scroll. */
+export function placeCorrection(before: number, after: number): number {
+  const moved = after - before;
+  return Math.abs(moved) < 1 ? 0 : moved;
 }
 
 /**

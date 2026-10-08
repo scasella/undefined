@@ -35,8 +35,8 @@ export function AgreeOnce() {
           <div class="fd-once__eyebrow">FIG. 3 · ONE AGREEMENT, EVERY VERSION</div>
           <h2 id="agree-h" class="fd-once__h">Agree once, held every time.</h2>
           <p class="fd-once__lede">
-            Agree on the rules once. Every version after that has to pass all of them. When you add a rule, the next version is held to it too. A
-            rewrite that breaks an answer you locked is thrown out before you see it.
+            Every version has to pass all of your rules. When you add a rule, the next version is held to it too. A rewrite that breaks an
+            answer you locked is thrown out before you see it.
           </p>
           <p class="fd-once__small">Going back to an earlier version is saved as a new version. Nothing is erased.</p>
         </div>

@@ -26,7 +26,11 @@ export const LEVEL_BASIC = `PASSED ${BASIC_CHECKS} BASIC CHECKS · NOTHING ELSE 
 
 export interface AnswerCardProps {
   view: AnswerView | null;
-  /** Veil shown. Forced on when `view` is null. */
+  /**
+   * Veil shown. Forced on when `view` is null. On the first-run pages the veil covers the answer's own height; on the LANDING card
+   * (variant 'landing') a held card is a compact skeleton (AnswerCard.css `.fd-ac--landing.fd-ac--held`: the veil is in flow, the body is
+   * out of layout), and the caller releases it (`held` false) at the moment the answer should appear.
+   */
   held: boolean;
   /** Caption under the veil bars. Default: the start page's 'Held until every check passes. Ask to start the checks.' */
   heldCaption?: string;
@@ -34,7 +38,8 @@ export interface AnswerCardProps {
   variant?: 'landing' | 'start';
   /**
    * Timed reveal: `delay` is the design's tRev in seconds; changing `run` restarts the animation (the design's a/b
-   * keyframe parity). Omit to show the revealed state without animation.
+   * keyframe parity). Omit to show the revealed state without animation. The landing releases its card with `held`, so it passes
+   * `delay: 0` and the reveal starts when the card is released.
    */
   reveal?: { delay: number; run: number } | null;
   /** 'full': PASSED EVERY CHECK; 'basic': PASSED 2 BASIC CHECKS · NOTHING ELSE CHECKED YET. */

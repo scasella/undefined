@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { hashesFor } from '@scasella/undefined-engine/shared/hash';
 import { ejectFiles } from '@scasella/undefined-engine/eject/eject';
@@ -70,3 +71,21 @@ describe('ownFileCta', () => {
     expect(ownFileCta('live', 'closing')).toEqual({ label: 'Use your own file', target: 'zen' });
   });
 });
+
+describe('the two columns end level at every two-up width (TeamFile.css; measured in the browser by scripts/replay-check.mjs)', () => {
+  const css = readFileSync(new URL('./TeamFile.css', import.meta.url), 'utf8');
+  const steps = /@media \(min-width: 809px\) \{([\s\S]*?)\n\}/.exec(css)?.[1] ?? '';
+  const grid = /\.fd-tf__grid--steps \{([^}]*)\}/.exec(steps)?.[1] ?? '';
+
+  it('the demo grid stretches its items and gives the closing card the flexible row, so neither column can end above the other', () => {
+    expect(grid).toMatch(/grid-template-rows:\s*auto 1fr/);
+    expect(grid).toMatch(/align-items:\s*stretch/);
+    expect(grid).toContain("grid-template-areas: 'zip limits' 'close limits'");
+  });
+
+  it('the plain grid (a copy that runs on your computer, and one column) keeps its own alignment: the stretch is only for the two-up steps layout', () => {
+    expect(css).toMatch(/\.fd-tf__grid \{[^}]*align-items:\s*start/);
+    expect(css.indexOf('align-items: stretch')).toBeGreaterThan(css.indexOf('@media (min-width: 809px)'));
+  });
+});
+

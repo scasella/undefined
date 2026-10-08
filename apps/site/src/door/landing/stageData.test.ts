@@ -4,15 +4,22 @@ import { describe, expect, it } from 'vitest';
 import type { Recording } from '@scasella/undefined-engine/types';
 import { bundledOrders } from '../../data/orders';
 import { sampleOpeningQuestion } from '../model/questions';
-import { passScenario, passLanes, stopScenario } from '../model/traceScript';
+import { sealWords, stressStatus } from '../model/lanes';
+import { passScenario, passLanes, SCRIPT_STRESS, stopScenario } from '../model/traceScript';
 import {
   buildStage,
   CALC_SOURCE,
+  cardHeld,
+  cardReleaseMs,
   ghostNote,
   ILLUSTRATION_CAPTION,
+  keepsPlaceAtRelease,
   landingStage,
   PASS_META,
+  placeCorrection,
   PASS_TIMER,
+  RECORDED_DRAFTS_THROWN_OUT,
+  RECORDED_STRESS,
   STAGE_QUESTION,
   settleSeconds,
   STAGE_ASSUMPTIONS,
@@ -167,6 +174,67 @@ describe('settleSeconds', () => {
   });
 });
 
+describe('the answer card is held as a compact skeleton and released at the reveal (Stage.tsx owns the state, stageData.ts the rule)', () => {
+  it('pass releases at its reveal (6.9 s), stop never releases: the viewer decides', () => {
+    expect(cardReleaseMs(s.scenarios.pass)).toBe(6900);
+    expect(cardReleaseMs(s.scenarios.pass)).toBe(Math.round(s.scenarios.pass.tRev * 1000));
+    expect(cardReleaseMs(s.scenarios.stop)).toBeNull();
+  });
+
+  it('held until released in the pass scenario; always held in the stop scenario, whatever the clock says', () => {
+    expect(cardHeld(s.scenarios.pass, false)).toBe(true);
+    expect(cardHeld(s.scenarios.pass, true)).toBe(false);
+    expect(cardHeld(s.scenarios.stop, false)).toBe(true);
+    expect(cardHeld(s.scenarios.stop, true)).toBe(true);
+  });
+
+  it('the stage wires it: held until released (no CSS delay on a full-height card), every restart is held in the same render, reduced motion starts released, the release keeps the viewer past the stage where they were', () => {
+    const stage = readFileSync(new URL('./Stage.tsx', import.meta.url), 'utf8');
+    expect(stage).toContain('held={cardHeld(scenario, released)}');
+    expect(stage).toContain('reveal={{ delay: 0, run }}'); // the reveal starts at the release, not 6.9 s after a tall card was drawn
+    expect(stage).not.toMatch(/delay: scenario\.tRev/);
+    expect(stage).toContain('useState<boolean>(reducedMotion)'); // nothing to wait for under reduced motion: released from the start
+    // "Run again" and the other scenario are one restart: the run, the scenario and the held card change in one batch (no flash of the tall card)
+    const restart = /const restart = \(id: ScenarioId\) => \{([\s\S]*?)\n  \};/.exec(stage)?.[1] ?? '';
+    expect(restart).toContain('setRun(');
+    expect(restart).toContain('setReleased(reducedMotion())');
+    expect(stage).toContain('onClick={() => restart(scen)}');
+    expect(stage).toContain('onChange={restart}'); // the toggle is the same restart, not an alias of it
+    expect(stage).not.toMatch(/const watch = /);
+    // the one jump the release makes is taken out for a viewer who has scrolled past where the card begins (the rule is stageData.ts keepsPlaceAtRelease)
+    expect(stage).toContain("window.scrollBy({ top: moved, behavior: 'instant' })");
+    expect(stage).not.toMatch(/window\.scrollBy\(0, /); // a fallback without 'instant' would be smooth-scrolled by the page's scroll-behavior and defeat the correction
+    expect(stage).toContain('keepsPlaceAtRelease(card.getBoundingClientRect().top)');
+    expect(stage).not.toMatch(/getBoundingClientRect\(\)\.bottom/);
+    expect(stage).toContain('placeCorrection(was.top, was.el.getBoundingClientRect().top)');
+  });
+
+  it('a viewer keeps their place when the start of the card is above the top of the window, and watches it fill when the start is in view', () => {
+    // measured at 1440 x 900, with the section under the stage 60, 300 and 600 px down the window (the card sits 325 px above it): -265, -25, +275
+    expect(keepsPlaceAtRelease(-265)).toBe(true);
+    expect(keepsPlaceAtRelease(-25)).toBe(true);
+    expect(keepsPlaceAtRelease(-0.5)).toBe(true);
+    expect(keepsPlaceAtRelease(0)).toBe(false);
+    expect(keepsPlaceAtRelease(275)).toBe(false);
+    // a phone, reading the agreement under the card with the card's bottom edge in view: the card's top is far above the window
+    expect(keepsPlaceAtRelease(-225)).toBe(true);
+    // the first version's rule was "the card's bottom is above the window" (top + 301 <= 0): the viewers at -265 and -25 were not corrected and saw 873 px go
+    const oldRule = (top: number): boolean => top + 301 <= 0;
+    expect([oldRule(-265), oldRule(-25)]).toEqual([false, false]);
+    expect([keepsPlaceAtRelease(-265), keepsPlaceAtRelease(-25)]).toEqual([true, true]);
+  });
+
+  it('the correction is how far the line under the card moved, and nothing under a pixel', () => {
+    expect(placeCorrection(60, 933)).toBe(873);
+    expect(placeCorrection(300, 1173)).toBe(873);
+    expect(placeCorrection(100, 1546)).toBe(1446);
+    expect(placeCorrection(300, 300)).toBe(0);
+    expect(placeCorrection(300, 300.4)).toBe(0);
+    expect(placeCorrection(300, 299.2)).toBe(0);
+    expect(placeCorrection(300, 200)).toBe(-100);
+  });
+});
+
 describe('calculation source', () => {
   it('is the design code, holding both house rules', () => {
     expect(CALC_SOURCE.split('\n')[0]).toBe('// Top customers by revenue · Version 4');
@@ -178,7 +246,7 @@ describe('calculation source', () => {
 });
 
 /** The real replay engine, in-process (the bundled agreement recording), the way core/engine.test.ts builds it; `done` tears it down. */
-async function realReplayEngine() {
+async function realReplayEngine(extra: { mutation?: { idleMs?: number; quietMs?: number; timeBoxMs?: number } } = {}) {
   const recording = JSON.parse(readFileSync(new URL('../../../public/recordings/orders-agreement.json', import.meta.url), 'utf8')) as Recording;
   const [{ createEngine }, { ReplayGenerator }, { warmUp }, { executeGates }, { Runtime }, { createDispatcher }, { _useBackend, memoryBackend }] = await Promise.all([
     import('../../core/engine'),
@@ -216,6 +284,7 @@ async function realReplayEngine() {
     pacing: { typeCharMs: 0, gateDwellMs: 0, replayMaxMs: 0 },
     inputMemory: { load: () => memory.last, save: (t) => void (memory.last = t) },
     location: () => null,
+    ...extra,
   });
   return {
     engine,
@@ -225,6 +294,56 @@ async function realReplayEngine() {
     },
   };
 }
+
+describe('the recorded run\'s stress test is what the landing says it is (the real engine, not a typed number)', () => {
+  it('replays the bundled recording, lets the stress test finish: 12 deliberate breaks, 8 caught, 4 missed, the first draft accepted (RECORDED_STRESS)', async () => {
+    const [{ seedAgreement }, { sampleFile }, { checkFactsFrom }, { sealOf }] = await Promise.all([
+      import('../model/agreements'),
+      import('../model/samples'),
+      import('../model/assumptions'),
+      import('../start/derive'),
+    ]);
+    // the stress test's own time box is wall-clock (engine mutation/run.ts): a slow machine must not turn this into "ran out of time"
+    const { engine, done } = await realReplayEngine({ mutation: { idleMs: 0, quietMs: 0, timeBoxMs: 600_000 } });
+    try {
+      await engine.init();
+      const f = sampleFile('orders');
+      await engine.loadDataset({ text: f.text(), filename: f.filename, name: f.datasetName, source: 'bundled' });
+      const ref = engine.state.value.datasets.find((d) => d.name === f.datasetName)!;
+      const seed = seedAgreement('orders', 'top', ref)!;
+      await engine.upsertSpec(seed.spec);
+      engine.setInput(`${seed.spec.name}(${f.datasetName})`);
+      await engine.submit();
+      const fn = seed.spec.name;
+      const committed = engine.state.value;
+      // first draft accepted: one attempt, nothing thrown out (the landing's illustration throws one out to show what a rejection looks like)
+      expect(committed.generation?.phase).toBe('committed');
+      expect(committed.generation?.attempts.map((a) => a.status)).toHaveLength(1 + RECORDED_DRAFTS_THROWN_OUT);
+      // the page lets the engine's lazy check run when idle; the engine's own entry point runs the same check now
+      await engine.runMutation(fn);
+      const st = engine.state.value;
+      const artifact = st.program.functions[fn]?.artifact;
+      expect(artifact?.revision).toBe(STAGE_VERSION);
+      const report = artifact?.evidence?.mutation;
+      expect(report?.skipped).toBeUndefined();
+      // what the first-run pages read: Artifact.evidence.mutation -> checkFactsFrom -> stressStatus -> the seal
+      const facts = checkFactsFrom({ artifact, spec: st.program.functions[fn]?.spec, question: sampleOpeningQuestion('orders').text, mutation: st.mutation });
+      expect(facts.stress).toEqual(RECORDED_STRESS);
+      expect(stressStatus({ expected: true, report })).toEqual(RECORDED_STRESS);
+      expect(sealOf(facts)?.text).toBe('Passed every check · stress test caught 8 of 12');
+      expect(sealOf(facts)?.text).toBe(sealWords({ stress: RECORDED_STRESS, ran: 5, of: 6 }));
+    } finally {
+      done();
+    }
+  }, 240_000);
+
+  it('the illustration keeps its own, different numbers (11 of 12, labelled), so the two can never be mistaken for one another', () => {
+    expect(RECORDED_STRESS).toEqual({ kind: 'done', total: 12, caught: 8, missed: 4 });
+    expect(SCRIPT_STRESS).toMatchObject({ kind: 'done', total: 12, caught: 11, missed: 1 });
+    expect(RECORDED_STRESS).not.toEqual(SCRIPT_STRESS);
+    expect(s.views.pass.ghost).not.toBeNull(); // the illustration throws one draft out; the recorded run threw none
+  });
+});
 
 describe('the example version is the one a real replay run commits', () => {
   it('replays the bundled recording through the real engine: the first answer is committed as STAGE_VERSION', async () => {

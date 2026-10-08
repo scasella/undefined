@@ -118,10 +118,7 @@ export function Ladder() {
       <div class="fd-wrap">
         <div class="fd-eyebrow">FIG. 2 · SAME FILE, THREE MEANINGS</div>
         <h2 id="ladder-h" class="fd-ld-h">Who's #1 depends on what you mean by revenue.</h2>
-        <p class="fd-ld-lede">
-          Writing the formula is the easy part. Saying what you mean is the hard part. Flip the rules and watch the leader
-          change on the real sample file.
-        </p>
+        <p class="fd-ld-lede">Flip the rules and watch the leader change on the real sample file.</p>
 
         <div class="fd-ld-controls">
           {rule(HOUSE_RULES[0]!.name, paid, setPaid)}

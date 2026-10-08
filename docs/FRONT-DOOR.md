@@ -178,6 +178,21 @@ What the card says and offers when the answer arrives, in the order the viewer m
   demo-only gate (a copy on your computer installs the same agreement, so only the mode keeps the line off it; `RunPanel.tsx` calls it and a
   source pin keeps it from calling `versionNote` directly). `stageData.test.ts` replays both runs through the real engine (the plain first run,
   and a typed question saved before it) and pins the saves, the function each names and the note.
+- **The landing's answer card is held as a compact skeleton, and released at its natural height** (`Stage.tsx`, `stageData.ts` `cardReleaseMs` and
+  `cardHeld`, `AnswerCard.css` `.fd-ac--landing.fd-ac--held`). While the illustration plays, the card is five bars and its caption (about 300 px,
+  not the answer's 1,174 px at 1440 and 1,747 px at 390): the veil is in flow, and the body stays in the DOM but is `display: none`, so it is out of layout and
+  out of the accessibility tree (the card is named "Answer held until every check passes" and is `aria-busy`). The stage releases the card with a state
+  change at the scenario's reveal (6.9 s), not with a CSS delay on a card that was already tall, so the same reveal (seal hairline, rise, veil fading,
+  rows 60 ms apart) starts at that moment. The page under the stage moves down once (873 px at 1440, 1,446 px at 390); a viewer whose window starts
+  below the card's top (`stageData.ts` `keepsPlaceAtRelease`: the card's top edge is above zero, so they are reading the evidence, or on a phone the
+  agreement under the card) is moved back by the same distance in a layout effect, so their line does not jump (Chrome's own scroll anchoring does
+  not do it here, and Safari has none), while a viewer who can see where the card begins is watching it and sees it fill from there. The first
+  version only corrected a viewer whose window was wholly past the card (its bottom edge above zero), which at 1440 is the 24 px before the evidence
+  section; a viewer 60, 150 or 300 px into the evidence still saw all of it leave. The boundary is where the card's top crosses the window's top
+  (at 1440: the evidence section 325 px down the window). "Run again" and the other scenario go back to the skeleton in the same render (no frame of
+  the tall card); "Watch it stop and ask" keeps the skeleton until the viewer decides. Reduced motion: no playback to wait for, so the pass scenario's
+  card is released at once at its natural height (no animation), and the stop scenario's is still the skeleton. The first-run pages' held card is
+  unchanged (a veil over the answer's height).
 - **What "Confirm" does**, said once under "What the AI assumed": "Confirming only marks a line on this page; nothing is saved, sent or
   checked." It is the viewer's own mark on this run's answer, kept by the page's session for the life of the run (`session.confirmed` and
   `session.confirm`, keyed by run and question; the landing's card keeps its own): Step by step's Back and Forward, and a walk to the Full
@@ -238,8 +253,11 @@ including what a refusal does to the picker there).
   and the browser's own "toggle" report would arrive too late to keep it). Back and Continue sit below the steps: at 390 px
   pane 2 with the steps open is about 1760 px tall. The status region the buttons are described by holds only the sentence.
   On the landing, the HONEST LIMITS card lists the same steps as a plain list (no card inside the card) above its README
-  link; in the demo the closing card sits under the zip card (two columns level from 809 px, where the grid first fits two columns) because the limits card is the
-  tall one, and a copy that runs on your computer keeps the layout it had. The commands are set in the mono face and wrap (pre-wrap, at a URL's seams) instead of
+  link; in the demo the closing card sits under the zip card (two columns from 809 px, where the grid first fits two columns) because the limits card is the
+  tall one, and a copy that runs on your computer keeps the layout it had. The two columns end level at every two-up width, not by luck of the copy
+  (grid rows `auto 1fr` with stretching items: the closing card takes what the limits card needs beyond the zip card, or the limits card stretches
+  to the closing card's bottom; measured 0 px apart at 1440, 1280, 1180, 1100, 1024, 900 and 810; before it the limits card ended 48 px short at 1180,
+  96 at 1024 and 143 at 900). The commands are set in the mono face and wrap (pre-wrap, at a URL's seams) instead of
   scrolling, so nothing scrolls sideways at 390 px.
 - **The dead end has a way out** (`start/derive.ts` `noRecordingView`, `sampleOffer`; the same sentence on the Full view's Ask card and
   on the card that follows a press of Ask, and on Step by step's panes 2 and 3; the answer card's held caption no longer says it, only
@@ -347,9 +365,19 @@ from the data by `model/figures.ts`, never typed in twice, and `figures.test.ts`
 2. The landing's hero trace is a scripted, slowed-down playback of the example (the design says so: "Slowed down so you
    can watch"). It is labelled as an illustration, once, in the caption under the trace ("Illustrative playback of the example
    below, slowed down"; the trace's header, footer and timer do not say it again); the evidence section (6 of 6, 100, 11 of 12, 1
-   thrown out, and the stress-test strip they open) carries ONE "Illustrative · not yet a recorded run" label, above its tiles, until a
+   thrown out, and the stress-test strip they open) carries ONE "Illustrative · these four figures are not from a recorded run" label, above its tiles (scoped to the four figures, because the stress-test tile also holds a recorded result), until a
    recording backs them (`landing/evidenceView.ts`:
-   the counts come from the seeded agreement, the outcomes are scripted; only the thrown-out draft's "Why" is computed).
+   the counts come from the seeded agreement, the outcomes are scripted; only the thrown-out draft's "Why" is computed). The one thing a
+   recording does back is the stress test's result on the demo's own run, so the stress-test tile quotes it beside the illustrated 11 of 12,
+   marked "Recorded run: the stress test caught 8 of 12 deliberate breaks. orders.csv, the same question, Version 4. Its first draft was
+   accepted. The "Watch it pass" playback above throws one out, to show what a rejection looks like." (it names the playback: "Watch it stop and ask" throws nothing out), with a "Run it yourself" link to Step by step
+   (`evidenceView.ts` `recordedRun`, in the seal's own words, `stressWords`). The numbers are the pinned constant `stageData.ts`
+   `RECORDED_STRESS` (12 deliberate breaks, 8 caught, 4 missed; no draft thrown out). The recording holds the AI's draft, not this count: the
+   8 of 12 is what the real engine's stress test reports each time that draft is replayed through it (deterministic, so it can be pinned), which
+   is why "Recorded run" labels the run and the engine, not stored text, produces the number. `stageData.test.ts` replays the bundled recording
+   through the real engine, lets its stress test finish (`engine.runMutation`) and fails if the engine reports anything else, and
+   `scripts/replay-check.mjs` compares the landing's line with the count the real replay reports in the browser. The label used to say
+   "not yet a recorded run", which is false of a page that quotes one.
 3. The "two rules that disagree" question has no engine signal; it exists only as the landing's illustration.
 4. Checked, not proven. The honesty bar and the "Not checked" list are always present.
 5. Privacy copy states exactly what leaves the browser; the example-rows switch is wired to `Engine.setSendSamples`

@@ -35,6 +35,10 @@
 //      saved steps (demo only, never when a save before the answer is the viewer's own; the basic fallback gets its two set-up saves named too); Confirm says what it really does and does nothing
 //      more (no engine change, no request); the Full view's live sentence names the answer once, and on Step by step the answer pane's heading is
 //      described by the answer's lead (read from the browser's accessibility tree: the name stays "Your answer", no live region repeats it).
+//   3g (landing). the illustration's answer card is a compact skeleton while it plays and is released at its natural height; the release moves
+//      the section under it down once, and a viewer whose window starts below the card's top (the evidence 20, 60 and 300 px down at 1440, 1180 and 390,
+//      the agreement under the card at 390 and 768) sees it move 0 to 2 px, one fresh page per case, every frame sampled; a viewer who can see the card's
+//      top watches it fill (its top holds); "Run again" from the released card never shows a tall frame.
 //   3a/3b/3f. the own-file path (docs/FRONT-DOOR.md "Your own file in the demo"): both pickers (Full view, Step by step) say what the
 //      demo cannot do with a file of your own under the drop zone BEFORE one is dropped (one caveat, the same words); once an
 //      own CSV is bound (a pasted one on Step by step, a dropped one on the Full view) the picker stays open, the sample
@@ -402,8 +406,136 @@ try {
     return { lines: new Set(tops).size, lastLine: tops.filter((t) => t === last).length };
   };
 
+  /** What the landing's evidence tile says the recorded run's stress test caught (read there, compared with the real run's own report below). */
+  let landRecorded = null;
   // ── 3g. the landing's illustrative card: the same verdict line with its own labelled numbers; no hand-off, so no next step and the lock keeps its fill ──
   {
+    // ── the landing's answer card while the illustration plays: a compact skeleton (five bars and a caption), its body out of layout and out of the
+    // accessibility tree, then released at its natural height; "Run again" goes back to the skeleton in the same render (never a frame of the tall card) ──
+    const HELD_FACTS = () => {
+      const c = document.querySelector('.fd-stage .fd-ac');
+      const body = c?.querySelector('.fd-ac__body');
+      if (!c || !body) return null;
+      return {
+        h: Math.round(c.getBoundingClientRect().height),
+        cls: c.className,
+        label: c.getAttribute('aria-label'),
+        busy: c.getAttribute('aria-busy'),
+        bodyDisplay: getComputedStyle(body).display,
+        bodyInDom: !!body.querySelector('.fd-ac__lead-name'),
+        bars: c.querySelectorAll('.fd-ac__veil-bar').length,
+        caption: c.querySelector('.fd-ac__veil-caption')?.innerText.trim() ?? null,
+        veilPos: getComputedStyle(c.querySelector('.fd-ac__veil')).position,
+        stageH: Math.round(document.querySelector('.fd-stage').getBoundingClientRect().height),
+      };
+    };
+    const answerInTree = async () => {
+      const names = (await axHeadings()).headings.map((x) => x.name);
+      return names.includes('What the AI assumed') || names.includes('Checked against');
+    };
+    // restart the playback, so the clock is known (the card is released 6.9 s after it), and read the card while the illustration plays
+    await p.locator('.fd-stage__replay').click();
+    await p.waitForTimeout(700);
+    const held = await p.evaluate(HELD_FACTS);
+    const heldTree = await answerInTree();
+    check(
+      !!held && held.h >= 260 && held.h <= 400 && /fd-ac--held/.test(held.cls) && held.label === 'Answer held until every check passes' && held.busy === 'true' && held.bodyDisplay === 'none' && held.bodyInDom && held.bars === 5 &&
+        held.caption === 'Held until every check passes.' && held.veilPos === 'relative' && !heldTree,
+      "landing: while the illustration plays the answer card is a compact skeleton (five bars and its caption, 260 to 400 px, not the answer's height), its body is in the DOM but out of layout and out of the accessibility tree",
+      { held, heldTree },
+    );
+    // The release makes the section under the card move down once (about 870 px at 1440, 1,450 at 390). A viewer whose window starts below the card's
+    // top is reading something under it and must not see it move; a viewer who can see where the card begins watches it fill. Each case is its own page
+    // (the release happens once per load) and runs at the same time as the others: the line under the card is sampled every frame through the release.
+    const RELEASE_PROBE = ([target, off]) => {
+      const pick = () => (target === 'rail' ? document.querySelector('.fd-agree-rail') : document.querySelector('.fd-stage').nextElementSibling);
+      window.scrollTo({ top: pick().getBoundingClientRect().top + scrollY - off, behavior: 'instant' });
+      window.__s = [];
+      const tick = () => {
+        const c = document.querySelector('.fd-stage .fd-ac').getBoundingClientRect();
+        window.__s.push({ y: pick().getBoundingClientRect().top, ct: c.top, ch: c.height });
+        window.__raf = requestAnimationFrame(tick);
+      };
+      tick();
+    };
+    const releaseCase = async ({ w, h, target, off }) => {
+      const ctx = await b.browser.newContext({ viewport: { width: w, height: h } });
+      try {
+        const pg = await ctx.newPage();
+        await pg.goto(srv.url + '#/');
+        await pg.waitForSelector('.fd-stage .fd-ac');
+        await pg.evaluate(RELEASE_PROBE, [target, off]);
+        await pg.waitForFunction(() => (window.__s.at(-1)?.ch ?? 0) > 900, null, { timeout: 20000 }); // the release
+        await pg.waitForTimeout(700); // the reveal's rise settles
+        const s = await pg.evaluate(() => { cancelAnimationFrame(window.__raf); return window.__s; });
+        const y0 = s[1].y;
+        return { w, target, off, anchor: Math.round(y0), maxMove: Math.round(Math.max(...s.map((f) => Math.abs(f.y - y0)))), cardTop: Math.round(s[1].ct), cardTopEnd: Math.round(s.at(-1).ct), cardH: Math.round(s.at(-1).ch), frames: s.length };
+      } finally {
+        await ctx.close();
+      }
+    };
+    const kept = [
+      { w: 1440, h: 900, target: 'ev', off: 20 }, // the case the first version handled: the card wholly above the window
+      { w: 1440, h: 900, target: 'ev', off: 60 }, // the card's bottom edge 36 px in view: the first version let all of the section leave
+      { w: 1440, h: 900, target: 'ev', off: 300 }, // the section 300 px down the window, the card's top 25 px above it
+      { w: 1180, h: 900, target: 'ev', off: 60 }, // the breakpoint
+      { w: 1180, h: 900, target: 'ev', off: 300 },
+      { w: 390, h: 844, target: 'ev', off: 60 },
+      { w: 390, h: 844, target: 'rail', off: 100 }, // a phone, reading the agreement under the card, with the card's bottom edge in view
+      { w: 768, h: 900, target: 'rail', off: 200 },
+    ];
+    const watched = { w: 1440, h: 900, target: 'ev', off: 600 }; // the card's top 275 px down the window: the viewer sees it begin
+    const sweep = await Promise.all([...kept, watched].map(releaseCase));
+    const keptRes = sweep.slice(0, kept.length);
+    const watchedRes = sweep[kept.length];
+    check(
+      keptRes.every((r) => r.cardTop < 0 && r.maxMove <= 2 && r.cardH > 900 && r.frames > 20),
+      "landing: a viewer whose window starts below the card's top (the evidence 20, 60 and 300 px down the window at 1440, 1180 and 390, and the agreement under the card on a phone and a tablet) sees nothing under the card move when it is released (0 to 2 px through every frame of the release)",
+      keptRes,
+    );
+    check(
+      watchedRes.cardTop > 0 && Math.abs(watchedRes.cardTopEnd - watchedRes.cardTop) <= 2 && watchedRes.cardH > 900,
+      "landing: a viewer who can see where the card begins (its top 275 px down the window) sees it fill from there: its top does not move",
+      watchedRes,
+    );
+    // the card is released on the main page by now
+    await p.waitForFunction(() => (document.querySelector('.fd-stage .fd-ac')?.getBoundingClientRect().height ?? 0) > 900, null, { timeout: 20000 });
+    await p.waitForTimeout(800); // the reveal's rows settle
+    const released = await p.evaluate(HELD_FACTS);
+    const releasedTree = await answerInTree();
+    check(
+      !!released && released.h > 900 && /fd-ac--shown/.test(released.cls) && released.label === 'Answer: Top 5 customers by revenue' && released.busy === 'false' && released.bodyDisplay === 'block' && releasedTree,
+      "landing: the card is released at its natural height (over 900 px, named by its answer, its body in the accessibility tree)",
+      { released, releasedTree },
+    );
+    // "Run again" from the released card: the card is tall at the click (checked), and not one frame at or after the click is tall (a skeleton in the same render)
+    await p.evaluate(() => {
+      window.__frames = [];
+      const btn = document.querySelector('.fd-stage__replay');
+      btn.addEventListener('click', () => { window.__clickAt = performance.now(); }, { capture: true, once: true });
+      const tick = () => { window.__frames.push({ t: performance.now(), h: document.querySelector('.fd-stage .fd-ac')?.getBoundingClientRect().height ?? 0 }); window.__raf = requestAnimationFrame(tick); };
+      tick();
+    });
+    await p.waitForTimeout(150);
+    await p.locator('.fd-stage__replay').click();
+    await p.waitForTimeout(700);
+    const rerun = await p.evaluate(() => { cancelAnimationFrame(window.__raf); return { before: window.__frames.filter((f) => f.t < window.__clickAt).map((f) => Math.round(f.h)), after: window.__frames.filter((f) => f.t >= window.__clickAt).map((f) => Math.round(f.h)) }; });
+    check(
+      rerun.before.length > 3 && Math.min(...rerun.before) > 900 && rerun.after.length > 5 && Math.max(...rerun.after) <= 400,
+      "landing: 'Run again' from the released card (over 900 px tall at the click) goes straight back to the compact skeleton: not one frame at or after the click is the full-height card",
+      { before: [...new Set(rerun.before)], after: [...new Set(rerun.after)] },
+    );
+    // the stop scenario holds the card until the viewer decides: still the skeleton long after the pass scenario would have released it
+    await p.evaluate(() => document.querySelector('.fd-stage')?.scrollIntoView({ block: 'start' }));
+    await p.getByRole('button', { name: 'Watch it stop and ask' }).click();
+    await p.waitForTimeout(7600);
+    const stopHeld = await p.evaluate(HELD_FACTS);
+    check(
+      !!stopHeld && stopHeld.h >= 260 && stopHeld.h <= 400 && /fd-ac--held/.test(stopHeld.cls) && stopHeld.bodyDisplay === 'none' && stopHeld.caption === 'Waiting on you. No new answer is shown until you decide.' && stopHeld.stageH < 1400,
+      "landing: 'Watch it stop and ask' keeps the card a compact skeleton ('Waiting on you…') long after the other scenario would have released it, and the stage is not the answer's height tall",
+      stopHeld,
+    );
+    await p.getByRole('button', { name: 'Watch it pass' }).click();
     await p.evaluate(() => document.querySelector('.fd-ac')?.scrollIntoView({ block: 'center' }));
     await p.waitForTimeout(8000); // the illustration's playback settles (the pass scenario reveals the card)
     const land = await p.evaluate(CARD_FACTS);
@@ -428,6 +560,12 @@ try {
     await p.locator('.fd-ev-link--block').first().click();
     await p.waitForSelector('.fd-ev-stress', { timeout: 5000 });
     const evSays = await leaves('.fd-ev', /illustrat/);
+    landRecorded = await p.evaluate(() => {
+      const r = document.querySelector('.fd-ev-rec');
+      const tile = r?.closest('.fd-ev-tile');
+      const link = r?.querySelector('a');
+      return r && tile ? { text: r.innerText.replace(/\s+/g, ' ').trim(), big: tile.querySelector('.fd-ev-big')?.innerText.trim(), href: link?.getAttribute('href'), linkText: link?.innerText.trim(), linkH: Math.round(link?.getBoundingClientRect().height ?? 0), tiles: document.querySelectorAll('.fd-ev-tile').length, tileIndex: [...document.querySelectorAll('.fd-ev-tile')].indexOf(tile), badges: document.querySelectorAll('.fd-ev-badge').length, dashed: getComputedStyle(r).borderTopStyle } : null;
+    });
     const evPlace = await p.evaluate(() => {
       const label = document.querySelector('.fd-ev-label');
       const grid = document.querySelector('.fd-ev-grid');
@@ -435,10 +573,16 @@ try {
       return { badges: document.querySelectorAll('.fd-ev-badge').length, before: !!label && !!grid && !!(label.compareDocumentPosition(grid) & Node.DOCUMENT_POSITION_FOLLOWING), stripHead: strip?.querySelector('.fd-ev-stress__h')?.innerText.replace(/\s+/g, ' ').trim(), sub: [...document.querySelectorAll('.fd-ev-sub')].map((e) => e.innerText.trim()), link: document.querySelector('.fd-ev-link--block')?.innerText.trim(), body: document.querySelector('.fd-ev')?.innerText ?? '' };
     });
     check(
-      evSays.length === 2 && evSays[0] === 'Illustrative · not yet a recorded run' && evSays[1] === evPlace.stripHead && evPlace.badges === 1 && evPlace.before &&
+      evSays.length === 2 && evSays[0] === 'Illustrative · these four figures are not from a recorded run' && evSays[1] === evPlace.stripHead && evPlace.badges === 1 && evPlace.before &&
         evPlace.stripHead === 'In this illustration, the stress test made 12 deliberate breaks in the calculation. Your checks caught 11.' && evPlace.sub[2] === 'deliberate breaks caught by the stress test' && evPlace.link === 'Hide the 12 deliberate breaks' && !/small (breaks|ways)|on purpose|We broke/.test(evPlace.body),
       "landing: the evidence section has ONE 'Illustrative' label, above its four tiles; the stress-test strip it opens says 'illustration' in its own heading (a sentence, not a second badge: the strip can sit a screen below the label); the stress test is called the stress test and its twelve are 'deliberate breaks'",
       { evSays, evPlace },
+    );
+    check(
+      !!landRecorded && landRecorded.big === '11 of 12' && landRecorded.tileIndex === 2 && landRecorded.badges === 1 && landRecorded.dashed === 'solid' && landRecorded.href === '#/zen' && landRecorded.linkText === 'Run it yourself' && landRecorded.linkH >= 44 &&
+        landRecorded.text === 'Recorded run: the stress test caught 8 of 12 deliberate breaks. orders.csv, the same question, Version 4. Its first draft was accepted. The "Watch it pass" playback above throws one out, to show what a rejection looks like. Run it yourself',
+      "landing: the stress-test tile (11 of 12, under the section's one 'Illustrative' label) carries the recorded run beside it, marked 'Recorded run': the stress test caught 8 of 12 deliberate breaks on orders.csv, the same question, Version 4, its first draft accepted; a solid divider, no second badge, and a 44 px 'Run it yourself' link to #/zen",
+      landRecorded,
     );
   }
 
@@ -497,6 +641,12 @@ try {
     return m ? { total: m.total, caught: m.killed + m.killedByBound, missed: m.survived } : null;
   });
   const sealWords = report ? `Passed every check · stress test caught ${report.caught} of ${report.total}` : null;
+  // the landing's "Recorded run" line is not a number typed twice: it is what this real replay of the recording reports
+  check(
+    !!report && !!landRecorded && landRecorded.text.startsWith(`Recorded run: the stress test caught ${report.caught} of ${report.total} deliberate ${report.total === 1 ? 'break' : 'breaks'}.`),
+    "the landing's 'Recorded run' line says what this real replay of the recording reports: the engine's own stress-test count (caught N of M), read from Artifact.evidence.mutation",
+    { report, landRecorded },
+  );
   const verdict = await texts('.fd-trace__hl-b');
   check(
     !!report && report.total > 0 && eyebrow.length === 1 && eyebrow[0] === sealWords.toUpperCase() && verdict.length === 1 && verdict[0].startsWith(sealWords + ' ') && !/BASIC CHECKS/i.test(await texts('.fd-ac').then((t) => t.join(' '))),
@@ -1580,21 +1730,46 @@ try {
     const wide = await landing();
     const widow = await p.evaluate(LAST_LINE_WORDS, '#own-file .fd-rl__hand');
     check(
-      !!wide.zip && !!wide.lim && !!wide.close && wide.close.t >= wide.zip.b && wide.close.l === wide.zip.l && wide.lim.l >= wide.zip.r && Math.abs(wide.close.b - wide.lim.b) <= 60 && wide.needs === 3 && wide.cmds.join('|') === RUN_COMMANDS.join('|') && wide.readme && !wide.pageScrolls && widow?.lastLine >= 2,
-      "landing, demo, 1440: the limits card lists the steps (three needs, the three commands, the README link), the closing card sits under the zip card with the two columns level (bottoms within 60 px), and the one plain sentence has no one-word last line",
+      !!wide.zip && !!wide.lim && !!wide.close && wide.close.t >= wide.zip.b && wide.close.l === wide.zip.l && wide.lim.l >= wide.zip.r && Math.abs(wide.close.b - wide.lim.b) <= 2 && wide.needs === 3 && wide.cmds.join('|') === RUN_COMMANDS.join('|') && wide.readme && !wide.pageScrolls && widow?.lastLine >= 2,
+      "landing, demo, 1440: the limits card lists the steps (three needs, the three commands, the README link), the closing card sits under the zip card with the two columns level (bottoms within 2 px, the card heights stretch to it), and the one plain sentence has no one-word last line",
       { wide, widow },
     );
-    await p.setViewportSize({ width: 1024, height: 900 });
+    // level at every two-up width (it was 48 px short at 1180, 96 at 1024, 143 at 900: the limits card ended above the closing card), not only at 1440
+    for (const w of [1180, 1024, 900, 810]) {
+      await p.setViewportSize({ width: w, height: 900 });
+      await p.waitForTimeout(200);
+      const mid = await landing();
+      check(!!mid.zip && mid.close.t >= mid.zip.b && mid.lim.l >= mid.zip.r && Math.abs(mid.close.b - mid.lim.b) <= 2 && !mid.pageScrolls, `landing, demo, ${w}: still two columns, the closing card under the zip card and the two columns level (bottoms within 2 px)`, mid);
+    }
+    await p.setViewportSize({ width: 768, height: 900 });
     await p.waitForTimeout(200);
-    const mid = await landing();
-    check(!!mid.zip && mid.close.t >= mid.zip.b && mid.lim.l >= mid.zip.r && Math.abs(mid.close.b - mid.lim.b) <= 140 && !mid.pageScrolls, 'landing, demo, 1024: still two columns, the closing card under the zip card and the columns roughly level', mid);
+    const tab = await landing();
+    check(tab.zip.b <= tab.lim.t && tab.lim.b <= tab.close.t && !tab.pageScrolls, 'landing, demo, 768: one column in reading order (zip, limits with the steps, closing), the page does not scroll sideways', tab);
     await p.setViewportSize({ width: 390, height: 844 });
     await p.waitForTimeout(200);
     const narrow = await landing();
     check(narrow.zip.b <= narrow.lim.t && narrow.lim.b <= narrow.close.t && narrow.cmdsScroll === false && !narrow.pageScrolls, 'landing, demo, 390: one column in reading order (zip, limits with the steps, closing); the commands wrap and the page does not scroll sideways', narrow);
+    // reduced motion: nothing to wait for, so the pass scenario's card is released at once at its natural height (no animation running); the stop scenario's is the compact skeleton
+    await p.emulateMedia({ reducedMotion: 'reduce' });
+    await p.reload();
+    await p.waitForSelector('.fd-stage .fd-ac', { timeout: 15000 });
+    const rm = () => p.evaluate(() => ({ h: Math.round(document.querySelector('.fd-stage .fd-ac').getBoundingClientRect().height), cls: document.querySelector('.fd-stage .fd-ac').className, anim: document.getAnimations().length }));
+    const rmPass = await rm();
+    await p.getByRole('button', { name: 'Watch it stop and ask' }).click();
+    await p.waitForTimeout(300);
+    const rmStop = await rm();
+    await p.getByRole('button', { name: 'Watch it pass' }).click();
+    await p.waitForTimeout(300);
+    const rmBack = await rm();
+    check(
+      rmPass.h > 900 && /fd-ac--shown/.test(rmPass.cls) && rmPass.anim === 0 && rmStop.h >= 260 && rmStop.h <= 400 && /fd-ac--held/.test(rmStop.cls) && rmStop.anim === 0 && rmBack.h > 900 && /fd-ac--shown/.test(rmBack.cls),
+      "landing, reduced motion: the pass scenario's card is released at once at its natural height with no animation running, 'Watch it stop and ask' is the compact skeleton, and back to pass is released again",
+      { rmPass, rmStop, rmBack },
+    );
   } catch (e) {
     check(false, 'landing in the demo: the limits card and the layout ran without throwing', String(e));
   } finally {
+    await p.emulateMedia({ reducedMotion: null });
     await p.setViewportSize({ width: 1440, height: 900 });
   }
 
