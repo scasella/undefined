@@ -1,14 +1,18 @@
 /**
  * First run · the run: the live check trace, then (between them) any non-happy outcome, then the answer card
  * (V3-Door-FirstRun 208-324). Everything is the session's: session.trace feeds <CheckTrace/>, session.answer feeds
- * <AnswerCard variant="start"/>. Confirming an assumption is the viewer's own note on this answer (local state, reset
- * when a new run starts); locking is the engine's (session.toggleLock).
+ * <AnswerCard variant="start"/>. Confirming an assumption is the viewer's own note on this answer (the session keeps it for
+ * the life of the run, so Step by step's Back and Forward do not lose it; a new run starts with none; never sent anywhere);
+ * locking is the engine's (session.toggleLock). The hand-off is the answer
+ * card's one filled control (its `primaryAction` slot): the product's real outcome is the checked calculation going to the
+ * data team, so it is the action the card leads with.
  */
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Engine, GenerationView } from '@scasella/undefined-engine/types';
 import { AnswerCard } from '../components/AnswerCard';
 import { CheckTrace } from '../components/CheckTrace';
 import { Button } from '../components/LinkButton';
+import { answerLead, versionNoteFor } from '../model/answer';
 import { downloadBytes, HANDOFF_LABEL, handoffView, handoffZip, loadEject, type EjectModule } from '../model/handoff';
 import { LIVE_TIMING } from '../model/traceScript';
 import { giveUpOnStress, matchRun, STRESS_PATIENCE_MS, traceSummary, type TraceView } from './derive';
@@ -19,10 +23,8 @@ import './RunPanel.css';
 /** 'Add a house rule' goes to the landing's "It asks instead of guessing" (router: '#/' then '#asks'). */
 export const HOUSE_RULE_HREF = '#/#asks';
 
-/** The key confirmations are kept under: a new run (or another question) starts with none confirmed. */
-export function confirmKey(run: { id: number; questionId: string } | null): string {
-  return run ? `${run.id}:${run.questionId}` : '';
-}
+// where the confirmations are kept per run is the session's (session.ts confirmKey); re-exported for the page's tests
+export { confirmKey } from './session';
 
 export interface DraftingView {
   /** The timer word while the AI is still writing. */
@@ -43,18 +45,28 @@ export function settledLiveText(t: Pick<TraceView, 'header' | 'footer' | 'liveTe
 }
 
 /**
+ * The trace's sentence with the answer's lead said in it: "… Showing the answer." becomes "… Showing the answer: Chef Ravioli
+ * Starbright, $2,252.07.", so a viewer who cannot see the page hears the verdict and the answer once, in one sentence. Only
+ * a sentence that says the answer is showing gets it, and only when there is a lead to say.
+ */
+export function sayAnswer(sentence: string, lead: string | null): string {
+  // a replacer function: the lead holds `$` ("$2,252.07"), which a replacement string would read as a pattern
+  return lead ? sentence.replace(/Showing the answer\.$/, () => `Showing the answer: ${lead}.`) : sentence;
+}
+
+/**
  * The sentence the trace's live region speaks, by where the trace is. While the AI is still writing: the drafting words (the
  * checks have not started). On Step by step's "Checking" pane (`zen` and part 'run'): once the run is over, settledLiveText,
- * because the answer is not beside the trace there. EVERYWHERE ELSE the trace's own sentence goes through untouched, the Full
- * view above all: "… Showing the answer." is true on `#/start`, where the answer card is on the same page, and it must stay
- * exactly as the trace words it.
+ * because the answer is not beside the trace there. EVERYWHERE ELSE the trace's own sentence goes through, the Full
+ * view above all: "… Showing the answer." is true on `#/start`, where the answer card is on the same page, so it names the
+ * answer's lead too (`lead`, model/answer.ts answerLead; absent when the answer has none or is not shown).
  */
 export function traceLiveText(
   t: Pick<TraceView, 'header' | 'footer' | 'liveText'>,
-  where: { drafting: DraftingView | null; zen: boolean; part: 'all' | 'run' | 'answer' },
+  where: { drafting: DraftingView | null; zen: boolean; part: 'all' | 'run' | 'answer'; lead?: string | null },
 ): string {
   if (where.drafting) return where.drafting.liveText;
-  return where.zen && where.part === 'run' ? settledLiveText(t) : t.liveText;
+  return where.zen && where.part === 'run' ? settledLiveText(t) : sayAnswer(t.liveText, where.lead ?? null);
 }
 
 /** '4 s', '1 min 5 s': whole seconds, the way the counter under the trace reads. */
@@ -133,7 +145,6 @@ export function RunPanel({
   const a = s.answer.value;
   const o = s.outcome.value;
   const run = s.run.value;
-  const key = confirmKey(run);
   const match = run ? matchRun(s.engine.state.value, run) : null;
   const draftGen = o.kind === 'running' ? (match?.generation ?? null) : null;
   const drafting = draftingView(draftGen, useElapsed(draftingView(draftGen) !== null, `${run?.id ?? 0}:${draftGen?.id ?? ''}:${draftGen?.attempt ?? 0}`));
@@ -144,15 +155,19 @@ export function RunPanel({
     const id = setTimeout(() => giveUpOnStress(stressOutputId), STRESS_PATIENCE_MS);
     return () => clearTimeout(id);
   }, [stressOutputId]);
-  const [confirmed, setConfirmed] = useState<{ key: string; ids: ReadonlySet<string> }>({ key, ids: new Set() });
-  const ids = confirmed.key === key ? confirmed.ids : new Set<string>();
-  useEffect(() => {
-    if (confirmed.key !== key) setConfirmed({ key, ids: new Set() });
-  }, [key]);
-
   // keep the button while the engine is busy (canLock goes false then): removing it would drop focus to <body>
   const lock = s.lock.value;
   const lockable = !!a.view && (a.canLock || a.locked || lock.entryId !== null || lock.pin !== null);
+  // the hand-off: the answer card's one filled control. Offered under the same conditions as ever (a committed or cached answer
+  // the engine can eject); the verdict line names it as the next step only when the card really has it.
+  const st = s.engine.state.value;
+  const eject = useEject(run !== null);
+  const handoffFn = a.view && run && (o.kind === 'committed' || o.kind === 'cached') ? run.fn : null;
+  const handoff = eject && handoffFn !== null && handoffView(eject, st.program, handoffFn).ok ? <Handoff engine={engine} mod={eject} fn={handoffFn!} runId={run!.id} /> : null;
+  // "Version 4" on the demo's first run: the saves before it were the demo being set up (model/answer.ts versionNote names exactly those,
+  // and says nothing when any of them is the viewer's own, a question they typed included). versionNoteFor is the demo-only gate:
+  // a copy that runs on your computer gets no new line.
+  const vnote = a.view && run ? versionNoteFor(st.mode, st.revisions, st.program.functions[run.fn]?.artifact?.revision ?? null, run.fn) : null;
   return (
     <div class="fd-run">
       {part !== 'answer' && (
@@ -161,7 +176,7 @@ export function RunPanel({
           ghost={t.ghost}
           header={t.header}
           footer={drafting ? drafting.footer : t.footer}
-          liveText={traceLiveText(t, { drafting, zen, part })}
+          liveText={traceLiveText(t, { drafting, zen, part, lead: a.held ? null : answerLead(a.view) })}
           {...(drafting ? { runningText: drafting.runningText, drafting: true } : {})}
           {...(onSettled ? { onSettled } : {})}
         />
@@ -175,46 +190,65 @@ export function RunPanel({
         reveal={o.kind === 'committed' && run ? { delay: LIVE_TIMING.dur, run: run.id } : null}
         level={a.level}
         seal={a.seal}
+        stress={a.facts.stress}
         locked={a.locked}
         lockHelp={a.lockHelp}
         {...(a.lockNote ? { lockNote: a.lockNote } : {})}
-        mode={s.engine.state.value.mode}
+        {...(vnote ? { versionNote: vnote } : {})}
+        {...(handoff ? { primaryAction: handoff } : {})}
+        mode={st.mode}
         {...(lockable ? { onToggleLock: () => void s.toggleLock() } : {})}
         // not `disabled` while busy: that would drop focus to <body> on click; session.toggleLock ignores a busy click
         lockBusy={false}
         assumptions={a.assumptions}
-        confirmed={ids}
-        onConfirm={(id) => setConfirmed({ key, ids: new Set([...ids, id]) })}
+        confirmed={s.confirmed.value}
+        onConfirm={s.confirm}
         checked={a.checked}
         checkedAsk={a.checkedAsk}
         notChecked={a.notChecked}
         {...(zen ? {} : { houseRuleHref: HOUSE_RULE_HREF })}
       />}
-      {part !== 'run' && a.view && run && (o.kind === 'committed' || o.kind === 'cached') && <Handoff engine={engine} fn={run.fn} runId={run.id} />}
     </div>
   );
 }
 
-/** Under a committed answer: download the function with its checks (the engine's eject), with a spoken result. */
-function Handoff({ engine, fn, runId }: { engine: Engine; fn: string; runId: number }) {
-  const st = engine.state.value;
-  const [mod, setMod] = useState<EjectModule | null>(null);
-  const [msg, setMsg] = useState<{ run: number; text: string } | null>(null);
-  const [busy, setBusy] = useState(false);
+/** The engine's eject module, once it has loaded (kept for the page's life, so the next card has the hand-off at once). */
+let ejectLoaded: EjectModule | null = null;
+
+/**
+ * The eject module for the hand-off, loaded as soon as a run has started (`wanted`), long before an answer is released,
+ * so the card shows its one filled control with the answer instead of a moment after it.
+ */
+function useEject(wanted: boolean): EjectModule | null {
+  const [mod, setMod] = useState<EjectModule | null>(ejectLoaded);
   useEffect(() => {
+    if (!wanted || mod) return;
     let live = true;
-    void loadEject().then((m) => live && setMod(() => m), () => undefined);
+    void loadEject().then((m) => {
+      ejectLoaded = m;
+      if (live) setMod(() => m);
+    }, () => undefined);
     return () => {
       live = false;
     };
-  }, []);
-  if (!mod) return null;
-  const view = handoffView(mod, st.program, fn);
+  }, [wanted, mod]);
+  return mod;
+}
+
+/**
+ * In the answer card's action row: download the function with its checks (the engine's eject), with a spoken result. The button
+ * is the card's one filled control; its progress and errors are said in a status line that wraps under the row.
+ */
+function Handoff({ engine, mod, fn, runId }: { engine: Engine; mod: EjectModule; fn: string; runId: number }) {
+  const [msg, setMsg] = useState<{ run: number; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const view = handoffView(mod, engine.state.value.program, fn);
   if (!view.ok) return null;
   return (
-    <div class="fd-run__handoff">
+    <>
       <Button
-        variant="secondary"
+        variant="primary"
+        class="fd-btn--wrap"
         title={view.title}
         aria-disabled={busy ? 'true' : undefined}
         onClick={() => {
@@ -234,6 +268,6 @@ function Handoff({ engine, fn, runId }: { engine: Engine; fn: string; runId: num
       <p class="fd-run__handoff-msg" role="status">
         {msg && msg.run === runId ? msg.text : ''}
       </p>
-    </div>
+    </>
   );
 }

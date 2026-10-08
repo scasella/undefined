@@ -17,7 +17,7 @@ spacing, colours, motion, a11y attributes), translated into Preact + CSS files w
 
 | Route | What | Design board |
 |---|---|---|
-| `#/` (default) | Landing: telemetry bar, hero claim, live example stage (check trace + answer + agreement rail), evidence strip, order-of-work, definition ladder, "agree once", "it asks", "says no" + privacy, team file + honest limits, footer, honesty bar | `V3-Door-Landing` |
+| `#/` (default) | Landing: telemetry bar, hero claim, example stage (check trace + answer + agreement rail), evidence strip, order-of-work, definition ladder, "agree once", "it asks", "says no" + privacy, team file + honest limits, footer, honesty bar | `V3-Door-Landing` |
 | `#/start` | The full first run, for people who want everything on one page (reached from the landing's footer, "Full view of the demo", and from the step-by-step page's "Full view"): a short task heading, bring a file (drop / paste / sample), ask a question, live check trace, answer, the file's columns, right rail (what the AI will see, your agreement, demo note). Not redirected; `scripts/record-door.mjs` and `replay-check.mjs` open it | `V3-Door-FirstRun` |
 | `#/zen`, `#/zen/N` | **Step by step** (the route is still `#/zen`; the pane is in the address, `#/zen/1` to `#/zen/5`, and nothing moves by itself): where first-time visitors are sent (the landing's "Try the demo" buttons and the top bar's "Step by step" button; in the demo the landing's second hero button reads "Use your own file: run it on your computer" and goes to `#own-file` instead, `landing/teamFileView.ts` `ownFileCta`, and only on a live copy does it lead here). A five-pane walk-through in a bare single column (1 bring data · 2 ask · 3 what the answer must pass, the six checks each tagged in the check trace's own words: `Always` (01 and 05) or `Applies` (the other four, when they will run), `No examples yet` / `Nothing locked yet` / `No house rules yet` / `Needs your rules first` (the stress test) when there is nothing to run it on, and `Not re-run` when the agreement holds it but the answer on file was checked before it was set (`zen/flow.ts` `zenChecks`, `model/lanes.ts` `OFF_NOTES`) · 4 the live check trace, which starts the run and stays on the finished trace until the viewer presses "See the answer" · 5 the answer, its one-line proof, download, ask again). Same session and components as `#/start`; nothing scripted. What each pane does is under "Step by step, pane by pane" below | (no board; `src/door/zen/`) |
 
@@ -74,7 +74,7 @@ spacing, colours, motion, a11y attributes), translated into Preact + CSS files w
   button reads "See what's in your file", the screen reader hears "<file> is loaded.").
 - **2 · Ask a question.** In this order: the plain note about columns read as text when there is one (`model/columnNotes.ts`:
   it limits the suggestions, so it comes before them, and it is said once on the page), the suggestion chips, one line saying
-  what "needs live" means (replay only, when any chip carries it), the typed-question field, the "Asking:" line, the reason
+  why some chips say "needs your computer" (replay only, when any chip carries it), the typed-question field, the "Asking:" line, the reason
   Continue is off (id `zen-why`) and, when that reason is the demo's no-recording sentence, the steps to run it on your
   computer (a disclosure that starts open, below), Back / Continue, and only then "Your data" (the whole table, scrollable; it no longer
   repeats the note). The table is reference and 320px tall: above the buttons it pushed Continue off the screen
@@ -110,19 +110,87 @@ spacing, colours, motion, a11y attributes), translated into Preact + CSS files w
   is on the top bar's skip link, and it still moves, because nothing else on the pane takes focus while it runs), and
   the trace's live region says the verdict once (`start/RunPanel.tsx` `settledLiveText`: the trace's own sentence ends
   "Showing the answer.", which is true on `#/start` and not here; `traceLiveText` gives these words to Step by step's Checking
-  pane only, and `#/start` keeps the trace's sentence word for word, "Showing the answer." included, pinned in `RunPanel.test.ts`). There is no skip and no cancel: the replay generator can
+  pane only; `#/start` keeps the trace's sentence, which says the answer is showing and now names it too, once: "… Showing the answer:
+  Chef Ravioli Starbright, $2,252.07." (`RunPanel.tsx` `sayAnswer`, the lead from `model/answer.ts` `answerLead`; no lead, no addition; pinned in
+  `RunPanel.test.ts` and `replay-check.mjs` 3g, which also checks that no other live region repeats the name)). There is no skip and no cancel: the replay generator can
   only be aborted, which would fail the draft. Any other outcome (a question only you can answer, a refusal, nothing
   recorded…) is shown in place with its own way forward.
 - **5 · Your answer** keeps the proof: under the answer, one line cut from the trace's own header and footer (`start/derive.ts`
   `traceSummary`: `Passed every check · stress test caught 8 of 12 · real run 0.08 s`, `Passed 2 basic checks · real run
   0.08 s`, or, for an answer certified earlier, what the footer says, never "real run"), and a "See the checks" button
   (`aria-expanded` / `aria-controls`, collapsed by default) that opens the full check trace of that run, the same component
-  and props as pane 4 (`zen/ZenProof.tsx`). Nothing plays when it opens, so reduced motion needs nothing.
+  and props as pane 4 (`zen/ZenProof.tsx`). Nothing plays when it opens, so reduced motion needs nothing. The card above them is
+  the one described under "The answer card" below. The pane says the answer once to a screen reader: the heading that takes focus
+  ("Your answer") is described by one hidden sentence, the answer's lead ("Chef Ravioli Starbright, $2,252.07",
+  `zen/Zen.tsx` `ZEN_ANSWER_LEAD_ID`, `aria-describedby`), so it is read with the heading and not again while browsing (the sentence
+  is `hidden`, not visually hidden) and no live region repeats it; the heading's name stays "Your answer" (`replay-check.mjs` 3g reads
+  both from the browser's accessibility tree). Pane 4 keeps its own verdict sentence: the answer is not shown yet.
+
+### The answer card (`components/AnswerCard.tsx`, on the landing, `#/start` and Step by step's pane 5)
+
+What the card says and offers when the answer arrives, in the order the viewer meets it:
+
+- **One verdict line, directly under the figure** (`model/answer.ts` `verdictLine`; 16px body text in ink, no icon: the seal above it has
+  one). At most two sentences, about 30 words: how the checks went, in the seal's own words (`lanes.ts` `sealHead` and `stressWords`, with
+  the ledger's unit from `breaksWord`, so the line, the seal and the ledger can never disagree, including for one break: "caught 1 of 1
+  deliberate break"): "Passed every check, though the stress test caught 8 of 12 deliberate breaks."; "and … 12 of 12" when nothing was missed;
+  "Passed 5 of 6 checks, though the stress test ran out of time" or "didn't run", never "every check" then; for a basic pass "Only the 2
+  basic checks ran, so nothing has tested the number yet."), then the one thing most worth knowing was not checked (`decisiveCaveat`: the
+  first item of the "Not checked" list, less the explanation the list adds about your data, "(your status column has paid, pending and
+  refunded)", which the ledger keeps whole: `caveatClause` cuts only that one shape, a clean closing group that opens after a space, with
+  a clause left that is balanced and does not end on a joining word; a bracket in the middle of an item or any other closing one
+  ("whether (a) and (b)") belongs to what it says and stays, and an item that cannot be cut cleanly comes back whole), then the one next step the
+  product really has: "if the number matters, hand the calculation to your data team", named only when the card has the hand-off (so not on the
+  landing's illustration, which says the same line with its own labelled numbers and no next step). The next step follows the caveat with
+  "so", never a semicolon: "Not checked: whether orders.csv is the complete export, so if the number matters, hand the calculation to your
+  data team." (after a semicolon it read as a second thing that was not checked). The line replaces the old standalone "Not checked: …" line
+  under the figure; the "Checked against" / "Not checked" ledger below stays. It never says the answer is right: it says what ran and what did
+  not. Length: about 34 words for every caveat the demo's own data produces (the first sentence is 13 words, the next step 12, the caveat at
+  most 7: "whether refunded and pending orders should count"; `answer.test.ts` works it out from `dataFacts(bundledOrders())` and
+  `notCheckedList`, it is not typed in). A caveat built from a viewer's own data (a status column with up to eight values) makes it longer
+  and is kept whole: cutting an item to fit would change what it says, and the ledger is where the whole list is. The "Add a house rule" link goes to the landing's explainer, not to a rule editor, and the demo cannot re-run after a rule or a lock, so
+  the line never tells the viewer to add one. (The line restates the seal in body text on purpose: the seal is 12px mono, and a viewer who
+  skips it still gets the verdict here. What a miss means, "4 of 12 deliberate breaks went unnoticed by your checks", is the ledger's.)
+- **One filled control: the hand-off** ("Hand this to your data team (download)", `start/RunPanel.tsx` `Handoff`, handed to the card's
+  `primaryAction` slot and first in its action row; it keeps its title, its busy state and its `role="status"` line, which wraps under the
+  row). "Lock this answer" / "Locked" is a quiet secondary control on a card that HAS the hand-off (a ring, no fill; locked is the same ring in
+  indigo with the padlock); "See the calculation" and "Add a house rule" were already quiet. The quiet lock follows the slot, not the page's
+  variant: the card takes `fd-ac--handoff` exactly when `primaryAction` is given, so a start card whose hand-off is not on offer (the eject
+  module did not load, or the answer cannot be ejected) keeps a filled lock and still has exactly one filled control. The landing's
+  illustration has no hand-off, so its lock stays the one filled control there. The download is real in both modes (the engine's eject); the
+  module loads as soon as a run starts, so the button is there when the answer is.
+- **The lock that came with the demo, and "Version 4", said in place.** The note beside the pre-set "Locked" is one sentence,
+  `model/agreement.ts` `SEEDED_LOCK_NOTE`, "This lock comes with the demo file." (the rail says the same of the whole agreement, `SEEDED_NOTE`,
+  "This agreement comes with the demo file."; the landing's illustrative rail says "Confirmed by you · on this page only" after a press of
+  its Confirm, the card's own words, not a typed date, since nothing is saved there either). It does not say "saved earlier": the demo installs the agreement in this visit, as saved steps
+  of its own after the file loads (the engine's history shows it), and the seeded lock's date is a fixed design date, not a clock reading.
+  It sits in one note under the action row with what the lock means in this mode (`lockedHelp`: for that lock the help starts at "This demo
+  can't write a later version; on your computer every later version has to give this same list.", since the note already says it is locked;
+  a lock the viewer makes keeps "Locked, and kept with this answer." first), only while that lock is the one that came with the demo. "Version 4" is the engine's count of saved steps, not of answers: step 1 is the starting point (the engine's initial
+  image, not an answer), 2 loading the file, 3 installing the demo's agreement, 4 the first answer (`stageData.test.ts` replays the bundled
+  recording through the real engine and pins this). In the demo, a second caption line names exactly the saves before the answer, in the
+  order they happened (`model/answer.ts` `versionNote`: "Versions 1 to 3 were the starting point, the file and the demo's agreement; this is
+  the first answer."; the basic-checks fallback, whose agreement recording is missing, gets "Versions 1 and 2 were the starting point and the
+  file; this is the first answer."), and only when every save before the answer is one of those three kinds AND the saved spec is the answer's
+  own function's (each save carries the function it is about): a save the viewer made (an earlier answer, a lock, a ruling, or the spec of a
+  question they typed, which the page saves when it is asked: a spec for ANY OTHER function) gets nothing new, so a viewer who typed a question
+  and then asked the recorded one reads "Version 5" with no claim about save 4. A local copy gets nothing new either: `versionNoteFor` is the
+  demo-only gate (a copy on your computer installs the same agreement, so only the mode keeps the line off it; `RunPanel.tsx` calls it and a
+  source pin keeps it from calling `versionNote` directly). `stageData.test.ts` replays both runs through the real engine (the plain first run,
+  and a typed question saved before it) and pins the saves, the function each names and the note.
+- **What "Confirm" does**, said once under "What the AI assumed": "Confirming only marks a line on this page; nothing is saved, sent or
+  checked." It is the viewer's own mark on this run's answer, kept by the page's session for the life of the run (`session.confirmed` and
+  `session.confirm`, keyed by run and question; the landing's card keeps its own): Step by step's Back and Forward, and a walk to the Full
+  view and back, show it again, and a new run, another question, other data or a reset starts with none (a session that resumes with no run
+  brings none, so a fresh run that gets an old run's number cannot inherit its mark). It never reaches the engine, the checks or the
+  download (`provenance.json` records the AI's notes, not confirmations), and it is lost when the tab is closed. `replay-check.mjs` 3g clicks
+  it and asserts no new saved step, no transcript entry and no request, and the Step by step walk presses Confirm on pane 5, goes Back to
+  pane 3 and Forward again and asserts it is still there.
 
 ### Your own file in the demo (`#/start` and `#/zen`, replay only)
 
 The public site plays back recorded answers, and only some questions about `orders.csv` have one (`sales-q3.csv`, the other
-sample, has none: every question about it reads "needs live"). The page says so before a file of your own is dropped, keeps
+sample, has none: every question about it reads "needs your computer"). The page says so before a file of your own is dropped, keeps
 a way to see a full run in sight after, and says how to run it on your computer without leaving the page. Every word below is
 drawn in the demo only; a copy that runs on your computer renders exactly as it did (each is a pure view function that is null
 or unchanged in live mode, tested in both modes: `ownFileCaveat`, `ownFileRegion`, `showOwnFileNote`, `zenPickerFold`,
@@ -132,8 +200,8 @@ including what a refusal does to the picker there).
 - **One caveat, before.** Under the drop zone, in the picker of both pages (open with nothing bound, or opened with "Change"
   while a sample is bound): "In this demo, only some questions about the sample file orders.csv have recorded answers. Your
   own file loads and previews here; asking about it needs the version on your computer." (`start/startView.ts`
-  `DEMO_OWN_FILE_CAVEAT`, one constant). It is worded to agree with the question pane's legend ("needs live: this demo has
-  recorded answers for one question; the others need the version on your computer"), and `start/ownFileCaveat.test.ts` ties it
+  `DEMO_OWN_FILE_CAVEAT`, one constant). It is worded to agree with the question pane's legend ("This demo has recorded
+  answers for one question; the others need the version on your computer"), and `start/ownFileCaveat.test.ts` ties it
   to the real recordings: some orders.csv questions answerable, none on sales-q3.csv, so it never says "the sample files".
 - **The picker stays open after your own file binds** (`startView.ts` `pickerFold`, the rule both pages share: the fold never
   hides the own-file note or a refusal), so the two sample files stay in sight. Step by step used to close it unconditionally,
@@ -150,7 +218,7 @@ including what a refusal does to the picker there).
   run, try orders.csv." (`DROP_NOTE`; pasted rows get `PASTE_NOTE`, "Read in this browser. To see the checks run, try orders.csv.", on the Full view's
   paste tab and on Step by step, which picks by the name the session gave the data: `ownFileNote`). It names the sample that has
   recorded answers, from the caveat's own constant, because `sales-q3.csv` sits right beside it and has none ("try a sample
-  file" sent a click there, to a pane where every question reads "needs live"). The notes no longer repeat the caveat.
+  file" sent a click there, to a pane where every question reads "needs your computer"). The notes no longer repeat the caveat.
 - **The forward button says what it opens** (`zen/flow.ts` `forwardLabel`): with your own file bound on pane 1 it reads "See
   what's in your file", secondary, still enabled and still the button that takes focus (pane 2 is where the columns and the
   suggested questions are, and the note about columns read as text). Every other pane and case is as it was: "Continue" /
@@ -173,27 +241,57 @@ including what a refusal does to the picker there).
   link; in the demo the closing card sits under the zip card (two columns level from 809 px, where the grid first fits two columns) because the limits card is the
   tall one, and a copy that runs on your computer keeps the layout it had. The commands are set in the mono face and wrap (pre-wrap, at a URL's seams) instead of
   scrolling, so nothing scrolls sideways at 390 px.
+- **The dead end has a way out** (`start/derive.ts` `noRecordingView`, `sampleOffer`; the same sentence on the Full view's Ask card and
+  on the card that follows a press of Ask, and on Step by step's panes 2 and 3; the answer card's held caption no longer says it, only
+  "Nothing was checked, so no answer is shown."). For a
+  file of your own (and for sales-q3.csv, which has no recording either) the sentence no longer ends "Try a sample file for now.", a
+  way out nothing on the page could act on. It names the sample and the question it has a recording for, and its action is a real
+  button: "In this demo, answers are recorded, so questions about your own file need the version on your computer. “Who are our top
+  customers by revenue?” has a recorded answer on one sample file: switch to orders.csv." The button (`session.useSample('orders')`,
+  which selects that sample's opening question, `DEFAULT_QUESTION_ID`, the very question the sentence names) puts focus on the way
+  forward (Ask on `#/start`, Continue on `#/zen`). It is said once on the no-recording card: the button inside the sentence is the only
+  control for it (the card's action row used to add a second "Switch to orders.csv" button, or a "Try “…”" button for the other question,
+  and the held answer's veil said the whole sentence a third time); the row keeps only the link to run it on your computer.
+  "Only some questions about orders.csv" stays
+  true: the sentence names ONE question, not the file, and `start/ownFileCaveat.test.ts` opens the sample against the real recordings and
+  fails if that question has none. A viewer already on orders.csv gets the existing `try it` for the other question, never this.
 - **Not done here:** the suggestion generator still offers questions that mean little for an own file (it works from column
-  types alone: model/questions.ts); the landing's hero and closing buttons are as they were; the dead end's own sentence still
-  ends "Try a sample file for now." (`start/derive.ts` `NO_RECORDING_OWN`, with no sample in reach on panes 2 and 3 except
-  through Back); "Paste data" and the paste form's "Back" still drop focus to the page (as before this path existed;
-  changing it would change a copy that runs on your computer).
+  types alone: model/questions.ts); the landing's hero and closing buttons are as they were; "Paste data" and the paste form's
+  "Back" still drop focus to the page (as before this path existed; changing it would change a copy that runs on your computer).
 
 ### Suggested and typed questions (`#/start` and `#/zen`)
 
 - **Order.** Chips this page can answer come first (a recording, or an answer already on file), the ones that need the
   version on your computer after them, each group in its own order (`start/AskCard.tsx` `chipsOf`). Until what can be
   answered is known nothing moves.
-- **"needs live"** is defined once, next to the chips, whenever any chip carries it in replay: "needs live: this demo has
-  recorded answers for one question; the others need the version on your computer." (the number is counted) with the "How
-  to run it on your computer" link (`RUN_LOCALLY_URL`, the README). Step by step's dead-end message carries the steps instead
-  (below), and the README link as their last line.
+- **One wording for one question.** A question is said in its own words (`model/questions.ts`: `label` is `text`, written once, for
+  the samples and for a file of your own): "Who are our top customers by revenue?" is the chip, the "Asking:" line, pane 3's
+  "Before you see an answer to …", the trace's header, "You asked", and the sentences that point at it. The chip used to read "Top 5
+  customers by revenue" over an "Asking:" line that read "Who are our top customers by revenue?", because the button text and the
+  question were typed apart. The old button words are kept as an `alias` that `matchQuestion` still reads (typing "top 5 customers
+  by revenue" selects the chip, adds nothing); nothing draws them. The answer's own title ("Fig. 1 · Top 5 customers by revenue") is
+  not the question: it is worked out from the answer (`model/answer.ts`).
+- **"needs your computer"** is the chip tag for a question the demo cannot answer (`start/AskCard.tsx` `NEEDS_YOUR_COMPUTER`, one
+  constant both pages draw): the phrase the sentences use for the same thing, so it means something without its legend ("needs live"
+  did not, and "live" already means three things on the page). One line says why, near the chips whenever any chip carries the tag in
+  replay, and does not begin by repeating it: "This demo has recorded answers for one question; the others need the version on your
+  computer." (the number is counted) with the "How to run it on your computer" link (`RUN_LOCALLY_URL`, the README). Step by step's
+  dead-end message carries the steps instead (below), and the README link as their last line, and says the same thing, so while that
+  message is on a pane the legend is not drawn there (`AskCard.tsx` `legendUnlessDeadEnd`), and a tag that would mark EVERY chip is not
+  drawn either (`tagsTellApart`: Step by step tags the chips that need the computer only when some other chip can be answered, which is
+  when a tag tells them apart). An own file's pane 2 used to say "needs the version on your computer" five times (three chip tags, the
+  legend, the sentence, and the how-to heading; six while a question was typed, whose note said the reason again) and now says it twice:
+  the sentence (why, and the way out as a button) and the "How to run it on your computer" heading (where to go to do it). The note under
+  the typing box only says what happens to the words ("In this demo, a question you type is added to the list, but it has no recorded
+  answer."). On a sample where one question has a recording, the other chips keep the tag, and the count stays in the legend whenever no
+  dead-end sentence is shown. `replay-check.mjs` 3b2 counts "your computer" on the pane. The Full view keeps its tags and its legend,
+  which has the README link, beside the sentence under Ask.
 - **Typing a suggestion's own words** (a label or its plain-words form, any case, spaces, ending punctuation or quote marks)
   selects that chip and adds nothing (`model/questions.ts` `matchQuestion`).
-- **A question the demo cannot answer** (typed or suggested, replay only) is tagged "needs live" alone: no level is claimed
+- **A question the demo cannot answer** (typed or suggested, replay only) is tagged "needs your computer" alone: no level is claimed
   for a calculation that will never run here, and the line under Ask is just the no-recording sentence. In live mode, and for
   questions that can be answered (recorded, or Full checks), tags and wording are as before.
-- **`try it`** in the no-recording sentence ("“Top 5 customers by revenue” has one: try it.") is a real button that selects
+- **`try it`** in the no-recording sentence ("“Who are our top customers by revenue?” has one: try it.") is a real button that selects
   that question and moves focus to the way forward (Ask on `#/start`, Continue on `#/zen`). The sentence is the same plain
   text (`start/derive.ts` `noRecordingText`); `noRecordingView` gives it in pieces.
 
@@ -206,8 +304,8 @@ including what a refusal does to the picker there).
 | 03 Matches your locked answer | Tests gate, pinned tests (`spec.pins`, `Engine.pinResult`) |
 | 04 Follows your house rules on 100 made-up tables | Properties gate (fast-check, `numRuns`); decisions placed as properties are house rules too |
 | 05 Never changes your data · finishes fast | Invariants gate (pure + bounded) |
-| 06 Stress test: we broke it 12 small ways | Mutation check (`Engine.runMutation`, `state.mutation`, `Evidence.mutation`) |
-| Version N | Revision `rN` an accepted draft was committed at (`Artifact.revision`; the answer card's caption and the honesty bar). NOT `state.headRevision`, which also counts binding a file, installing the demo's agreement, locking and rulings; the first run's bar shows no version until one is committed, and the landing's reads "Example answer: Version 4" (`STAGE_VERSION`, pinned by a test that replays the bundled recording) |
+| 06 Stress test: 12 deliberate breaks | Mutation check (`Engine.runMutation`, `state.mutation`, `Evidence.mutation`) |
+| Version N | Revision `rN` an accepted draft was committed at (`Artifact.revision`; the answer card's caption and the honesty bar). NOT `state.headRevision`, which also counts binding a file, installing the demo's agreement, locking and rulings; the first run's bar shows no version until one is committed, and the landing's reads "Example answer: Version 4" (`STAGE_VERSION`, pinned by a test that replays the bundled recording). Versions before the first answer are saves of the demo file being set up (the starting point, the file, the demo's agreement); the card says so in the demo (see "The answer card") |
 | Lock this answer | `Engine.pinResult(entryId)` |
 | Draft thrown out | A rejected `AttemptView` / `Candidate` |
 | A question only you can answer | A rejection whose diagnostic carries `silentOn` → `Engine.gapQuestion(ref)` → `Engine.decide(ref, choice, {reason})` |
@@ -215,7 +313,7 @@ including what a refusal does to the picker there).
 | What the AI will see / 3 example rows | `Engine.previewDataset().sampleText`, `typeDecl`, `Engine.setSendSamples`, `Candidate.prompt` |
 | Hand your data team a file | Eject (the engine's `eject/eject.ts`, called by `model/handoff.ts`) |
 | How to run it on your computer | The README's "Run it on your computer" section, in the demo's own words from `model/runLocally.ts` (what you need, three commands, where it opens): the landing's HONEST LIMITS card (`#own-file`) lists them and links to the README, so does the demo's second hero button ("Use your own file: run it on your computer"), and Step by step's dead end opens them inline |
-| needs live | Replay mode, a question with no bundled recording for the spec it would run against (`Availability` 'none'): it can only be answered by the version on your computer |
+| needs your computer (the chip tag; in the code `needsLive`) | Replay mode, a question with no bundled recording for the spec it would run against (`Availability` 'none'): it can only be answered by the version on your computer |
 | See the checks (step 5) | The check trace of the run that gave the answer, collapsed under the answer (`start/derive.ts` `traceSummary`, `zen/ZenProof.tsx`). Not "See the calculation", which on the landing opens the example's code |
 | "Demo · recorded answers, real checks" | `state.mode === 'replay'` (the top bar's mode pill: a disclosure whose note says what runs where and what leaves the browser) |
 | "Step by step" | The `#/zen` walk-through (the UI never says "Zen") |
@@ -247,8 +345,10 @@ from the data by `model/figures.ts`, never typed in twice, and `figures.test.ts`
    produce something (no recording in replay mode, no live service), say so in the design's own plain words
    (e.g. "In this demo, answers are recorded, so questions about your own file need the version on your computer").
 2. The landing's hero trace is a scripted, slowed-down playback of the example (the design says so: "Slowed down so you
-   can watch"). It is labelled as an illustration; every evidence tile (6 of 6, 100, 11 of 12, 1 thrown out) and the
-   stress-test strip carry "Illustrative · not yet a recorded run" until a recording backs them (`landing/evidenceView.ts`:
+   can watch"). It is labelled as an illustration, once, in the caption under the trace ("Illustrative playback of the example
+   below, slowed down"; the trace's header, footer and timer do not say it again); the evidence section (6 of 6, 100, 11 of 12, 1
+   thrown out, and the stress-test strip they open) carries ONE "Illustrative · not yet a recorded run" label, above its tiles, until a
+   recording backs them (`landing/evidenceView.ts`:
    the counts come from the seeded agreement, the outcomes are scripted; only the thrown-out draft's "Why" is computed).
 3. The "two rules that disagree" question has no engine signal; it exists only as the landing's illustration.
 4. Checked, not proven. The honesty bar and the "Not checked" list are always present.
@@ -259,7 +359,20 @@ from the data by `model/figures.ts`, never typed in twice, and `figures.test.ts`
    finished (`start/derive.ts` `outcomeOf`) and are then revealed together: the seal reads `Passed every check · stress
    test caught N of M` (N and M from the engine's mutation report, the same count lane 06 shows, `model/lanes.ts`
    `stressStatus`); misses are listed under Not checked, and a stress test that did not run is said so (`Passed 5 of 6
-   checks · stress test didn't run`), never as "every check".
+   checks · stress test didn't run`), never as "every check". The check is called the **stress test** and the things it does are
+   **deliberate breaks**, on every surface (`model/lanes.ts` `stressLabel`, `deliberateBreaks`, `stressChecked`, `stressNotChecked`,
+   `stressWords`; the landing's script and evidence strip read the same functions): the lane "Stress test: 12 deliberate breaks"
+   (before a count exists: "Stress test: deliberate breaks"), the seal "stress test caught 8 of 12" (unchanged), the "Checked against" line
+   "stress test (caught 8 of 12 deliberate breaks)" (`stressChecked`; the trace footer under lane 06 reads the same function without the unit,
+   "stress test (caught 8 of 12)", since lane 06 a line above has named them and a longer footer wrapped to a third line, which made the
+   Checking pane 915px tall at 1440x900, so a count cannot be said two ways), the "Not checked" line
+   "4 of 12 deliberate breaks went unnoticed by your checks", pane 3's sixth row, and the landing's "In this illustration, the stress test made
+   12 deliberate breaks in the calculation. Your checks caught 11." One place keeps another word order on purpose: lane 06's own result cell
+   ("8 of 12 caught" and "4 missed" under it, and its accessible name "Stress test: 12 deliberate breaks: 8 of 12 caught, 4 missed"), a tight
+   cell directly under the lane's label, which has already named the breaks; the live lane (`lanes.ts` `stressResult`) and the landing's
+   scripted one (`traceScript.ts`) say it the same way, so they change together if it ever changes. Before this, the same check was "we broke it 12 small ways on purpose",
+   "small breaks on purpose", "12-way stress test (8 caught)", "small breaks caught on purpose" and "it breaks the calculation in small
+   ways on purpose"; the footer and the ledger also counted a time-boxed run two ways ("caught 7 of 12" and "7 of 12 caught"), and now read one text.
 
 ## Source layout (all new code under `apps/site/src/door/`)
 
@@ -301,16 +414,16 @@ recordings of one function with different specs coexist.
 - **Adaptive seeding.** The seeded agreement (`model/agreements.ts`) is installed in live mode, and in replay mode only
   when a recording matches its hashes (or a function certified for it exists): `start/recorded.ts` seedUsable. Otherwise
   the question is asked spec-less. The question's level ('Full checks' / 'Basic checks') is what will really run
-  (`recorded.ts` levelFor). Today, on the replay site (`orders-agreement.json` is bundled): "Top 5 customers by
-  revenue" installs the agreement and replays with Full checks (Chef Ravioli Starbright $2,252.07 first, already
+  (`recorded.ts` levelFor). Today, on the replay site (`orders-agreement.json` is bundled): "Who are our top
+  customers by revenue?" installs the agreement and replays with Full checks (Chef Ravioli Starbright $2,252.07 first, already
   locked); with that recording unavailable or stale it falls back to the spec-less `orders.json` session and replays with
-  Basic checks (Puddlesworth Inc $2,599.13 first, every row counted). "Count orders by status" and "Revenue by country"
-  end in the honest no-recording state either way, which points at the question that has an answer. `npm run
+  Basic checks (Puddlesworth Inc $2,599.13 first, every row counted). "How many orders are there by status?" and "What is
+  our revenue by country?" end in the honest no-recording state either way, which points at the question that has an answer. `npm run
   check:replay` drives both paths (the second by serving the recordings index without the agreement's recording).
 - **Recording the agreement** (`npm run record:door`, i.e. `node apps/site/scripts/record-door.mjs`): starts the vite
   dev server (live mode: it uses YOUR Codex login and spends model calls), opens `#/start` on a fresh image in headless
-  Chrome, and drives the page's own session (`sessionFor(engine)`): bind orders.csv as `rows`, select "Top 5 customers
-  by revenue" (the agreement is installed), Ask. Only a committed run is kept (up to 4 tries); the number of tries, the
+  Chrome, and drives the page's own session (`sessionFor(engine)`): bind orders.csv as `rows`, select "Who are our top customers
+  by revenue?" (the agreement is installed), Ask. Only a committed run is kept (up to 4 tries); the number of tries, the
   drafts and whether the first draft was thrown out are printed and written into the recording's title. It writes
   `public/recordings/orders-agreement.json` and refreshes `index.json`. Needs Chrome and `codex login`.
 - **After it is bundled** nothing else changes: the page sees the recording, installs the agreement and shows Full

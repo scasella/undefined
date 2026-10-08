@@ -6,7 +6,7 @@
  *   03 Matches your locked answer                 Tests gate, the pinned results (diagnostic names start `pinned: `)
  *   04 Follows your N house rules on T tables     Properties gate (+ decision tests, names start `decided: `)
  *   05 Never changes your data · finishes fast    Invariants gate (pure + bounded)
- *   06 Stress test: we broke it N small ways      The lazy mutation check (state.mutation, Evidence.mutation)
+ *   06 Stress test: N deliberate breaks          The lazy mutation check (state.mutation, Evidence.mutation)
  *
  * Pure (no DOM). Every count comes from a gate result, the spec, the evidence or the mutation report: when the engine
  * has not reported a number the label drops it ("Matches your examples") instead of guessing.
@@ -166,24 +166,51 @@ export function stressStatus(i: StressInput): StressStatus {
 /** The stress test is still to come: the answer (and the seal) wait for it. */
 export const stressPending = (s: StressStatus): boolean => s.kind === 'pending';
 
-const breaksWord = (n: number): string => (n === 1 ? 'break' : 'breaks');
+/** 'break' for one, 'breaks' otherwise: the unit every surface that counts the stress test's deliberate breaks agrees on (`deliberateBreaks`, the verdict line). */
+export const breaksWord = (n: number): string => (n === 1 ? 'break' : 'breaks');
 
 /**
  * The seal in words (sentence case; the card sets it in capitals). `ran` of `of` are the checks that apply: every one
  * that has something to run, plus the stress test. "Every check" is only ever said when the stress test finished.
  */
 export function sealWords(s: { stress: StressStatus; ran: number; of: number }): string {
-  const st = s.stress;
-  if (st.kind === 'done') return `Passed every check · stress test caught ${st.caught} of ${st.total}`;
-  if (st.kind === 'partial') return `Passed ${s.ran} of ${s.of} checks · stress test ran out of time`;
-  if (st.kind === 'not-run') return `Passed ${s.ran} of ${s.of} checks · stress test didn't run`;
-  return 'Passed every check';
+  const words = stressWords(s.stress);
+  return words ? `${sealHead(s)} · ${words}` : sealHead(s);
 }
 
-/** The stress test's line in "Checked against", with whether it takes the amber glyph (anything missed or unfinished). */
-export function stressChecked(st: StressStatus): { text: string; ask: boolean } | null {
-  if (st.kind === 'done') return { text: `${st.total}-way stress test (${st.caught} caught)`, ask: st.missed > 0 };
-  if (st.kind === 'partial') return { text: `stress test (${st.caught} of ${st.total} caught, ran out of time)`, ask: true };
+/** The first half of the seal: "Passed every check", or, when the stress test did not finish, how many of the checks passed. Never "every" then. */
+export function sealHead(s: { stress: StressStatus; ran: number; of: number }): string {
+  return s.stress.kind === 'partial' || s.stress.kind === 'not-run' ? `Passed ${s.ran} of ${s.of} checks` : 'Passed every check';
+}
+
+/**
+ * The second half of the seal, the stress test's own result in words: "stress test caught 8 of 12", "stress test ran out of
+ * time", "stress test didn't run"; null when there is nothing to say (none, or still to come). The seal and the answer's
+ * verdict line both say it with these words.
+ */
+export function stressWords(st: StressStatus): string | null {
+  if (st.kind === 'done') return `stress test caught ${st.caught} of ${st.total}`;
+  if (st.kind === 'partial') return 'stress test ran out of time';
+  if (st.kind === 'not-run') return "stress test didn't run";
+  return null;
+}
+
+/**
+ * "N deliberate breaks": the stress test is the check, and the things it does are deliberate breaks. Every surface that counts them
+ * (the lane's label, the ledger, the Not checked list, the footer, the landing) says it this way and no other.
+ */
+export const deliberateBreaks = (n: number): string => `${n} deliberate ${breaksWord(n)}`;
+
+/**
+ * The stress test's line in "Checked against", with whether it takes the amber glyph (anything missed or unfinished):
+ * "stress test (caught 8 of 12 deliberate breaks)". `unit` false leaves "deliberate breaks" off ("stress test (caught 8 of 12)"):
+ * the trace's footer, a tight line directly under lane 06 ("Stress test: 12 deliberate breaks"), which has already named them. The
+ * numbers are the same function's either way, so the two can never disagree.
+ */
+export function stressChecked(st: StressStatus, unit = true): { text: string; ask: boolean } | null {
+  const of = (total: number): string => (unit ? deliberateBreaks(total) : String(total));
+  if (st.kind === 'done') return { text: `stress test (caught ${st.caught} of ${of(st.total)})`, ask: st.missed > 0 };
+  if (st.kind === 'partial') return { text: `stress test (caught ${st.caught} of ${of(st.total)}, ran out of time)`, ask: true };
   return null;
 }
 
@@ -191,7 +218,7 @@ export function stressChecked(st: StressStatus): { text: string; ask: boolean } 
 export function stressNotChecked(st: StressStatus): string | null {
   if (st.kind === 'done' && st.missed > 0) return `${st.missed} of ${st.total} deliberate ${breaksWord(st.total)} went unnoticed by your checks`;
   if (st.kind === 'partial') {
-    const tried = st.planned !== null && st.planned > st.total ? `${st.total} of ${st.planned} small breaks` : `${st.total} small ${breaksWord(st.total)}`;
+    const tried = st.planned !== null && st.planned > st.total ? `${st.total} of ${deliberateBreaks(st.planned)}` : deliberateBreaks(st.total);
     const missed = st.missed > 0 ? `, and ${st.missed} of those went unnoticed by your checks` : '';
     return `the stress test ran out of time: it tried ${tried}${missed}`;
   }
@@ -279,8 +306,9 @@ function rulesLabel(n: number | null, tables: number | null, propertiesRan: bool
   return `Follows ${who} on ${tables === null ? '' : `${tables} `}made-up tables`;
 }
 const SAFE_LABEL = 'Never changes your data · finishes fast';
-function stressLabel(total: number | null): string {
-  return total === null || total === 0 ? 'Stress test: small breaks on purpose' : `Stress test: we broke it ${total} small ways on purpose`;
+/** The sixth lane's label: the check, then what it does ("Stress test: 12 deliberate breaks"; the number is the run's own count, when it has one). */
+export function stressLabel(total: number | null): string {
+  return total === null || total === 0 ? 'Stress test: deliberate breaks' : `Stress test: ${deliberateBreaks(total)}`;
 }
 
 const OFF_ARIA = ': not checked yet. Add an example, a locked answer or a house rule to switch it on.';
@@ -615,7 +643,7 @@ export function ghostFromAttempts(gen: GenerationView | null, facts: LaneFacts, 
 // ───────────────────────── header, footer, live text ─────────────────────────
 
 export interface HeaderView {
-  /** 'CHECK TRACE · DRAFT 2 · Top 5 customers by revenue · orders.csv · 332 rows' */
+  /** 'CHECK TRACE · DRAFT 2 · Who are our top customers by revenue? · orders.csv · 332 rows' */
   left: string;
   /** Right-hand timer text when not checking: '0.41 s', 'paused · waiting on you', 'waiting for your question'. */
   right: string;
@@ -631,7 +659,7 @@ export interface HeaderView {
 }
 
 export interface HeaderInput {
-  /** Short question label, e.g. 'Top 5 customers by revenue'. */
+  /** The question in its own words, e.g. 'Who are our top customers by revenue?' (the chip's label is the same string). */
   question: string;
   file: string;
   rows: number;
@@ -709,7 +737,7 @@ export function footerFor(lanes: LaneView[], header: HeaderView): { text: string
   }
   if (header.stress) {
     return {
-      text: `The other checks passed. Last is the stress test: it breaks the calculation in small ways on purpose, to see whether your checks notice. The answer appears when it finishes.`,
+      text: `The other checks passed. Last is the stress test: it makes deliberate breaks in the calculation, to see whether your checks notice. The answer appears when it finishes.`,
       meta: header.stress === 'running' ? 'stress test running…' : 'stress test next…',
     };
   }
@@ -743,8 +771,9 @@ export function footerFor(lanes: LaneView[], header: HeaderView): { text: string
     }
     // the same numbers as lane 06 and the seal; a stress test that gave no result is said so
     const st = get('06')?.stress;
-    if (st?.kind === 'done') parts.push(`stress test (caught ${st.caught} of ${st.total})`);
-    else if (st?.kind === 'partial') parts.push(`stress test (caught ${st.caught} of ${st.total}, ran out of time)`);
+    // (the unit is lane 06's, a line above: this line is tight, and a third line here made the Checking pane taller than 900px at 1440)
+    const stress = st ? stressChecked(st, false) : null;
+    if (stress) parts.push(stress.text);
     parts.push('your data untouched');
     const missing = st && st.kind === 'not-run' ? " The stress test didn't run." : '';
     return { text: `Checked against: ${parts.join(' · ')}.${missing}`, meta: `real run ${header.right}` };

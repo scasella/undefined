@@ -37,8 +37,14 @@ export interface AgreementAssumption {
   confirmedMeta: string;
 }
 
-/** The plain note for anything that came with the demo file (the rail's, and the answer card's next to a seeded lock). */
-export const SEEDED_NOTE = 'Saved with this demo file from an earlier session.';
+/**
+ * Where the demo's agreement comes from, said the way the engine's own history shows it: the demo installs it with the file, in
+ * this visit (a saved step of its own, after the file loads), so it is neither "saved earlier" nor something the viewer did.
+ * The rail's note, under the counts.
+ */
+export const SEEDED_NOTE = 'This agreement comes with the demo file.';
+/** The same, for the answer card's lock when it is the one the demo came with (next to "Locked", so a viewer who locked nothing knows why). */
+export const SEEDED_LOCK_NOTE = 'This lock comes with the demo file.';
 
 export interface AgreementView {
   /** `6 examples · 1 locked answer · 2 house rules` */
@@ -258,7 +264,9 @@ export function illustrativeAgreement(lockValue = '$2,252.07'): AgreementView {
     assumption: {
       t: 'Revenue is after discounts',
       pendingMeta: "The AI's assumption · not confirmed yet",
-      confirmedMeta: 'Confirmed by you · 5 Oct 2026',
+      // what a press of Confirm really does here, in the card's own words (AnswerCard CONFIRM_NOTE): it marks a line on this page. A
+      // clock-looking date would say it was recorded somewhere, which an illustration's button cannot do
+      confirmedMeta: 'Confirmed by you · on this page only',
     },
   };
 }
@@ -309,18 +317,20 @@ export function heldNote(mode: CheckMode): string {
  *  - basic checks, live: the engine's promise; basic checks, replay: the demo cannot re-run with the lock;
  *  - full checks, replay: the lock is kept with the answer, but this demo cannot write a later version, so "every later
  *    version has to give this" is a statement about the version on the viewer's computer, not about anything here.
- *    (`noun` is what the answer is called: 'list' for a ranked list, else 'answer'.)
+ *    (`noun` is what the answer is called: 'list' for a ranked list, else 'answer'.) `seeded`: the lock is the one that came with the
+ *    demo file, and the card's note beside it already says so, so "Locked, and kept with this answer." is not said a second time;
  *  - full checks, live: '' (the card's own "Every later version has to give this same list." is true there).
  */
-export function lockedHelp(input: { locked: boolean; level: 'full' | 'basic'; mode: CheckMode; noun?: 'list' | 'answer' }): string {
+export function lockedHelp(input: { locked: boolean; level: 'full' | 'basic'; mode: CheckMode; noun?: 'list' | 'answer'; seeded?: boolean }): string {
   if (!input.locked) return '';
-  if (input.level === 'full') return input.mode === 'replay' ? lockedKeptReplay(input.noun ?? 'answer') : '';
+  if (input.level === 'full') return input.mode === 'replay' ? lockedKeptReplay(input.noun ?? 'answer', input.seeded === true) : '';
   return input.mode === 'replay'
     ? "Locked. This demo can't re-run with it, so asking again shows this same answer; on your computer the next version is checked against it."
     : 'Locked. The next version runs full checks, starting with this answer.';
 }
 
 /** Replay, locked, full checks: what is true here (the lock is saved with the answer) and what only holds on the viewer's computer. */
-export function lockedKeptReplay(noun: 'list' | 'answer'): string {
-  return `Locked, and kept with this answer. This demo can't write a later version; on your computer every later version has to give this same ${noun}.`;
+export function lockedKeptReplay(noun: 'list' | 'answer', seeded = false): string {
+  const tail = `This demo can't write a later version; on your computer every later version has to give this same ${noun}.`;
+  return seeded ? tail : `Locked, and kept with this answer. ${tail}`;
 }

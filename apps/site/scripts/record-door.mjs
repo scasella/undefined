@@ -2,7 +2,7 @@
 // Records ONE real live session for the front door's seeded agreement and writes public/recordings/orders-agreement.json
 // (+ public/recordings/index.json). It drives the REAL first-run session controller (src/door/start/session.ts,
 // sessionFor(engine)) in headless Chrome against the vite DEV server, which talks to Codex with YOUR login (live mode):
-//   bind orders.csv exactly as the page does (as `rows`) → select "Top 5 customers by revenue" (the session installs
+//   bind orders.csv exactly as the page does (as `rows`) → select "Who are our top customers by revenue?" (the session installs
 //   the seeded agreement: 6 examples, 1 locked answer, 2 house rules) → Ask → require "committed".
 // Honesty rule (as scripts/record.mjs): the number of tries and whether the kept run's first draft was thrown out are
 // printed AND written into the recording's title, so the curation is never hidden. A run that does not commit (thrown
@@ -53,7 +53,7 @@ const DRIVE = async ({ chip }) => {
     if (Date.now() - t0 > 5000) return { fatal: `the page does not show "${chip}": not the page's own session?` };
     await new Promise((r) => setTimeout(r, 100));
   }
-  if (!(await s.selectQuestion('top'))) return { fatal: 'could not select "Top 5 customers by revenue"' };
+  if (!(await s.selectQuestion('top'))) return { fatal: 'could not select "Who are our top customers by revenue?"' };
   const seed = s.seed.value;
   if (!seed || s.seedState.value !== 'installed') return { fatal: `the seeded agreement is not installed (seedState ${s.seedState.value})` };
   const level = s.question.value?.level;

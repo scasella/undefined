@@ -14,7 +14,7 @@ import { CheckTrace } from '../components/CheckTrace';
 import { Segmented } from '../components/Segmented';
 import { AskDiamond, Replay } from '../icons';
 import type { AgreementHighlight } from '../model/agreement';
-import type { ScenarioId } from '../model/traceScript';
+import { SCRIPT_STRESS, type ScenarioId } from '../model/traceScript';
 import { shellRunning } from '../state';
 import {
   CALC_SOURCE,
@@ -79,7 +79,7 @@ export function Stage(_props: { engine?: Engine }) {
       <div class="fd-wrap fd-stage__wrap">
         {/* the answer card's and the agreement's h3s sit under this h2, not directly under the page's h1 */}
         <h2 id="stage-h" class="fd-sr">
-          Live example: top customers by revenue
+          Example: top customers by revenue
         </h2>
         <div class="fd-stage__main">
           <div class="fd-card fd-stage__ask">
@@ -119,6 +119,7 @@ export function Stage(_props: { engine?: Engine }) {
             reveal={{ delay: scenario.tRev, run }}
             level="full"
             seal={STAGE_SEAL}
+            stress={SCRIPT_STRESS}
             locked={locked}
             onToggleLock={() => setLocked(!locked)}
             assumptions={STAGE_ASSUMPTIONS}

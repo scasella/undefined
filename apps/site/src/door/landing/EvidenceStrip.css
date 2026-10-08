@@ -39,7 +39,8 @@
   display: inline-block; margin-top: 10px; font-family: var(--fd-mono); font-size: 12px; line-height: 17px; font-weight: 500;
   color: var(--fd-ink-3); border: 1px dashed var(--fd-line-2); border-radius: var(--fd-r-sm); padding: 5px 8px;
 }
-.fd-ev-sub + .fd-ev-badge { margin-top: 8px; }
+/* the section's one label, above its four tiles */
+.fd-ev-label { margin: 0 0 16px; }
 
 /* design: 40px; raised to the contract's 44px target */
 .fd-ev-link {
@@ -57,8 +58,7 @@
 
 /* the 12 breaks */
 .fd-ev-stress { margin-top: 24px; position: relative; background: var(--fd-surface); border-radius: var(--fd-r-lg); box-shadow: var(--fd-sh-ring); padding: 24px; }
-.fd-ev-stress__badge { position: absolute; top: 16px; right: 16px; margin-top: 0; }
-.fd-ev-stress__h { margin: 0; padding-right: 200px; font-size: 16px; line-height: 22px; font-weight: 600; }
+.fd-ev-stress__h { margin: 0; font-size: 16px; line-height: 22px; font-weight: 600; }
 .fd-ev-breaks { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 8px; perspective: 600px; }
 .fd-ev-break {
   width: 88px; min-height: 96px; border-radius: var(--fd-r-md); padding: 8px 6px; box-sizing: border-box;
@@ -85,10 +85,7 @@
 .fd-ev-add:hover { background: var(--fd-indigo-hover); }
 .fd-ev-add.is-added { background: var(--fd-green-wash); color: var(--fd-green-ink); border-color: var(--fd-green); }
 
-/* narrow: the absolute badge would sit on the heading, so it flows above it instead */
 @media (max-width: 640px) {
   .fd-ev-stress { padding: 20px; }
-  .fd-ev-stress__badge { position: static; margin-bottom: 10px; }
-  .fd-ev-stress__h { padding-right: 0; }
   .fd-ev-missed p { flex-basis: 100%; }
 }

@@ -16,10 +16,19 @@ export type CheckLevel = 'full' | 'basic';
 
 export interface SuggestedQuestion {
   id: string;
-  /** Button text: `Top 5 customers by revenue` */
+  /**
+   * What the question is called wherever it is named: a chip, the trace's header, "You asked", a sentence that points at it. It
+   * is the question's own words, the same string as `text`, written once (`suggestedQuestions`, `customQuestion`): a short noun
+   * phrase for the chip and a longer question for the "Asking:" line were two wordings for one question.
+   */
   label: string;
   /** The question in plain words: `Who are our top customers by revenue?` */
   text: string;
+  /**
+   * Another way to say it that still selects it when typed (a suggestion's old button words, `Top 5 customers by revenue`):
+   * matchQuestion reads it, nothing draws it.
+   */
+  alias?: string;
   /** The REPL call: `topCustomersByRevenue(rows)` (orders.csv is bound as `rows`, see samples.ts) */
   call: string;
   fn: string;
@@ -30,27 +39,37 @@ export interface SuggestedQuestion {
 
 interface Picked {
   id: string;
-  label: string;
+  /** The question in plain words: the one wording every surface shows. */
   text: string;
   fn: string;
+  /** The short button words it used to carry: typing them still selects the question. */
+  alias: string;
 }
 
 /** The design's hand-picked questions (FirstRun script), in order. */
 const SAMPLE_QUESTIONS: Record<SampleId, readonly Picked[]> = {
   orders: [
-    { id: 'status', label: 'Count orders by status', text: 'How many orders are there by status?', fn: 'countByStatus' },
-    { id: 'top', label: 'Top 5 customers by revenue', text: 'Who are our top customers by revenue?', fn: 'topCustomersByRevenue' },
-    { id: 'country', label: 'Revenue by country', text: 'What is our revenue by country?', fn: 'revenueByCountry' },
+    { id: 'status', text: 'How many orders are there by status?', fn: 'countByStatus', alias: 'Count orders by status' },
+    { id: 'top', text: 'Who are our top customers by revenue?', fn: 'topCustomersByRevenue', alias: 'Top 5 customers by revenue' },
+    { id: 'country', text: 'What is our revenue by country?', fn: 'revenueByCountry', alias: 'Revenue by country' },
   ],
   sales: [
-    { id: 'status', label: 'Count orders by status', text: 'How many orders are there by status?', fn: 'countByStatus' },
-    { id: 'region', label: 'Total amount by region', text: 'What is the total amount by region?', fn: 'totalAmountByRegion' },
-    { id: 'top', label: 'Top 5 customers by amount', text: 'Who are our top 5 customers by amount?', fn: 'top5CustomersByAmount' },
+    { id: 'status', text: 'How many orders are there by status?', fn: 'countByStatus', alias: 'Count orders by status' },
+    { id: 'region', text: 'What is the total amount by region?', fn: 'totalAmountByRegion', alias: 'Total amount by region' },
+    { id: 'top', text: 'Who are our top 5 customers by amount?', fn: 'top5CustomersByAmount', alias: 'Top 5 customers by amount' },
   ],
 };
 
 /** The question selected first (design: orders → top customers, sales → region). */
 export const DEFAULT_QUESTION_ID: Record<SampleId, string> = { orders: 'top', sales: 'region' };
+
+/** The question a sample opens on, in its own words (what binding that sample selects: `useSample` → DEFAULT_QUESTION_ID). */
+export function sampleOpeningQuestion(sampleId: SampleId): { id: string; text: string } {
+  const id = DEFAULT_QUESTION_ID[sampleId];
+  const q = SAMPLE_QUESTIONS[sampleId].find((p) => p.id === id);
+  if (!q) throw new Error(`no question ${id} in the ${sampleId} sample`);
+  return { id, text: q.text };
+}
 
 const capitalize = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -78,16 +97,12 @@ export function questionFromWhat(what: string): string {
 export function suggestedQuestions(dataset: DatasetRef, rows: readonly DataRow[], sampleId: SampleId | null): SuggestedQuestion[] {
   const level = (id: string): CheckLevel => (seedAgreement(sampleId, id, dataset) ? 'full' : 'basic');
   if (sampleId) {
-    return SAMPLE_QUESTIONS[sampleId].map((q) => ({ ...q, call: `${q.fn}(${dataset.name})`, level: level(q.id) }));
+    return SAMPLE_QUESTIONS[sampleId].map((q) => ({ id: q.id, label: q.text, text: q.text, alias: q.alias, call: `${q.fn}(${dataset.name})`, fn: q.fn, level: level(q.id) }));
   }
-  return suggestCalls({ name: dataset.name, columns: dataset.columns, rows }).map((s) => ({
-    id: s.fn,
-    label: capitalize(s.what),
-    text: questionFromWhat(s.what),
-    call: s.call,
-    fn: s.fn,
-    level: level(s.fn),
-  }));
+  return suggestCalls({ name: dataset.name, columns: dataset.columns, rows }).map((s) => {
+    const text = questionFromWhat(s.what);
+    return { id: s.fn, label: text, text, alias: capitalize(s.what), call: s.call, fn: s.fn, level: level(s.fn) };
+  });
 }
 
 // ───────────── typed questions ─────────────
@@ -128,13 +143,13 @@ export function normalizeQuestion(text: string): string {
 }
 
 /**
- * The question already on the list that `typed` says again (by its button label or its plain-words form, compared as
+ * The question already on the list that `typed` says again (by its name, its plain-words form or its alias, compared as
  * normalizeQuestion reads them), or null. Typing a suggestion's own words selects that chip; it never adds a second one.
  */
-export function matchQuestion<Q extends Pick<SuggestedQuestion, 'label' | 'text'>>(typed: string, questions: readonly Q[]): Q | null {
+export function matchQuestion<Q extends Pick<SuggestedQuestion, 'label' | 'text' | 'alias'>>(typed: string, questions: readonly Q[]): Q | null {
   const want = normalizeQuestion(typed);
   if (want === '') return null;
-  return questions.find((q) => normalizeQuestion(q.label) === want || normalizeQuestion(q.text) === want) ?? null;
+  return questions.find((q) => [q.label, q.text, q.alias].some((words) => words !== undefined && normalizeQuestion(words) === want)) ?? null;
 }
 
 /** The contract the model reads for a typed question: no checks of its own, so it is held to the basic ones. */

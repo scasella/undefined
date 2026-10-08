@@ -3,7 +3,8 @@
  *   stopped      "A QUESTION ONLY YOU CAN ANSWER · Needs you" (LANDING 683-731's card, fed by the engine's GapQuestion)
  *                → session.decide → the green "Saved as a house rule." (kept while the decide's own run is shown)
  *   declined     the grey "I can't do that reliably." panel (LANDING 759-765), from GenerationView.declined
- *   no-recording the honest replay message (session.noRecording), with the way to run it and a question that works
+ *   no-recording the honest replay message (session.noRecording) with the way out in it as ONE real button (the question that
+ *                has a recorded answer, or the sample file that has one), and the link to run it on your computer
  *   thrown-out   every draft was thrown out: the last reason and how many drafts were tried
  *   service      the writing service failed: its message and the exact fix commands
  *   error        the calculation itself failed on the file
@@ -19,7 +20,8 @@ import { ghostFromAttempts, type LaneFacts } from '../model/lanes';
 import { AskDiamond, CheckDisc, ThrownOut } from '../icons';
 import { Button } from '../components/LinkButton';
 import { ASK_BUTTON_ID, NoRecordingSentence } from './AskCard';
-import { matchRun, noRecordingView, type RunOutcome } from './derive';
+import type { SampleId } from '../model/samples';
+import { matchRun, noRecordingView, sampleOffer, type RunOutcome } from './derive';
 import { sessionFor, type Session } from './session';
 import './RunStates.css';
 
@@ -216,6 +218,10 @@ export function RunStates({ engine, session }: { engine: Engine; session?: Sessi
   const tryOther = (id: string) => {
     void s.selectQuestion(id).then(() => document.getElementById(ASK_BUTTON_ID)?.focus());
   };
+  // `switch to orders.csv` (the recorded sample): the card it is in goes away, so focus goes to Ask
+  const useSample = (id: SampleId) => {
+    void s.useSample(id).then(() => document.getElementById(ASK_BUTTON_ID)?.focus());
+  };
 
   const label = s.question.value?.label ?? '';
   let card = null;
@@ -243,6 +249,7 @@ export function RunStates({ engine, session }: { engine: Engine; session?: Sessi
     );
   } else if (o.kind === 'no-recording') {
     const other = s.recordedOther.value;
+    const offer = sampleOffer(s.sampleId.value);
     card = (
       <div class="fd-rs fd-rs--no" role="status">
         <div class="fd-rs__eyebrow">YOU ASKED · {label}</div>
@@ -250,15 +257,10 @@ export function RunStates({ engine, session }: { engine: Engine; session?: Sessi
           No recorded answer for this one.
         </h3>
         <p class="fd-rs__p">
-          {/* the same sentence as ever, with `try it` a real button (it does what the button below does) */}
-          {s.noRecording.value ? <NoRecordingSentence view={noRecordingView(s.source.value === 'own', other)} onTry={tryOther} busy={busy} /> : o.message}
+          {/* the way out is said once, in the sentence, as a real button (`try it` / `switch to orders.csv`): no second control for it below */}
+          {s.noRecording.value ? <NoRecordingSentence view={noRecordingView(s.source.value === 'own', other, offer)} onTry={tryOther} onUse={useSample} busy={busy} /> : o.message}
         </p>
         <div class="fd-rs__actions">
-          {other && (
-            <Button variant="secondary" aria-disabled={busy || undefined} onClick={() => !busy && tryOther(other.id)}>
-              Try “{other.label}”
-            </Button>
-          )}
           <a class="fd-rs__link" href={OWN_FILE_HREF}>
             How to run it on your computer
           </a>

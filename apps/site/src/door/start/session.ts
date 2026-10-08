@@ -40,11 +40,14 @@
  *                                                       (the lock confirmation: honest about replay), canLock,
  *                                                       assumptions, checked, notChecked
  *   lock           LockInfo                             locked + how to undo it
+ *   confirmed      ReadonlySet<string>                  the assumptions the viewer confirmed on THIS run's answer (their own mark
+ *                                                       on the page, never sent or saved); empty for any other run or answer
  *   agreement      AgreementView                        Your agreement (seeded shows at once)
  *   privacy        PrivacyView | null                   What the AI will see (model/privacy.ts)
  *   lastPrompt     string | null                        the real prompt of the last draft (after a run)
  *   gap            GapQuestion | null                   the question only you can answer (outcome 'stopped')
- *   noRecording    string                               the honest sentence for outcome 'no-recording' ('' otherwise)
+ *   noRecording    string                               the honest sentence for outcome 'no-recording' ('' otherwise); with a question
+ *                                                       to try, or the recorded sample file to switch to, named in it
  *   version        'Version 4 · 5 Oct 2026'
  *   busy           boolean                              the engine or this session is working: disable inputs
  *   canAsk / canChange  boolean
@@ -61,6 +64,8 @@
  *                              the first one left. The function it may have grown stays in the program (the page never deletes one)
  *   ask()                      install the seed if needed, setInput(call), submit(); returns when the run settled
  *   toggleLock()               engine.pinResult(entryId) / engine.removePin(fn, pinId)
+ *   confirm(id)                mark an assumption of the current run's answer as confirmed (kept for the life of the run, so
+ *                              Step by step's Back and Forward, and the other page, show it again; a new run starts with none)
  *   decide(choice, {reason?, scope?})   rule on the stop-and-ask (engine.decide); then asks again for the answer
  *   reset()                    engine.resetImage() and back to nothing bound
  *
@@ -73,12 +78,12 @@
  *
  * What the replay site can answer today: two recorded sessions for the samples, both for `topCustomersByRevenue(rows)`
  * on orders.csv bound as `rows` (type `Row`; the row type's name is inside the hashed spec, so orders.csv is bound as
- * `rows`, see samples.ts). `orders-agreement.json` is bundled, so "Top 5 customers by revenue" installs the seeded
+ * `rows`, see samples.ts). `orders-agreement.json` is bundled, so "Who are our top customers by revenue?" installs the seeded
  * agreement (6 examples, 1 locked answer, 2 house rules) and replays with FULL checks (Chef Ravioli Starbright
  * $2,252.07 first, already locked). Only on the seed-off path (that recording missing from the index, or made
  * against a spec that no longer matches) does it fall back to the spec-less `orders.json` session and replay with
  * BASIC checks (committed, Puddlesworth Inc $2,599.13 first, every row counted; session.test.ts proves that path
- * against public/recordings/orders.json). "Count orders by status" / "Revenue by country" end in 'no-recording'
+ * against public/recordings/orders.json). "How many orders are there by status?" / "What is our revenue by country?" end in 'no-recording'
  * either way, pointing at the question that has an answer.
  */
 import { batch, computed, effect, signal, type ReadonlySignal } from '@preact/signals';
@@ -98,6 +103,7 @@ import {
   lockInfo,
   matchRun,
   noRecordingText,
+  sampleOffer,
   outcomeOf,
   SETTLED_KINDS,
   telemetryOf,
@@ -113,6 +119,19 @@ import { delimiterProblem, fileChipFor, fileProblem, ownDatasetName, parseRows, 
 import { answerableOther, availabilityOf, fetchRecordings, levelFor, seedUsable, type Availability } from './recorded';
 
 export type DataSource = 'sample' | 'own' | 'none';
+
+/** The key confirmations are kept under: a new run (or another question) starts with none confirmed. */
+export function confirmKey(run: { id: number; questionId: string } | null): string {
+  return run ? `${run.id}:${run.questionId}` : '';
+}
+
+/** What the viewer confirmed, and the run it was confirmed on (confirmKey). */
+interface Confirmed {
+  key: string;
+  ids: ReadonlySet<string>;
+}
+
+const NONE_CONFIRMED: ReadonlySet<string> = new Set();
 
 export interface SessionConfig {
   /** Install the demo's seeded agreement before asking (orders.csv · top customers). Default true. */
@@ -162,6 +181,8 @@ export interface Session {
   readonly trace: ReadonlySignal<TraceView>;
   readonly answer: ReadonlySignal<AnswerProps>;
   readonly lock: ReadonlySignal<LockInfo>;
+  /** The assumptions confirmed on the current run's answer; empty once another run or question is current. */
+  readonly confirmed: ReadonlySignal<ReadonlySet<string>>;
   readonly agreement: ReadonlySignal<AgreementView>;
   readonly privacy: ReadonlySignal<PrivacyView | null>;
   readonly lastPrompt: ReadonlySignal<string | null>;
@@ -182,6 +203,8 @@ export interface Session {
   removeQuestion(id: string): Promise<boolean>;
   ask(): Promise<boolean>;
   toggleLock(): Promise<boolean>;
+  /** Mark `id` (an assumption of the current answer) as confirmed by the viewer; nothing without a run. Local to the page. */
+  confirm(id: string): void;
   decide(choice: DecideChoice, opts?: DecideOptions): Promise<boolean>;
   reset(): Promise<void>;
   dispose(): void;
@@ -218,6 +241,8 @@ interface Carry {
   run: RunRef | null;
   counted: readonly number[];
   stressCounted: readonly number[];
+  /** What was confirmed on that run (it is the run's, so it goes where the run goes). */
+  confirmed: Confirmed;
 }
 
 /** The carry of the shared session of `engine` that was disposed last. */
@@ -237,6 +262,11 @@ export function createSession(engine: Engine, config: Partial<SessionConfig> = {
   const run = signal<RunRef | null>(resume?.bound ? (resume.run ?? null) : null);
   const seedState = signal<'none' | 'installing' | 'installed' | 'failed'>('none');
   const working = signal(false);
+  // taken up with the run it was made on, and only then: a session that resumes without a run counts its ids from 1 again,
+  // and an old mark must not match a new run that happens to get the same key
+  const confirmedOn = signal<Confirmed>(
+    resume?.bound && resume.run && resume.confirmed.key === confirmKey(resume.run) ? resume.confirmed : { key: '', ids: NONE_CONFIRMED },
+  );
   const recordings = signal<Recording[] | null>(null);
   const availability = signal<Record<string, Availability>>({});
   /** Seed verdicts (seedUsable) by seedKey: true = install it, false = ask spec-less. Missing = not decided yet. */
@@ -336,7 +366,7 @@ export function createSession(engine: Engine, config: Partial<SessionConfig> = {
     const o = outcome.value;
     if (o.kind !== 'no-recording') return '';
     // the engine tags any call on bound data as needsLive 'data'; whether it is the user's own file is the page's to say
-    return noRecordingText(source.value === 'own', recordedOther.value);
+    return noRecordingText(source.value === 'own', recordedOther.value, sampleOffer(sampleId.value));
   });
 
   const answer = computed<AnswerProps>(() => {
@@ -350,11 +380,15 @@ export function createSession(engine: Engine, config: Partial<SessionConfig> = {
       fileName: d?.filename ?? fileName.value,
       rowCount: d?.rowCount ?? null,
       data: facts.value,
-      noRecording: noRecording.value,
       mode: mode.value,
     });
   });
   const lock = computed(() => lockInfo(st.value.program, answer.value.view ? match.value.output : null));
+  // only the current run's marks count: another run (an ask, a ruling) or another question reads as none, so nothing carries over
+  const confirmed = computed<ReadonlySet<string>>(() => {
+    const key = confirmKey(run.value);
+    return key !== '' && confirmedOn.value.key === key ? confirmedOn.value.ids : NONE_CONFIRMED;
+  });
   const agreement = computed(() => agreementFor(st.value.program, fn.value, pendingSeed.value, seed.value !== null));
   const privacy = computed<PrivacyView | null>(() => {
     const d = dataset.value;
@@ -749,6 +783,13 @@ export function createSession(engine: Engine, config: Partial<SessionConfig> = {
     }
   }
 
+  function confirm(id: string): void {
+    const key = confirmKey(run.peek());
+    if (key === '') return;
+    const cur = confirmedOn.peek();
+    confirmedOn.value = { key, ids: new Set([...(cur.key === key ? cur.ids : NONE_CONFIRMED), id]) };
+  }
+
   async function decide(choice: DecideChoice, opts?: DecideOptions): Promise<boolean> {
     const o = outcome.peek();
     const prev = run.peek();
@@ -810,6 +851,7 @@ export function createSession(engine: Engine, config: Partial<SessionConfig> = {
         run: r ? { ...r, pending: false } : null,
         counted: [...counted],
         stressCounted: [...stressCounted],
+        confirmed: confirmedOn.peek(),
       });
       shared.delete(engine);
     }
@@ -837,6 +879,7 @@ export function createSession(engine: Engine, config: Partial<SessionConfig> = {
     trace,
     answer,
     lock,
+    confirmed,
     agreement,
     privacy,
     lastPrompt,
@@ -855,6 +898,7 @@ export function createSession(engine: Engine, config: Partial<SessionConfig> = {
     removeQuestion,
     ask,
     toggleLock,
+    confirm,
     decide,
     reset,
     dispose,

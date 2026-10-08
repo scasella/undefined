@@ -47,8 +47,10 @@ import {
   type CheckFacts,
   type DataFacts,
 } from '../model/assumptions';
-import { agreementOf, emptyAgreement, lockedHelp, SEEDED_NOTE, type AgreementView, type CheckMode } from '../model/agreement';
+import { agreementOf, emptyAgreement, lockedHelp, SEEDED_LOCK_NOTE, type AgreementView, type CheckMode } from '../model/agreement';
 import { HOUSE_RULES, SEEDED_PIN_ID } from '../model/agreements';
+import { sampleOpeningQuestion } from '../model/questions';
+import type { SampleId } from '../model/samples';
 import {
   factsFromSpec,
   footerFor,
@@ -64,6 +66,7 @@ import {
   type RunFlag,
 } from '../model/lanes';
 import { headVersion } from '../state';
+import { RECORDED_SAMPLE_FILE } from './startView';
 
 export type ErrorEntry = Extract<ReplEntry, { kind: 'error' }>;
 
@@ -323,7 +326,7 @@ export interface TraceInput {
   run: RunRef | null;
   match: RunMatch;
   outcome: RunOutcome;
-  /** Short label (`Top 5 customers by revenue`) and the question in words. */
+  /** The question's label (its own words, e.g. `Who are our top customers by revenue?`: the chip's) and the question in words. */
   label: string;
   question: string;
   file: string;
@@ -444,39 +447,87 @@ export const HELD_THROWN_OUT = 'No draft passed every check, so no answer is sho
 export const HELD_DECLINED = 'It said no, so no answer is shown.';
 export const HELD_NOTHING_RAN = 'Nothing was checked, so no answer is shown.';
 
-/** The board's honest message for a question with no recorded answer (V3-Door-FirstRun 101). */
-export const NO_RECORDING_OWN =
-  'In this demo, answers are recorded, so questions about your own file need the version on your computer. Try a sample file for now.';
+/**
+ * The first half of every no-recording sentence for your own file: what the demo cannot do. (The board's words
+ * (V3-Door-FirstRun 101) ended "Try a sample file for now.", a way out nothing on panes 2 and 3 could act on: the sentence now names
+ * one and the page draws it as a button, see `SampleOffer`.)
+ */
+export const NO_RECORDING_OWN = 'In this demo, answers are recorded, so questions about your own file need the version on your computer.';
+/** The first half when a sample's question has none: the same, for a question rather than a file. */
+const NO_RECORDING_QUESTION =
+  'In this demo, answers are recorded, and this question has no recorded answer with these checks, so it needs the version on your computer.';
 
 /** The words of the invitation to try the question that has a recorded answer (the page makes them a button). */
 export const TRY_IT = 'try it';
 
 /**
- * The no-recording sentence, in the pieces a page needs to draw `try it` as a real button: `before` + `action.text` +
- * `after` is exactly noRecordingText. `action` is null when no question here can be tried (the sentence is whole).
+ * The sample file that has a recorded answer, and the question it opens on: where `switch to orders.csv` leads. Typed once, in
+ * the places that already name it (start/startView.ts RECORDED_SAMPLE_FILE, model/questions.ts DEFAULT_QUESTION_ID); a test
+ * (start/ownFileCaveat.test.ts) opens the sample against the real recordings and fails if that question has none.
  */
-export interface NoRecordingView {
-  before: string;
-  /** The question to try: its id (session.selectQuestion), its label, and the words of the button. */
-  action: { id: string; label: string; text: typeof TRY_IT } | null;
-  after: string;
-}
+const RECORDED_SAMPLE: SampleId = 'orders';
 
-export function noRecordingView(ownData: boolean, other: { id?: string; label: string } | null): NoRecordingView {
-  if (ownData && !other) return { before: NO_RECORDING_OWN, action: null, after: '' };
-  const head = ownData
-    ? 'In this demo, answers are recorded, so questions about your own file need the version on your computer.'
-    : 'In this demo, answers are recorded, and this question has no recorded answer with these checks, so it needs the version on your computer.';
-  if (!other) return { before: head, action: null, after: '' };
-  return { before: `${head} “${other.label}” has one: `, action: { id: other.id ?? '', label: other.label, text: TRY_IT }, after: '.' };
+export interface SampleOffer {
+  sample: SampleId;
+  /** `orders.csv` */
+  file: string;
+  /** The id and the words of the question binding it selects: what the sentence says has a recorded answer. */
+  questionId: string;
+  question: string;
 }
 
 /**
- * The no-recording sentence. Own file: the board's words. A sample question with no recording for these checks: say
- * that, and name a question that does have an answer here (or say it needs the version on your computer).
+ * What to offer a viewer who is looking at a question the demo cannot answer: the recorded sample, unless it is already the file
+ * bound (then the other question that has an answer is the way out, `recordedOther`). `bound` is the session's `sampleId`: null
+ * for a file of your own.
  */
-export function noRecordingText(ownData: boolean, other: { id?: string; label: string } | null): string {
-  const v = noRecordingView(ownData, other);
+export function sampleOffer(bound: SampleId | null): SampleOffer | null {
+  if (bound === RECORDED_SAMPLE) return null;
+  const q = sampleOpeningQuestion(RECORDED_SAMPLE);
+  return { sample: RECORDED_SAMPLE, file: RECORDED_SAMPLE_FILE, questionId: q.id, question: q.text };
+}
+
+/** The words of the button that binds the recorded sample: it says what it does and to what (it replaces the file on screen). */
+export const switchToSample = (file: string): string => `switch to ${file}`;
+
+/**
+ * The no-recording sentence, in the pieces a page needs to draw its action as a real button: `before` + `action.text` + `after`
+ * is exactly noRecordingText. `action` is null when nothing here can be tried (the sentence is whole): a `question` (another
+ * question that has a recorded answer: select it) or a `sample` (the recorded sample file: bind it).
+ */
+export type NoRecordingAction =
+  | { kind: 'question'; id: string; label: string; text: typeof TRY_IT }
+  | { kind: 'sample'; sample: SampleId; label: string; text: string };
+
+export interface NoRecordingView {
+  before: string;
+  action: NoRecordingAction | null;
+  after: string;
+}
+
+/**
+ * `other`: another question on this file that has a recorded answer (the way out, when there is one). `offer`: the recorded sample
+ * file, for a viewer whose file is not it. With neither, the sentence is whole and has no action.
+ */
+export function noRecordingView(ownData: boolean, other: { id?: string; label: string } | null, offer: SampleOffer | null = null): NoRecordingView {
+  const head = ownData ? NO_RECORDING_OWN : NO_RECORDING_QUESTION;
+  if (other) return { before: `${head} “${other.label}” has one: `, action: { kind: 'question', id: other.id ?? '', label: other.label, text: TRY_IT }, after: '.' };
+  if (offer) {
+    return {
+      before: `${head} “${offer.question}” has a recorded answer on one sample file: `,
+      action: { kind: 'sample', sample: offer.sample, label: offer.question, text: switchToSample(offer.file) },
+      after: '.',
+    };
+  }
+  return { before: head, action: null, after: '' };
+}
+
+/**
+ * The no-recording sentence. Own file: the board's words. A sample question with no recording for these checks: say that, and
+ * name a question that does have an answer here (or the sample that has one).
+ */
+export function noRecordingText(ownData: boolean, other: { id?: string; label: string } | null, offer: SampleOffer | null = null): string {
+  const v = noRecordingView(ownData, other, offer);
   return v.before + (v.action?.text ?? '') + v.after;
 }
 
@@ -496,8 +547,6 @@ export interface AnswerInput {
   fileName: string;
   rowCount: number | null;
   data: DataFacts | null;
-  /** The no-recording sentence (noRecordingText), when the outcome is no-recording. */
-  noRecording?: string;
   /** state.mode: what a lock can promise (a new version is only written, and so checked against it, in live mode). */
   mode?: CheckMode;
 }
@@ -548,7 +597,7 @@ export function sealOf(f: CheckFacts): AnswerSeal | null {
   return { text: sealWords({ stress: f.stress, ran, of: ran + 1 }), ran, of: ran + 1, complete: f.stress.kind === 'done' };
 }
 
-export function heldCaptionFor(o: RunOutcome, noRecording?: string): string {
+export function heldCaptionFor(o: RunOutcome): string {
   switch (o.kind) {
     case 'idle':
       return HELD_START;
@@ -560,8 +609,8 @@ export function heldCaptionFor(o: RunOutcome, noRecording?: string): string {
       return HELD_THROWN_OUT;
     case 'declined':
       return HELD_DECLINED;
+    // the card beside the veil already says why and what to do (and offers it once, as a button): the veil only says what is held
     case 'no-recording':
-      return noRecording || o.message || HELD_NOTHING_RAN;
     case 'service':
     case 'error':
       return HELD_NOTHING_RAN;
@@ -589,17 +638,17 @@ export function answerView(a: AnswerInput): AnswerProps {
     : null;
   const level = hasAgreement(facts) ? 'full' : 'basic';
   const locked = !!out?.pinned;
-  // a lock that came with the demo file says so, in the rail's own words
+  // a lock that came with the demo file says so (the rail says the same of the whole agreement)
   const seededLock = locked && pinFor(a.state.program, out)?.id === SEEDED_PIN_ID;
   return {
     view,
     held: !out,
-    heldCaption: heldCaptionFor(a.outcome, a.noRecording),
+    heldCaption: heldCaptionFor(a.outcome),
     level,
     locked,
-    lockHelp: lockedHelp({ locked, level, mode: a.mode ?? 'live', noun: view?.kind === 'ranked' ? 'list' : 'answer' }),
+    lockHelp: lockedHelp({ locked, level, mode: a.mode ?? 'live', noun: view?.kind === 'ranked' ? 'list' : 'answer', seeded: seededLock }),
     canLock: !!out?.pinnable && !a.state.busy,
-    lockNote: seededLock ? SEEDED_NOTE : '',
+    lockNote: seededLock ? SEEDED_LOCK_NOTE : '',
     assumptions: assumptionsFromNote(noteFor(out?.note, artifact)),
     checked: out ? checkedList(facts) : [],
     checkedAsk: out ? checkedAsk(facts) : [],
@@ -652,7 +701,7 @@ export function lockInfo(program: Pick<Program, 'functions'>, entry: OutputEntry
 
 /**
  * "Your agreement" for the selected question's function: the program's real spec, or the seed that is being
- * installed (shown at once, 'Saved with this demo file…'), or empty for a spec-less question.
+ * installed (shown at once, 'This agreement comes with the demo file.'), or empty for a spec-less question.
  */
 export function agreementFor(program: Program, fn: string | null, pendingSeed: FunctionSpec | null, seeded: boolean): AgreementView {
   if (!fn) return emptyAgreement();

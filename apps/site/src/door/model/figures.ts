@@ -286,7 +286,7 @@ export function madeUpTableNote(index: number): string {
   return `Made-up table #${k} · ${nOrders} orders · ${nRef} refunded${nPend ? ` · ${nPend} pending` : ''} · your rule left them out ✓`;
 }
 
-/** ILLUSTRATIVE (design copy, not a recorded mutation run): the 12 small breaks of the stress strip; the 12th is the one missed. */
+/** ILLUSTRATIVE (design copy, not a recorded mutation run): the 12 deliberate breaks of the stress test strip; the 12th is the one missed. */
 export const ILLUSTRATIVE_BREAKS: readonly string[] = [
   'forgot discount', 'off-by-one top 5', 'kept refunds', 'double-counted', 'kept pending', 'wrong tie order',
   'dropped a customer', 'rounded early', 'top 4 only', 'reversed order', 'ignored quantity', 'single-item discount',

@@ -1,6 +1,6 @@
 /**
  * The demo's one caveat about a file of your own (startView.ts DEMO_OWN_FILE_CAVEAT), tied to what the replay site really
- * answers: the REAL bundled recordings, the same availability the question pane's "needs live" legend counts. Plus the
+ * answers: the REAL bundled recordings, the same availability the question pane's "needs your computer" legend counts. Plus the
  * picker's fold rule and the trimmed notes that come after the caveat.
  */
 import { readFileSync } from 'node:fs';
@@ -10,7 +10,8 @@ import { buildDataset } from '../../data/dataset';
 import { seedAgreement } from '../model/agreements';
 import { suggestedQuestions } from '../model/questions';
 import { sampleFile, SAMPLE_IDS, type SampleId } from '../model/samples';
-import { needsLiveLegend } from './AskCard';
+import { needsLiveLegend, NEEDS_YOUR_COMPUTER } from './AskCard';
+import { sampleOffer } from './derive';
 import { availabilityOf, seedUsable } from './recorded';
 import { boundAnnouncement, DEMO_OWN_FILE_CAVEAT, DROP_NOTE, ownFileCaveat, ownFileNote, ownFileRegion, PASTE_NOTE, PASTED_NAME, pickerFold, showOwnFileNote, zenPickerFold } from './startView';
 
@@ -73,6 +74,28 @@ describe('the caveat says only what the demo can do', () => {
     expect(DEMO_OWN_FILE_CAVEAT).toMatch(/loads and previews here/); // what the demo does do with your file
   });
 
+  it('the way out it offers is real: the no-recording sentence names the sample that has a recording, and the very question it says has one', async () => {
+    const offer = sampleOffer(null)!;
+    expect(offer.file).toBe(sampleFile('orders').filename);
+    expect(offer.sample).toBe('orders');
+    const orders = await answerableIn('orders');
+    // "has a recorded answer": the question the binding selects is one the real recordings answer here...
+    expect(orders[offer.questionId]).toBe(true);
+    // ...while "only some" is still true of the file (so the sentence names the question, not the file's every question)
+    expect(Object.values(orders).every(Boolean)).toBe(false);
+    // and the file it sends the viewer to is never the one that has none
+    expect(offer.file).not.toBe(sampleFile('sales').filename);
+    expect(Object.values(await answerableIn('sales')).some(Boolean)).toBe(false);
+  });
+
+  it('the chip tag and the legend say the same thing as this caveat, in the words of the sentences, not "live"', async () => {
+    const a = await answerableIn('orders');
+    const legend = needsLiveLegend(Object.values(a).map((ok) => ({ needsLive: !ok })), 'replay')!;
+    expect(legend).toBe('This demo has recorded answers for one question; the others need the version on your computer.');
+    expect(NEEDS_YOUR_COMPUTER).toBe('needs your computer');
+    expect(`${legend} ${DEMO_OWN_FILE_CAVEAT} ${NEEDS_YOUR_COMPUTER}`).not.toMatch(/\blive\b/i);
+  });
+
   it('is plain words, short, and never says the engine’s vocabulary', () => {
     expect(DEMO_OWN_FILE_CAVEAT).not.toMatch(/\b(gate|spec|property|fuzz|mutant|revision|pin|repo|workspace|backend|live mode)\b/i);
     expect(DEMO_OWN_FILE_CAVEAT.split('. ')).toHaveLength(2);
@@ -91,7 +114,7 @@ describe('what is said once your own data is bound', () => {
   });
 
   it('sends the viewer to the sample that can run checks, by name: the note sits right above sales-q3.csv, which has no recorded answer', async () => {
-    // the sample buttons are under the note; "try a sample file" would send a click to sales-q3.csv, a dead end (every chip "needs live")
+    // the sample buttons are under the note; "try a sample file" would send a click to sales-q3.csv, a dead end (every chip "needs your computer")
     const orders = sampleFile('orders').filename;
     const sales = sampleFile('sales').filename;
     for (const note of [DROP_NOTE, PASTE_NOTE]) {

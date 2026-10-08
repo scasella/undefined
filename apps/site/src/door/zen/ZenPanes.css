@@ -33,7 +33,7 @@
 .zp__tag { margin-left: auto; font-size: 12px; line-height: 17px; font-weight: 500; color: var(--fd-ink-3); }
 .zp__chip.is-on .zp__tag { color: var(--fd-indigo-hover); }
 .zp__live { font-size: 12px; line-height: 17px; color: var(--fd-ink-3); border: 1px dashed var(--fd-line-2); border-radius: var(--fd-r-sm); padding: 0 5px; }
-/* what "needs live" means, once, under the chips (replay only) */
+/* why some chips say "needs your computer", once, under the chips (replay only) */
 .zp__legend { margin: 0; max-width: var(--fd-measure); font-size: 13px; line-height: 19px; color: var(--fd-ink-2); }
 .zp__form { display: flex; flex-direction: column; gap: 6px; }
 .zp__row { display: flex; flex-wrap: wrap; gap: 8px; }

@@ -1,8 +1,10 @@
 /** Render smoke test without a DOM: call the components and walk the vnode tree. */
 import { describe, expect, it } from 'vitest';
-import { Fragment, type VNode } from 'preact';
-import { AnswerCard, BASIC_CHECKS, decisiveCaveat, HELD_CAPTION_START, HELD_CAPTION_WAITING, LOCK_HELP_REPLAY, lockHelpText, ringArc, TOTAL_CHECKS, type AnswerCardProps } from './AnswerCard';
+import { readFileSync } from 'node:fs';
+import { Fragment, h, type VNode } from 'preact';
+import { AnswerCard, BASIC_CHECKS, CONFIRM_NOTE, decisiveCaveat, HELD_CAPTION_START, HELD_CAPTION_WAITING, LOCK_HELP_REPLAY, lockHelpText, ringArc, TOTAL_CHECKS, type AnswerCardProps } from './AnswerCard';
 import { shapeValue } from '../model/answer';
+import { illustrativeAgreement, SEEDED_LOCK_NOTE } from '../model/agreement';
 import { assumptionsFromNote } from '../model/assumptions';
 
 interface Flat {
@@ -141,19 +143,130 @@ describe('AnswerCard', () => {
     expect(decisiveCaveat(['  ', 'whether this was the right question '])).toBe('whether this was the right question');
     expect(decisiveCaveat([])).toBeNull();
   });
-  it('shows that one caveat under the lead figure, before the list; nothing when there is none', () => {
+  it('says the verdict under the lead figure, before the list, in body text with no icon, and the decisive caveat only there (not as a second "Not checked:" line)', () => {
     const notChecked = ['whether pending and refunded orders should count (your status column has paid, pending and refunded)', 'whether this was the right question'];
-    const r = render({ ...base, notChecked });
+    const r = render({ ...base, notChecked, stress: { kind: 'done', total: 12, caught: 8, missed: 4 }, seal: { text: 'Passed every check · stress test caught 8 of 12', ran: 5, of: 6, complete: true } });
     const at = (cls: string) => r.nodes.findIndex((n) => String(n.props.class ?? '').split(' ').includes(cls));
-    expect(at('fd-ac__caveat')).toBeGreaterThan(at('fd-ac__lead-num'));
-    expect(at('fd-ac__caveat')).toBeLessThan(r.nodes.findIndex((n) => n.props['aria-label'] === 'The rest of the list'));
-    expect(r.text).toContain('Not checked: ');
-    expect(r.text).toContain(notChecked[0]!);
-    expect(r.nodes.filter((n) => n.props.class === 'fd-ac__caveat fd-ac__ri')).toHaveLength(1);
-    expect(render({ ...base, notChecked: [] }).nodes.some((n) => String(n.props.class ?? '').includes('fd-ac__caveat'))).toBe(false);
-    // landing variant: under the figure as well
-    const landing = render({ ...base, notChecked, variant: 'landing' });
-    expect(landing.nodes.some((n) => n.props.class === 'fd-ac__caveat fd-ac__ri')).toBe(true);
+    expect(at('fd-ac__verdict')).toBeGreaterThan(at('fd-ac__lead-num'));
+    expect(at('fd-ac__verdict')).toBeLessThan(r.nodes.findIndex((n) => n.props['aria-label'] === 'The rest of the list'));
+    const verdict = r.nodes.filter((n) => n.props.class === 'fd-ac__verdict fd-ac__ri');
+    expect(verdict).toHaveLength(1);
+    // plain text, no icon beside it (the seal already has one)
+    expect(typeof verdict[0]!.props.children).toBe('string');
+    expect(verdict[0]!.props.children).toBe(
+      'Passed every check, though the stress test caught 8 of 12 deliberate breaks. Not checked: whether pending and refunded orders should count.',
+    );
+    // the old standalone line is gone: "Not checked:" with a colon is said once, inside the verdict
+    expect(r.nodes.some((n) => String(n.props.class ?? '').includes('fd-ac__caveat'))).toBe(false);
+    expect(r.text.match(/Not checked:/g)).toHaveLength(1);
+    // the ledger below stays
+    expect(r.text).toContain('Not checked');
+    expect(r.nodes.some((n) => String(n.props.class ?? '').includes('fd-ac__not-checked'))).toBe(true);
+    // landing variant: under the figure as well; no list: the line is just how the checks went
+    expect(render({ ...base, notChecked, variant: 'landing' }).nodes.some((n) => n.props.class === 'fd-ac__verdict fd-ac__ri')).toBe(true);
+    expect(render({ ...base, notChecked: [] }).nodes.find((n) => n.props.class === 'fd-ac__verdict fd-ac__ri')!.props.children).toBe('Passed every check.');
+  });
+  it('an answer with no lead figure (a table) still gets the verdict, under the seal', () => {
+    const table = shapeValue([{ a: 1, b: 'x', c: true }], { question: 'q', fileName: 'f.csv', rowCount: 1, revision: 2, callName: 'f' });
+    const r = render({ ...base, view: table });
+    const at = (cls: string) => r.nodes.findIndex((n) => String(n.props.class ?? '').split(' ').includes(cls));
+    expect(at('fd-ac__lead-num')).toBe(-1);
+    expect(at('fd-ac__verdict')).toBeGreaterThan(at('fd-ac__eyebrow'));
+  });
+  it('says each way the checks can end in the verdict, not only the green one', () => {
+    const verdictOf = (p: Partial<AnswerCardProps>): string => String(render({ ...base, ...p }).nodes.find((n) => n.props.class === 'fd-ac__verdict fd-ac__ri')!.props.children);
+    expect(verdictOf({ level: 'basic' })).toMatch(/^Only the 2 basic checks ran, so nothing has tested the number yet\./);
+    expect(verdictOf({ stress: { kind: 'not-run' }, seal: { text: "Passed 5 of 6 checks · stress test didn't run", ran: 5, of: 6, complete: false } })).toMatch(/^Passed 5 of 6 checks, though the stress test didn't run\./);
+    expect(verdictOf({ stress: { kind: 'partial', total: 7, caught: 5, missed: 2, planned: 12 }, seal: { text: 'Passed 5 of 6 checks · stress test ran out of time', ran: 5, of: 6, complete: false } })).toMatch(/^Passed 5 of 6 checks, though the stress test ran out of time\./);
+  });
+  it('names the hand-off as the next step only when the card has it (the landing illustration has none)', () => {
+    const verdictOf = (p: Partial<AnswerCardProps>): string => String(render({ ...base, ...p }).nodes.find((n) => n.props.class === 'fd-ac__verdict fd-ac__ri')!.props.children);
+    expect(verdictOf({})).not.toMatch(/data team/);
+    expect(verdictOf({ primaryAction: h('button', { class: 'fd-btn fd-btn--primary' }, 'Hand this to your data team (download)') })).toContain('hand the calculation to your data team');
+  });
+  it('the hand-off is the first control of the action row, before the lock; the lock, the calculation and the house rule stay', () => {
+    const handoff = h('button', { class: 'fd-btn fd-btn--primary', id: 'handoff' }, 'Hand this to your data team (download)');
+    const r = render({ ...base, primaryAction: handoff, houseRuleHref: '#/#asks', calc: { open: false, onToggle: () => {}, source: 'x' } });
+    const at = (pred: (n: Flat['nodes'][number]) => boolean) => r.nodes.findIndex(pred);
+    const actions = at((n) => n.props.class === 'fd-ac__actions');
+    const primary = at((n) => n.props.id === 'handoff');
+    const lock = at((n) => String(n.props.class ?? '').split(' ').includes('fd-ac__lock'));
+    expect(actions).toBeGreaterThan(-1);
+    expect(primary).toBe(actions + 1);
+    expect(lock).toBeGreaterThan(primary);
+    expect(at((n) => n.props.class === 'fd-ac__calc-toggle')).toBeGreaterThan(lock);
+    expect(at((n) => n.props.class === 'fd-ac__rule-link')).toBeGreaterThan(lock);
+    expect(r.text).toContain('Hand this to your data team (download)');
+    // nothing given: no slot content, and the row starts with the lock as before
+    const none = render(base);
+    expect(none.nodes.some((n) => n.props.id === 'handoff')).toBe(false);
+    expect(none.nodes[none.nodes.findIndex((n) => n.props.class === 'fd-ac__actions') + 1]!.props.class).toContain('fd-ac__lock');
+  });
+  it('the lock is a quiet ring on a card that has the hand-off and keeps its fill on one that does not, so the card has exactly one filled control', () => {
+    const css = readFileSync(new URL('./AnswerCard.css', import.meta.url), 'utf8');
+    const rule = (sel: string): string => new RegExp(`(?:^|\\n)${sel.replace(/[.\\[\]()]/g, '\\$&')}\\s*\\{([^}]*)\\}`).exec(css)?.[1] ?? '';
+    // no hand-off (the landing's illustration; a start card whose hand-off is not on offer): the lock is the filled indigo button, as it was
+    expect(rule('.fd-ac__lock')).toMatch(/background:\s*var\(--fd-indigo\)/);
+    // the hand-off is in the card: same class, no fill, a ring
+    const quiet = rule('.fd-ac--handoff .fd-ac__lock');
+    expect(quiet).toMatch(/background:\s*var\(--fd-surface\)/);
+    expect(quiet).not.toMatch(/background:\s*var\(--fd-indigo\)/);
+    expect(quiet).toMatch(/box-shadow:\s*var\(--fd-sh-ring-2\)/);
+    expect(rule('.fd-ac--handoff .fd-ac__lock--on, .fd-ac--handoff .fd-ac__lock--on:hover')).not.toMatch(/background:\s*var\(--fd-indigo/);
+    // the quiet look follows the slot, not the page's variant: no rule quiets the lock for every start card
+    expect(css).not.toMatch(/\.fd-ac--start\s+\.fd-ac__lock/);
+  });
+  it('the card takes fd-ac--handoff exactly when the hand-off is in its slot, on the start variant and the landing alike', () => {
+    const handoff = h('button', { class: 'fd-btn fd-btn--primary' }, 'Hand this to your data team (download)');
+    const classOf = (p: Partial<AnswerCardProps>): string => String(render({ ...base, ...p }).nodes[0]!.props.class);
+    expect(classOf({ variant: 'start', primaryAction: handoff })).toContain('fd-ac--handoff');
+    expect(classOf({ variant: 'start' })).not.toContain('fd-ac--handoff');
+    expect(classOf({ variant: 'start', primaryAction: null })).not.toContain('fd-ac--handoff');
+    expect(classOf({ variant: 'landing' })).not.toContain('fd-ac--handoff');
+    expect(classOf({ variant: 'start', primaryAction: handoff })).toContain('fd-ac--start');
+    // the 480px full-width rule for the lock is scoped the same way
+    const css = readFileSync(new URL('./AnswerCard.css', import.meta.url), 'utf8');
+    expect(css).toMatch(/\.fd-ac__actions > \.fd-btn, \.fd-ac--handoff \.fd-ac__lock \{ flex: 1 1 100%/);
+  });
+  it('the landing rail\'s Confirm says the same thing the card beside it says: on this page only, with no date as if it were recorded', () => {
+    const meta = illustrativeAgreement().assumption!.confirmedMeta;
+    // was "Confirmed by you · 5 Oct 2026": a typed date for a click made now, next to a card saying nothing is saved
+    expect(meta).toBe('Confirmed by you · on this page only');
+    expect(meta).not.toMatch(/\d/);
+    expect(CONFIRM_NOTE).toContain('on this page');
+    expect(meta).toContain(CONFIRM_NOTE.match(/on this page/)![0]);
+  });
+  it('"Confirm" is explained once, under the heading: it marks a line on this page, nothing is saved, sent or checked', () => {
+    expect(CONFIRM_NOTE).toBe('Confirming only marks a line on this page; nothing is saved, sent or checked.');
+    const r = render(base);
+    const at = (cls: string) => r.nodes.findIndex((n) => String(n.props.class ?? '').split(' ').includes(cls));
+    expect(r.text.split(CONFIRM_NOTE)).toHaveLength(2);
+    expect(at('fd-ac__assumed-note')).toBeGreaterThan(at('fd-ac__assumed'));
+    expect(at('fd-ac__assumed-note')).toBeLessThan(at('fd-ac__assumed-list'));
+    // the line only exists where there is something to confirm
+    expect(render({ ...base, assumptions: assumptionsFromNote('') }).text).not.toContain(CONFIRM_NOTE);
+    // and it says no more than that: no claim that it is kept, sent, shared or part of the download
+    expect(CONFIRM_NOTE).not.toMatch(/\b(shared with|part of the download|recorded for)\b/);
+  });
+  it('"Version N" is explained in a second caption line only when a note is given', () => {
+    const note = "Versions 1 to 3 were the starting point, the file and the demo's agreement; this is the first answer.";
+    const r = render({ ...base, versionNote: note });
+    const at = (cls: string) => r.nodes.findIndex((n) => String(n.props.class ?? '').split(' ').includes(cls));
+    expect(r.text).toContain(note);
+    expect(at('fd-ac__version')).toBe(at('fd-ac__fig') + 1);
+    expect(at('fd-ac__version')).toBeLessThan(at('fd-ac__eyebrow'));
+    expect(render(base).nodes.some((n) => n.props.class === 'fd-ac__version')).toBe(false);
+  });
+  it('the lock note and the lock help are one note under the row, the note first and only while locked', () => {
+    const r = render({ ...base, locked: true, lockNote: SEEDED_LOCK_NOTE });
+    const at = (cls: string) => r.nodes.findIndex((n) => String(n.props.class ?? '').split(' ').includes(cls));
+    expect(at('fd-ac__lock-info')).toBeGreaterThan(at('fd-ac__actions'));
+    expect(at('fd-ac__lock-note')).toBe(at('fd-ac__lock-info') + 1);
+    expect(at('fd-ac__help')).toBe(at('fd-ac__lock-note') + 1);
+    // unlocked: just the help
+    const open = render({ ...base, locked: false, lockNote: 'x' });
+    expect(open.nodes.some((n) => n.props.class === 'fd-ac__lock-note')).toBe(false);
+    expect(open.nodes.some((n) => n.props.class === 'fd-ac__help')).toBe(true);
   });
   it('lock help: the given text wins, replay never promises a re-run, live and the landing keep their words', () => {
     const given = "Locked. This demo can't re-run with it, so asking again shows this same answer; on your computer the next version is checked against it.";
@@ -197,8 +310,8 @@ describe('AnswerCard', () => {
   });
 
   it('Checked against: the amber diamond (not the green disc) for a line that missed or did not finish', () => {
-    const items = ['your 6 examples', '12-way stress test (8 caught)'];
-    const marked = render({ ...base, checked: items, checkedAsk: ['12-way stress test (8 caught)'] });
+    const items = ['your 6 examples', 'stress test (caught 8 of 12 deliberate breaks)'];
+    const marked = render({ ...base, checked: items, checkedAsk: ['stress test (caught 8 of 12 deliberate breaks)'] });
     const plain = render({ ...base, checked: items, checkedAsk: [] });
     const none = render({ ...base, checked: items });
     // the diamond carries its own "?" (an svg <text>), the disc is a circle: one more of the first, one fewer of the second
@@ -206,11 +319,11 @@ describe('AnswerCard', () => {
     expect(count(marked, 'text')).toBe(count(plain, 'text') + 1);
     expect(count(marked, 'circle')).toBe(count(plain, 'circle') - 1);
     expect(count(none, 'text')).toBe(count(plain, 'text'));
-    expect(marked.text).toContain('12-way stress test (8 caught)');
+    expect(marked.text).toContain('stress test (caught 8 of 12 deliberate breaks)');
   });
 
   it('a lock that came with the demo file says so next to the Locked button, only when locked', () => {
-    const note = 'Saved with this demo file from an earlier session.';
+    const note = SEEDED_LOCK_NOTE;
     const r = render({ ...base, locked: true, lockNote: note });
     expect(r.text).toContain(note);
     const at = (flat: Flat, cls: string) => flat.nodes.findIndex((n) => String(n.props.class ?? '').split(' ').includes(cls));

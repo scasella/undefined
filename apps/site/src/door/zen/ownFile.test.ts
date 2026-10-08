@@ -114,12 +114,44 @@ describe('ZenPanes.tsx: the column note is said once, above the suggestions; the
     expect(zen.indexOf('</nav>')).toBeLessThan(zen.indexOf('<ZenYourData'));
   });
   it('the dead end: the sentence alone is the status region (what the button is described by); the steps follow it, only in the demo', () => {
-    expect(t).toMatch(/<p id=\{CONTINUE_WHY_ID\} class="zp__why" role="status">\s*\{view \? <NoRecordingSentence view=\{view\} onTry=\{onTry\} \/> : text\}\s*<\/p>/);
+    expect(t).toMatch(/<p id=\{CONTINUE_WHY_ID\} class="zp__why" role="status">\s*\{view \? <NoRecordingSentence view=\{view\} onTry=\{onTry\} onUse=\{onUse\} \/> : text\}\s*<\/p>/);
     expect(t).toContain("const steps = view ? runLocallyView(replay ? 'replay' : 'live') : null;");
     expect(t).toContain('{steps && <RunLocally view={steps} disclosure link />}');
     // the README link is the component's now (last line of the steps), not a second copy inside the sentence
     expect(t).not.toContain('RUN_LOCALLY_URL');
     expect(t).not.toContain('fd-ask__run');
+  });
+});
+
+describe('the dead end is not dead: panes 2 and 3 can switch to the recorded sample, in the Full view and on Step by step alike', () => {
+  const zen = code('./Zen.tsx');
+  const panes = code('./ZenPanes.tsx');
+  it('Zen.tsx gives the plain reason and the pieces the same offer, binds the sample, and sends focus to the forward button', () => {
+    expect(zen).toContain('const offer = s ? sampleOffer(s.sampleId.value) : null;');
+    expect(zen).toContain('noRecordingText(ownData, other, offer)');
+    expect(zen).toContain('noRecordingView(ownData, other, offer)');
+    expect(zen).toMatch(/const useSample = \(sample: SampleId\) => \{\s*if \(!s\) return;\s*void s\.useSample\(sample\)\.then\(\(\) => requestAnimationFrame\(\(\) => document\.getElementById\(ZEN_CONTINUE_ID\)\?\.focus\(\)\)\);/);
+    // both panes that say it get the button
+    expect(zen).toContain('onTry={tryOther} onUse={useSample} />}');
+    expect([...zen.matchAll(/onUse=\{useSample\}/g)]).toHaveLength(2);
+    expect(panes).toContain('onUse={onUse}');
+  });
+  it('the Full view says the same sentence from the same function (the card, and the card that follows a press of Ask)', () => {
+    const ask = code('../start/AskCard.tsx');
+    const states = code('../start/RunStates.tsx');
+    expect(ask).toContain('offer: sampleOffer(s.sampleId.value)');
+    expect(states).toContain("noRecordingView(s.source.value === 'own', other, offer)");
+    expect(states).toContain('const offer = sampleOffer(s.sampleId.value);');
+    // the way out is said once, as the button inside the sentence: the card's action row has no second control for it
+    // (it had a "Switch to orders.csv" button there, and a "Try “…”" button for the other question, beside the same words)
+    expect(states).toContain('<NoRecordingSentence view={noRecordingView(s.source.value === \'own\', other, offer)} onTry={tryOther} onUse={useSample} busy={busy} />');
+    expect(states).not.toContain('switchToSampleButton');
+    expect(states).not.toMatch(/\{!other && offer && \(/);
+    expect(states).not.toMatch(/Try “\{other\.label\}”/);
+    const card = states.slice(states.indexOf("o.kind === 'no-recording'"), states.indexOf("o.kind === 'thrown-out'"));
+    expect(card.match(/<Button\b/g) ?? []).toHaveLength(0);
+    // the session's plain sentence (the held answer's caption) names it as well
+    expect(code('../start/session.ts')).toContain('noRecordingText(source.value === \'own\', recordedOther.value, sampleOffer(sampleId.value))');
   });
 });
 

@@ -8,7 +8,8 @@
  * Keyframe names end in 'a' or 'b' (`suffix(run)`): an identical inline animation does not restart, a renamed one does,
  * so alternating the suffix on every replay restarts the whole trace. CheckTrace.css registers both copies.
  */
-import { sealWords, type LaneKind, type LaneLink, type LaneView, type StressStatus } from './lanes';
+import { sampleOpeningQuestion } from './questions';
+import { sealWords, stressChecked, stressLabel, type LaneKind, type LaneLink, type LaneView, type StressStatus } from './lanes';
 
 export type Sfx = 'a' | 'b';
 /** The keyframe-name suffix for replay number `run` (0, 2, 4… → 'a'; 1, 3, 5… → 'b'). */
@@ -63,7 +64,7 @@ export const passLanes: readonly ScriptLane[] = [
   { num: '03', label: LOCK_LABEL, lock: true, kind: 'ticks', n: 1, start: 3.25, dur: 0.35, st: 'pass', link: 'lock' },
   { num: '04', label: 'Follows your 2 house rules on 100 made-up tables', kind: 'grid', n: 100, start: 3.7, dur: 1.4, st: 'pass', link: 'rules' },
   { num: '05', label: 'Never changes your data · finishes fast', kind: 'ticks', n: 2, start: 5.2, dur: 0.4, st: 'pass' },
-  { num: '06', label: 'Stress test: we broke it 12 small ways on purpose', kind: 'stress', n: 12, start: 5.7, dur: 0.9, st: 'pass' },
+  { num: '06', label: stressLabel(12), kind: 'stress', n: 12, start: 5.7, dur: 0.9, st: 'pass' },
 ];
 
 export const stopLanes: readonly ScriptLane[] = [
@@ -72,7 +73,7 @@ export const stopLanes: readonly ScriptLane[] = [
   { num: '03', label: LOCK_LABEL, lock: true, kind: 'ticks', n: 1, start: 1.55, dur: 0.35, st: 'pass', link: 'lock' },
   { num: '04', label: 'Follows your 2 house rules on 100 made-up tables', kind: 'grid', n: 100, start: 2.0, dur: 0.66, st: 'stop', link: 'rules' },
   { num: '05', label: 'Never changes your data · finishes fast', kind: 'ticks', n: 2, start: 0, dur: 0, st: 'wait' },
-  { num: '06', label: 'Stress test: we broke it 12 small ways on purpose', kind: 'stress', n: 12, start: 0, dur: 0, st: 'wait' },
+  { num: '06', label: stressLabel(12), kind: 'stress', n: 12, start: 0, dur: 0, st: 'wait' },
 ];
 
 export const ghostLanes: readonly ScriptLane[] = [
@@ -92,7 +93,8 @@ export const SCRIPT_STRESS: StressStatus = { kind: 'done', total: 12, caught: SC
  */
 export const SCRIPT_SEAL = sealWords({ stress: SCRIPT_STRESS, ran: 5, of: 6 });
 
-const TRACE_LEFT = 'CHECK TRACE · {draft} · Top 5 customers by revenue · orders.csv · 332 rows';
+/** The illustrated run is the first sample's own question (model/questions.ts), in its own words: the same line the "You asked" card above it says. */
+const TRACE_LEFT = `CHECK TRACE · {draft} · ${sampleOpeningQuestion('orders').text} · orders.csv · 332 rows`;
 
 export const passScenario: Scenario = {
   id: 'pass',
@@ -103,7 +105,7 @@ export const passScenario: Scenario = {
   draftName: 'DRAFT 2',
   header: { left: TRACE_LEFT.replace('{draft}', 'DRAFT 2'), verdict: `${SCRIPT_SEAL} ↓ see the list`, right: '0.41 s', tone: 'pass' },
   footer: {
-    text: `Checked against: 6 examples · 1 locked answer · 2 house rules on 100 made-up tables · stress test (caught ${SCRIPT_STRESS_CAUGHT} of 12) · your data untouched.`,
+    text: `Checked against: 6 examples · 1 locked answer · 2 house rules on 100 made-up tables · ${stressChecked(SCRIPT_STRESS, false)!.text} · your data untouched.`,
     meta: 'Slowed down so you can watch · real run 0.41 s · 6 checks · 1 draft thrown out',
   },
   liveText: `${SCRIPT_SEAL}. Showing the answer.`,

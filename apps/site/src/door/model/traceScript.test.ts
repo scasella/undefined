@@ -57,7 +57,7 @@ describe('scenario tables (ported from the landing script)', () => {
     // the same definition as the live lane 06, the ledger line and the not-checked line
     expect(SCRIPT_STRESS).toEqual({ kind: 'done', total: 12, caught: 11, missed: 1 });
     expect(sealWords({ stress: SCRIPT_STRESS, ran: 5, of: 6 })).toBe(SCRIPT_SEAL);
-    expect(stressChecked(SCRIPT_STRESS)).toEqual({ text: '12-way stress test (11 caught)', ask: true });
+    expect(stressChecked(SCRIPT_STRESS)).toEqual({ text: 'stress test (caught 11 of 12 deliberate breaks)', ask: true });
     expect(stressNotChecked(SCRIPT_STRESS)).toBe('1 of 12 deliberate breaks went unnoticed by your checks');
     expect(scriptLaneView(passScenario.lanes[5]!).stress).toEqual(SCRIPT_STRESS);
   });
@@ -74,7 +74,7 @@ describe('scriptLaneView (end states, design aria)', () => {
     const [l1, , l3, , , l6] = passScenario.lanes.map(scriptLaneView);
     expect(l1).toMatchObject({ state: 'passed', done: '1/1', word: 'Passed', aria: 'Runs without errors: 1 of 1 passed' });
     expect(l3?.label).toBe('Matches your locked answer · Chef Ravioli Starbright = $2,252.07');
-    expect(l6).toMatchObject({ done: '11 of 12 caught', line2: '1 missed', missed: 1, aria: 'Stress test: we broke it 12 small ways on purpose: 11 of 12 caught, 1 missed' });
+    expect(l6).toMatchObject({ done: '11 of 12 caught', line2: '1 missed', missed: 1, aria: 'Stress test: 12 deliberate breaks: 11 of 12 caught, 1 missed' });
     const stop = stopScenario.lanes.map(scriptLaneView);
     expect(stop[3]).toMatchObject({
       state: 'stopped',

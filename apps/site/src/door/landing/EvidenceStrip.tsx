@@ -1,31 +1,32 @@
 /**
  * Landing · evidence strip (V3-Door-Landing 386-453): four tiles under the example answer, the "Why" behind the thrown-out
  * draft, and the expandable stress-test strip. Every tile reports the outcome of a run that was not recorded, so each
- * carries the ILLUSTRATIVE badge (./evidenceView.ts says which parts are computed); the thrown-out draft's figures in
- * the "Why" are computed from the real orders by model/figures.ts.
+ * is covered by the section's ONE label (./evidenceView.ts `evidenceLabel`, which also says which parts are computed); the
+ * thrown-out draft's figures in the "Why" are computed from the real orders by model/figures.ts.
  */
 import { useRef, useState } from 'preact/hooks';
 import { bundledOrders } from '../../data/orders';
 import { AskDiamond, CheckDisc, ThrownOut } from '../icons';
 import { MADE_UP_TABLES } from '../model/agreements';
+import { deliberateBreaks } from '../model/lanes';
 import { DEFAULT_MADE_UP_TABLE, ILLUSTRATIVE_BREAKS, madeUpTableLabel, madeUpTableNote, thrownOutDraft } from '../model/figures';
 import { exampleCount } from './teamFileView';
 import { dotGridKey } from './dotGrid';
-import { EVIDENCE_FOOT, evidenceTiles, ILLUSTRATIVE, type EvidenceTile } from './evidenceView';
+import { EVIDENCE_FOOT, evidenceLabel, evidenceTiles, type EvidenceTile } from './evidenceView';
 import './EvidenceStrip.css';
 
 const DRAFT = thrownOutDraft(bundledOrders());
 const MISSED = ILLUSTRATIVE_BREAKS.length - 1;
 const TILES = evidenceTiles();
+const LABEL = evidenceLabel(TILES);
 const tile = (id: EvidenceTile['id']): EvidenceTile => TILES.find((t) => t.id === id)!;
 
-/** A tile's headline figure, its plain line and (for a figure from an unrecorded run) the badge, always in that order. */
+/** A tile's headline figure and its plain line (the section's label, above the tiles, says the figures are illustrative). */
 function Head({ t }: { t: EvidenceTile }) {
   return (
     <>
       <div class="fd-ev-big fd-mono">{t.big}</div>
       <div class="fd-ev-sub">{t.sub}</div>
-      {t.illustrative && <span class="fd-ev-badge">{ILLUSTRATIVE}</span>}
     </>
   );
 }
@@ -71,13 +72,16 @@ function Dots() {
   );
 }
 
+/**
+ * The strip opens a screen or more below the section's one label on a phone (four tiles stack between them), and it states a result
+ * as fact, so its own heading says "illustration" in a sentence (not a second badge): the label still appears once per section.
+ */
 function StressStrip() {
   const [added, setAdded] = useState(false);
   return (
     <div class="fd-ev-stress">
-      <span class="fd-ev-badge fd-ev-stress__badge">{ILLUSTRATIVE}</span>
       <h3 class="fd-ev-stress__h">
-        We broke this calculation {ILLUSTRATIVE_BREAKS.length} small ways on purpose. Your checks caught {MISSED}.
+        In this illustration, the stress test made {ILLUSTRATIVE_BREAKS.length} deliberate breaks in the calculation. Your checks caught {MISSED}.
       </h3>
       <div class="fd-ev-breaks">
         {ILLUSTRATIVE_BREAKS.map((name, i) => {
@@ -120,6 +124,7 @@ export function EvidenceStrip() {
     <section aria-labelledby="ev-h" class="fd-ev">
       <div class="fd-wrap">
         <h2 id="ev-h" class="fd-sr">The evidence behind this answer</h2>
+        {LABEL && <p class="fd-ev-badge fd-ev-label">{LABEL}</p>}
         <div class="fd-ev-grid">
           <div class="fd-ev-tile">
             <Head t={tile('examples')} />
@@ -137,7 +142,7 @@ export function EvidenceStrip() {
               {ILLUSTRATIVE_BREAKS.map((_, i) => (i === MISSED ? <span key={i} class="is-missed">{QUESTION_MARK}</span> : <span key={i} />))}
             </div>
             <button type="button" class="fd-ev-link fd-ev-link--block" aria-expanded={stress ? 'true' : 'false'} onClick={() => setStress(!stress)}>
-              {stress ? `Hide the ${ILLUSTRATIVE_BREAKS.length} breaks` : `See all ${ILLUSTRATIVE_BREAKS.length} and the one they missed`}
+              {stress ? `Hide the ${deliberateBreaks(ILLUSTRATIVE_BREAKS.length)}` : `See all ${deliberateBreaks(ILLUSTRATIVE_BREAKS.length)} and the one they missed`}
             </button>
           </div>
           <div class="fd-ev-tile">

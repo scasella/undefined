@@ -3,7 +3,7 @@ import type { Decision, FunctionSpec, Program } from '@scasella/undefined-engine
 import { encodeValue } from '@scasella/undefined-engine/shared/serialize';
 import {
   agreementOf, agreementPhrase, compactChips, countsText, dayText, fixedDayText, emptyAgreement, heldNote, illustrativeAgreement, isHeldBack, lockedHelp, lockedKeptReplay,
-  NEXT_VERSION_LIVE, NEXT_VERSION_REPLAY, nextVersionLine,
+  NEXT_VERSION_LIVE, NEXT_VERSION_REPLAY, nextVersionLine, SEEDED_LOCK_NOTE, SEEDED_NOTE,
 } from './agreement';
 import { AGREEMENT_FN, SEEDED_PINNED_AT, seedAgreement } from './agreements';
 import { buildDataset } from '../../data/dataset';
@@ -231,6 +231,7 @@ describe('illustrativeAgreement', () => {
     expect(v.locks[0]).toMatchObject({ t: 'Chef Ravioli Starbright = $2,252.07', label: 'Chef Ravioli Starbright', value: '$2,252.07', p: 'Locked · you · 5 Oct 2026 · on orders.csv' });
     expect(v.rules.map((r) => r.t)).toEqual(['Revenue counts paid orders only', 'Each order number is counted once']);
     expect(v.assumption?.t).toBe('Revenue is after discounts');
+    expect(v.assumption?.confirmedMeta).toBe('Confirmed by you · on this page only');
     expect(compactChips(v)).toHaveLength(4);
     expect(compactChips(v)[0]).toMatchObject({ t: '6 examples', p: 'made-up tables with known answers · you · 4 Oct 2026' });
   });
@@ -275,5 +276,26 @@ describe('set versus what will really run', () => {
     expect(lockedHelp({ locked: true, level: 'full', mode: 'replay', noun: 'list' })).toBe(lockedKeptReplay('list'));
     expect(lockedKeptReplay('list')).toBe("Locked, and kept with this answer. This demo can't write a later version; on your computer every later version has to give this same list.");
     expect(lockedKeptReplay('answer')).not.toMatch(/^Every later version/);
+    // the lock that came with the demo file: the card's note beside it says it is locked, so the help starts at what the demo cannot do
+    expect(lockedHelp({ locked: true, level: 'full', mode: 'replay', noun: 'list', seeded: true })).toBe(
+      "This demo can't write a later version; on your computer every later version has to give this same list.",
+    );
+    expect(lockedKeptReplay('list', true)).not.toMatch(/^Locked, and kept/);
+    // and only there: live, basic and a lock the viewer made are as they were
+    expect(lockedHelp({ locked: true, level: 'full', mode: 'live', seeded: true })).toBe('');
+    expect(lockedHelp({ locked: true, level: 'basic', mode: 'replay', seeded: true })).toBe(lockedHelp({ locked: true, level: 'basic', mode: 'replay' }));
+    expect(lockedHelp({ locked: true, level: 'full', mode: 'replay', noun: 'list', seeded: false })).toBe(lockedKeptReplay('list'));
+  });
+});
+
+describe('where the demo\'s agreement comes from, said in one short sentence each', () => {
+  it('the rail\'s note and the card\'s lock note say the demo file brings it, never "saved earlier" (the demo installs it in this visit, as saved steps of its own)', () => {
+    expect(SEEDED_NOTE).toBe('This agreement comes with the demo file.');
+    expect(SEEDED_LOCK_NOTE).toBe('This lock comes with the demo file.');
+    for (const note of [SEEDED_NOTE, SEEDED_LOCK_NOTE]) {
+      expect(note.split(/(?<=\.)\s+/)).toHaveLength(1);
+      expect(note.split(/\s+/).length).toBeLessThanOrEqual(10);
+      expect(note).not.toMatch(/earlier|session|saved|\b(gate|spec|property|fuzz|mutant|revision|pin)\b/i);
+    }
   });
 });

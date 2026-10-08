@@ -24,7 +24,8 @@ import type { CheckLevel, SuggestedQuestion } from '../model/questions';
 
 /**
  * certified: answered from a function already certified (either mode: nothing is written or re-checked) · recorded: a
- * recorded draft exists · none: needs live mode · live: live mode, and a new version would be written.
+ * recorded draft exists · none: no recorded answer, so it needs your computer (live mode) · live: live mode, and a new
+ * version would be written.
  */
 export type Availability = 'certified' | 'recorded' | 'none' | 'live';
 

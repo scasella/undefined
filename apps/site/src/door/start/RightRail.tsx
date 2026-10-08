@@ -6,8 +6,8 @@
  * - No file bound yet: `privacy` is null, so the first card is a calm placeholder in the same chrome (the switch still
  *   works: it is an engine preference, not a property of a file). The agreement card is already the design's
  *   "no agreement" state (session.agreement is emptyAgreement() until a question exists).
- * - "Saved with this demo file from an earlier session." shows only while the agreement IS the installed demo seed
- *   (seedShown): installed, and still the same counts and locked answers (a ruling or an unlock makes it the user's).
+ * - "This agreement comes with the demo file." (model/agreement.ts SEEDED_NOTE) shows only while the agreement IS the installed
+ *   demo seed (seedShown): installed, and still the same counts and locked answers (a ruling or an unlock makes it the user's).
  */
 import type { Engine, FunctionSpec, Program } from '@scasella/undefined-engine/types';
 import { AgreementRail } from '../components/AgreementRail';

@@ -25,7 +25,7 @@
 }
 .fd-ac--held .fd-ac__seal { display: none; }
 
-.fd-ac__fig { font-size: 13px; line-height: 19px; color: var(--fd-ink-3); }
+.fd-ac__fig { font-size: 13px; line-height: 19px; color: var(--fd-ink-3); text-wrap: pretty; }
 .fd-ac__eyebrow {
   margin-top: 16px; display: flex; align-items: center; gap: 8px;
   font-family: var(--fd-mono); font-variant-numeric: tabular-nums slashed-zero; font-feature-settings: 'tnum', 'zero';
@@ -38,11 +38,11 @@
 .fd-ac__ring-arc--ran { stroke: var(--fd-ink-2); }
 .fd-ac__ring-arc--rest { stroke: var(--fd-line-2); }
 
-/* the most decisive thing not checked, right under the figure */
-.fd-ac__caveat { margin: 12px 0 0; display: flex; gap: 8px; align-items: flex-start; font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
-.fd-ac__caveat svg { flex: none; margin-top: 2px; }
-.fd-ac__caveat > span { min-width: 0; overflow-wrap: anywhere; }
-.fd-ac__caveat-k { font-weight: 600; color: var(--fd-ink); }
+/* where "Version N" comes from, when it is not the first thing the viewer made: a second line of the caption */
+.fd-ac__version { margin-top: 2px; font-size: 13px; line-height: 19px; color: var(--fd-ink-3); }
+
+/* whether the number can be relied on, in body text right under the number: how the checks went, what was not checked, the next step */
+.fd-ac__verdict { margin: 12px 0 0; max-width: var(--fd-measure); font-size: 16px; line-height: 24px; color: var(--fd-ink); overflow-wrap: anywhere; }
 
 .fd-ac__lead-name { margin-top: 12px; font-size: 28px; line-height: 32px; font-weight: 600; letter-spacing: -0.015em; overflow-wrap: anywhere; }
 .fd-ac__lead-num { font-size: 56px; line-height: 60px; font-weight: 500; letter-spacing: -0.02em; margin-top: 4px; overflow-wrap: anywhere; }
@@ -97,6 +97,8 @@
 .fd-ac--landing .fd-ac__assumed { margin-top: 24px; }
 .fd-ac__h3 { margin: 0; font-size: 16px; line-height: 22px; font-weight: 600; }
 .fd-ac--landing .fd-ac__assumed .fd-ac__h3 { letter-spacing: -0.005em; }
+.fd-ac__assumed-note { margin: 2px 0 0; font-size: 13px; line-height: 19px; color: var(--fd-ink-3); }
+.fd-ac__assumed-note + .fd-ac__assumed-list { margin-top: 10px; }
 .fd-ac__assumed-list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .fd-ac__no-notes { margin: 10px 0 0; font-size: 14px; line-height: 20px; color: var(--fd-ink-3); }
 .fd-ac__assumption {
@@ -128,7 +130,7 @@
 
 .fd-ac__honest { margin: 16px 0 0; max-width: var(--fd-measure); font-size: 16px; line-height: 24px; color: var(--fd-ink-2); }
 
-/* actions: lock, see the calculation / add a house rule, help */
+/* actions: the hand-off (the one filled control, when the card offers it), lock, see the calculation / add a house rule */
 .fd-ac__actions { margin-top: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
 .fd-ac--landing .fd-ac__actions { margin-top: 20px; }
 .fd-ac__lock {
@@ -140,6 +142,12 @@
 .fd-ac__lock--on, .fd-ac__lock--on:hover { background: var(--fd-indigo-wash); color: var(--fd-indigo-hover); border-color: var(--fd-indigo); }
 .fd-ac__lock:disabled { cursor: progress; opacity: 0.7; }
 .fd-ac__lock:not(.fd-ac__lock--on):disabled:hover { background: var(--fd-indigo); border-color: var(--fd-indigo); }
+/* a card that HAS the hand-off in its action row (.fd-ac--handoff, set by the slot, not by the variant) makes the lock a quiet secondary
+   control: a ring, no fill; locked is the same ring in indigo with the padlock. Without the hand-off the lock is the card's one filled control. */
+.fd-ac--handoff .fd-ac__lock { max-width: 100%; border: 0; background: var(--fd-surface); color: var(--fd-ink); box-shadow: var(--fd-sh-ring-2); transition: background-color 120ms ease, box-shadow 120ms ease, color 120ms ease; }
+.fd-ac--handoff .fd-ac__lock:hover { background: var(--fd-surface-3); color: var(--fd-ink); box-shadow: 0 0 0 1px var(--fd-ink-3); }
+.fd-ac--handoff .fd-ac__lock--on, .fd-ac--handoff .fd-ac__lock--on:hover { background: var(--fd-surface); color: var(--fd-indigo-hover); box-shadow: 0 0 0 1px var(--fd-indigo); }
+.fd-ac--handoff .fd-ac__lock:not(.fd-ac__lock--on):disabled:hover { background: var(--fd-surface); box-shadow: var(--fd-sh-ring-2); }
 .fd-ac__calc-toggle {
   min-height: 44px; padding: 0 4px; border: 0; border-radius: var(--fd-r-sm); background: transparent; color: var(--fd-ink-2);
   font-family: inherit; font-size: 14px; line-height: 20px; font-weight: 500; cursor: pointer;
@@ -147,9 +155,8 @@
 }
 .fd-ac__calc-toggle:hover { color: var(--fd-ink); }
 .fd-ac__rule-link { font-size: 14px; font-weight: 500; min-height: 44px; display: inline-flex; align-items: center; border-radius: var(--fd-r-sm); }
-.fd-ac__help { font-size: 13px; line-height: 19px; color: var(--fd-ink-3); }
-/* where a lock came from, right beside the Locked button (the rail's own sentence for anything saved with the demo file) */
-.fd-ac__lock-note { font-size: 13px; line-height: 19px; color: var(--fd-ink-3); }
+/* what the lock means, and where a lock that came with the demo file came from: one note under the row, in body-small ink */
+.fd-ac__lock-info { margin: 8px 0 0; max-width: var(--fd-measure); font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
 .fd-ac__calc {
   margin: 12px 0 0; padding: 16px; background: var(--fd-surface-2); border-radius: var(--fd-r-md); overflow-x: auto;
   font-size: 12px; line-height: 18px; color: var(--fd-ink-2);
@@ -196,4 +203,6 @@
   .fd-ac__td-bar { width: 24%; }
   .fd-ac__track--row { flex-basis: 22%; }
   .fd-ac__amt, .fd-ac__td-amt { width: 92px; }
+  /* controls become full width at 480px and under (the lock too, once it is a ring beside the hand-off) */
+  .fd-ac__actions > .fd-btn, .fd-ac--handoff .fd-ac__lock { flex: 1 1 100%; justify-content: center; }
 }

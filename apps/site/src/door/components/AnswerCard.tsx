@@ -7,9 +7,10 @@
  */
 import type { ComponentChildren } from 'preact';
 import type { AnswerView } from '../model/answer';
-import { lockedRowsPhrase } from '../model/answer';
+import { BASIC_CHECKS, decisiveCaveat, lockedRowsPhrase, TOTAL_CHECKS, verdictLine } from '../model/answer';
 import type { AssumptionList } from '../model/assumptions';
 import { lockedHelp, type CheckMode } from '../model/agreement';
+import type { StressStatus } from '../model/lanes';
 import { AskDiamond, CheckDisc, Lock, NotChecked } from '../icons';
 import './AnswerCard.css';
 
@@ -18,9 +19,8 @@ export const HELD_CAPTION_LANDING = 'Held until every check passes.';
 export const HELD_CAPTION_WAITING = 'Waiting on you. No new answer is shown until you decide.';
 export const HELD_LABEL = 'Answer held until every check passes';
 
-/** A basic pass: the two checks that need nothing from you (runs without errors; never changes your data, finishes fast), of six. */
-export const BASIC_CHECKS = 2;
-export const TOTAL_CHECKS = 6;
+// the check counts and the decisive caveat live in the model (model/answer.ts: the verdict line needs them); kept importable from here
+export { BASIC_CHECKS, decisiveCaveat, TOTAL_CHECKS };
 export const LEVEL_FULL = 'PASSED EVERY CHECK';
 export const LEVEL_BASIC = `PASSED ${BASIC_CHECKS} BASIC CHECKS · NOTHING ELSE CHECKED YET`;
 
@@ -45,6 +45,11 @@ export interface AnswerCardProps {
    * stress test didn't run" with a partial ring instead of the green disc. Omitted: the level's own words.
    */
   seal?: { text: string; ran: number; of: number; complete: boolean } | null;
+  /**
+   * The stress test's result (lanes.ts StressStatus) for a Full-checks answer: the verdict line words it with the seal's own
+   * words. Omitted: the line says nothing about the stress test.
+   */
+  stress?: StressStatus | null;
   locked: boolean;
   /**
    * The lock confirmation to show instead of the card's own words (derive.ts AnswerProps.lockHelp: the honest replay
@@ -65,13 +70,32 @@ export interface AnswerCardProps {
   /** Items of `checked` that take the amber glyph instead of the green disc (the stress test, when it missed or did not finish). */
   checkedAsk?: readonly string[];
   notChecked: string[];
-  /** Said next to the lock button when it is locked and the lock came with the demo file ('Saved with this demo file from an earlier session.'). */
+  /** Said next to the lock button when it is locked and the lock came with the demo file (model/agreement.ts SEEDED_LOCK_NOTE: 'This lock comes with the demo file.'). */
   lockNote?: string;
+  /**
+   * Said right under the caption when "Version N" is not the first thing the viewer made (the demo file's set-up saves came
+   * first; model/answer.ts versionNote). Omitted: nothing is added.
+   */
+  versionNote?: string;
+  /**
+   * The card's one filled control: the hand-off (start/RunPanel.tsx), first in the action row. When it is given the card takes
+   * `fd-ac--handoff`, which makes the lock button a quiet ring, and the verdict line names the hand-off as the next step. Without
+   * it (the landing's illustration, or a start card whose hand-off is not on offer: no eject module, or an answer it cannot eject)
+   * the lock stays the card's one filled control and no next step is named.
+   */
+  primaryAction?: ComponentChildren;
   /** Landing only: the 'See the calculation' toggle and the code it reveals. */
   calc?: { open: boolean; onToggle: () => void; source: ComponentChildren };
   /** Start page: where 'Add a house rule' goes. */
   houseRuleHref?: string;
 }
+
+/**
+ * What "Confirm" really does, said once under "What the AI assumed": it marks the line as read by you, in this page's own
+ * state (start/RunPanel.tsx keeps it per run; the landing's card keeps its own). Nothing reaches the engine, the checks or the
+ * download, so nothing is claimed beyond that.
+ */
+export const CONFIRM_NOTE = 'Confirming only marks a line on this page; nothing is saved, sent or checked.';
 
 /** The demo (replay mode) cannot write a new version, so a lock is saved with the answer but never re-run here. */
 export const LOCK_HELP_REPLAY =
@@ -87,15 +111,6 @@ export function lockHelpText(p: { locked: boolean; variant: 'landing' | 'start';
   if (p.level === 'basic') return 'Locked. The next version runs full checks, starting with this answer.';
   // live, or no mode given: the engine does hold every later version to the lock
   return `Every later version has to give this same ${noun}.`;
-}
-
-/**
- * The one thing left unchecked that most decides whether the figure is right, as one plain line: the first item of the
- * not-checked list as given (the list is built most decisive first). Nothing is added: no items, no line.
- */
-export function decisiveCaveat(notChecked: readonly string[]): string | null {
-  const first = notChecked.map((t) => t.trim()).find((t) => t !== '');
-  return first ?? null;
 }
 
 /** SVG path of arc `i` of `total` in a ring of radius `r` around (c, c): clockwise from 12 o'clock, `gap` degrees apart. */
@@ -132,7 +147,8 @@ export function AnswerCard(props: AnswerCardProps) {
   const animate = !held && !!props.reveal;
   const delay = props.reveal?.delay ?? 0;
   const caption = props.heldCaption ?? HELD_CAPTION_START;
-  const cls = ['fd-ac', `fd-ac--${variant}`, held ? 'fd-ac--held' : 'fd-ac--shown', animate ? 'fd-ac--reveal' : '', view ? '' : 'fd-ac--empty']
+  // the quiet lock follows the hand-off being IN the card, not the variant: a start card without one keeps a filled lock
+  const cls = ['fd-ac', `fd-ac--${variant}`, held ? 'fd-ac--held' : 'fd-ac--shown', animate ? 'fd-ac--reveal' : '', view ? '' : 'fd-ac--empty', props.primaryAction ? 'fd-ac--handoff' : '']
     .filter(Boolean)
     .join(' ');
 
@@ -165,28 +181,33 @@ function Body(props: AnswerCardProps & { view: AnswerView; variant: 'landing' | 
   const { view, variant, held, level, locked } = props;
   const lead = view.lead;
   const help = props.lockHelp || lockHelpText({ locked, variant, level, view, ...(props.mode ? { mode: props.mode } : {}) });
-  // the caveat that decides whether the number is right sits right under the number, not only in the list far below
-  const line = decisiveCaveat(props.notChecked);
   // the green disc says every check that applies finished and passed; a partial ring says how much of it did
   const seal = props.seal ?? null;
   const whole = level === 'full' && (!seal || seal.complete);
   const sealText = level === 'full' ? (seal ? seal.text.toUpperCase() : LEVEL_FULL) : LEVEL_BASIC;
-  const caveat = line && (
-    <p class="fd-ac__caveat fd-ac__ri" style={vars({ '--fd-ri': '0.2s' })}>
-      <NotChecked size={16} />
-      <span>
-        <span class="fd-ac__caveat-k">Not checked:</span> {line}
-      </span>
+  // whether the number can be relied on, in plain words, right under the number: how the checks went, the one thing most
+  // worth knowing was not checked, and (when the card offers it) the hand-off as the next step. Said once: the list far below
+  // is the full ledger, not a second copy of this line
+  const verdict = (
+    <p class="fd-ac__verdict fd-ac__ri" style={vars({ '--fd-ri': '0.2s' })}>
+      {verdictLine({
+        level,
+        stress: props.stress ?? null,
+        ...(seal ? { ran: seal.ran, of: seal.of } : {}),
+        notChecked: props.notChecked,
+        handoff: !!props.primaryAction,
+      })}
     </p>
   );
   return (
     <div class="fd-ac__body" inert={held} aria-hidden={held ? true : undefined}>
       <div class="fd-ac__fig">{view.fig}</div>
+      {props.versionNote && <div class="fd-ac__version">{props.versionNote}</div>}
       <div class={`fd-ac__eyebrow${whole ? '' : ' fd-ac__eyebrow--basic'}`}>
         {whole ? <CheckDisc size={16} /> : <CoverageRing ran={seal && level === 'full' ? seal.ran : BASIC_CHECKS} total={seal && level === 'full' ? seal.of : TOTAL_CHECKS} />}
         {sealText}
       </div>
-      {!lead && caveat}
+      {!lead && verdict}
 
       {lead && lead.name && <div class="fd-ac__lead-name fd-ac__ri" style={vars({ '--fd-ri': '0.1s' })}>{lead.name}</div>}
       {lead && (
@@ -196,7 +217,7 @@ function Body(props: AnswerCardProps & { view: AnswerView; variant: 'landing' | 
         </div>
       )}
       {lead && variant === 'landing' && view.kind === 'ranked' && <div class="fd-ac__lead-bar" />}
-      {lead && caveat}
+      {lead && verdict}
 
       {view.kind === 'ranked' && view.rest.length > 0 && <Rest view={view} variant={variant} />}
       {view.kind === 'ranked' && view.rest.length === 0 && variant === 'start' && <ol aria-label="The rest of the list" class="fd-ac__rest" />}
@@ -206,6 +227,7 @@ function Body(props: AnswerCardProps & { view: AnswerView; variant: 'landing' | 
 
       <div class="fd-ac__assumed">
         <h3 class="fd-ac__h3">What the AI assumed</h3>
+        {!props.assumptions.empty && <p class="fd-ac__assumed-note">{CONFIRM_NOTE}</p>}
         {props.assumptions.empty ? (
           <p class="fd-ac__no-notes">{props.assumptions.empty}</p>
         ) : (
@@ -267,6 +289,7 @@ function Body(props: AnswerCardProps & { view: AnswerView; variant: 'landing' | 
       </p>
 
       <div class="fd-ac__actions">
+        {props.primaryAction}
         {props.onToggleLock && (
           <button
             type="button"
@@ -274,11 +297,10 @@ function Body(props: AnswerCardProps & { view: AnswerView; variant: 'landing' | 
             onClick={props.onToggleLock}
             disabled={props.lockBusy}
           >
-            {locked && variant === 'landing' && <Lock size={16} color="currentColor" />}
+            {locked && <Lock size={16} color="currentColor" />}
             {locked ? 'Locked' : 'Does this look right? Lock this answer'}
           </button>
         )}
-        {props.onToggleLock && locked && props.lockNote && <span class="fd-ac__lock-note">{props.lockNote}</span>}
         {props.calc && (
           <button type="button" class="fd-ac__calc-toggle" aria-expanded={props.calc.open} onClick={props.calc.onToggle}>
             See the calculation
@@ -289,8 +311,14 @@ function Body(props: AnswerCardProps & { view: AnswerView; variant: 'landing' | 
             Add a house rule
           </a>
         )}
-        {props.onToggleLock && <span class="fd-ac__help">{help}</span>}
       </div>
+      {props.onToggleLock && (
+        <p class="fd-ac__lock-info">
+          {locked && props.lockNote && <span class="fd-ac__lock-note">{props.lockNote}</span>}
+          {locked && props.lockNote ? ' ' : ''}
+          <span class="fd-ac__help">{help}</span>
+        </p>
+      )}
       {props.calc?.open && <pre class="fd-ac__calc fd-mono">{props.calc.source}</pre>}
     </div>
   );

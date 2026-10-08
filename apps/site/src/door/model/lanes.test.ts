@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AttemptView, Diagnostic, GateResult, GenerationView, MutationReport } from '@scasella/undefined-engine/types';
 import {
+  deliberateBreaks,
   detailOf,
   factsFromSpec,
   footerFor,
@@ -11,11 +12,14 @@ import {
   OFF_NOTES,
   parsePropertiesSummary,
   parseTestsSummary,
+  sealHead,
   sealOfLanes,
   sealWords,
   stressChecked,
+  stressLabel,
   stressNotChecked,
   stressStatus,
+  stressWords,
   type LaneFacts,
   type StressStatus,
 } from './lanes';
@@ -100,7 +104,7 @@ describe('liveLanes', () => {
       'Matches your locked answer · Chef Ravioli Starbright = $2,252.07',
       'Follows your 2 house rules on 100 made-up tables',
       'Never changes your data · finishes fast',
-      'Stress test: small breaks on purpose',
+      'Stress test: deliberate breaks',
     ]);
     expect(lanes.every((l) => l.state === 'ready')).toBe(true);
     expect(lanes[0]?.aria).toBe('Runs without errors: ready');
@@ -250,7 +254,7 @@ describe('liveLanes', () => {
       const before = liveLanes({ generation: committed, facts: full, run: 'done', mutation: waiting });
       expect(before[5]).toMatchObject({ state: 'waiting', idle: 'Waiting', stress: { kind: 'pending', phase: 'waiting' } });
       const runningLanes = liveLanes({ generation: committed, facts: full, run: 'done', mutation: { fn: 'topCustomers', phase: 'running', done: 5, total: 12 } });
-      expect(runningLanes[5]).toMatchObject({ state: 'running', progress: { done: 5, total: 12 }, label: 'Stress test: we broke it 12 small ways on purpose' });
+      expect(runningLanes[5]).toMatchObject({ state: 'running', progress: { done: 5, total: 12 }, label: 'Stress test: 12 deliberate breaks' });
       expect(runningLanes.slice(0, 5)).toEqual(before.slice(0, 5));
     });
     it('before the commit it is only ready (never waiting on, or running for, a draft that is still being checked)', () => {
@@ -265,8 +269,8 @@ describe('liveLanes', () => {
         done: '11 of 12 caught',
         line2: '1 missed',
         missed: 1,
-        label: 'Stress test: we broke it 12 small ways on purpose',
-        aria: 'Stress test: we broke it 12 small ways on purpose: 11 of 12 caught, 1 missed',
+        label: 'Stress test: 12 deliberate breaks',
+        aria: 'Stress test: 12 deliberate breaks: 11 of 12 caught, 1 missed',
         stress: { kind: 'done', total: 12, caught: 11, missed: 1 },
       });
       const clean = liveLanes({ generation: committed, facts: full, run: 'done', mutationReport: report(12, 0) });
@@ -284,7 +288,7 @@ describe('liveLanes', () => {
       const skipped: MutationReport = { ...report(0, 0), skipped: 'mutation check failed: boom' };
       const lane = liveLanes({ generation: committed, facts: full, run: 'done', mutationReport: skipped })[5]!;
       expect(lane).toMatchObject({ state: 'off', offNote: OFF_NOTES.stressNotRun, stress: { kind: 'not-run' } });
-      expect(lane.aria).toBe("Stress test: small breaks on purpose: didn't run, so this answer was not stress-tested.");
+      expect(lane.aria).toBe("Stress test: deliberate breaks: didn't run, so this answer was not stress-tested.");
       // committed, and nothing at all about it: the engine is not going to run it
       expect(liveLanes({ generation: committed, facts: full, run: 'done' })[5]).toMatchObject({ state: 'off', offNote: OFF_NOTES.stressNotRun });
       // nothing was set when it was checked: the old words
@@ -345,15 +349,69 @@ describe('the stress test, in one place', () => {
       expect(sealWords({ stress: st, ran: 5, of: 6 })).not.toMatch(/every check/);
     }
   });
+  it('the seal is its two halves: how many checks passed, then the stress test in its own words', () => {
+    const partial: StressStatus = { kind: 'partial', total: 5, caught: 4, missed: 1, planned: 12 };
+    expect(stressWords(done(8))).toBe('stress test caught 8 of 12');
+    expect(stressWords(partial)).toBe('stress test ran out of time');
+    expect(stressWords({ kind: 'not-run' })).toBe("stress test didn't run");
+    expect(stressWords({ kind: 'none' })).toBeNull();
+    expect(stressWords({ kind: 'pending', phase: 'running', done: 2, total: 12 })).toBeNull();
+    expect(sealHead({ stress: done(8), ran: 5, of: 6 })).toBe('Passed every check');
+    expect(sealHead({ stress: partial, ran: 5, of: 6 })).toBe('Passed 5 of 6 checks');
+    expect(sealHead({ stress: { kind: 'not-run' }, ran: 3, of: 4 })).toBe('Passed 3 of 4 checks');
+    // and the seal is exactly the two joined, so the verdict line that reuses them can never drift from it
+    for (const st of [done(8), done(12), partial, { kind: 'not-run' }, { kind: 'none' }] as const) {
+      const w = stressWords(st);
+      expect(sealWords({ stress: st, ran: 5, of: 6 })).toBe(w ? `${sealHead({ stress: st, ran: 5, of: 6 })} · ${w}` : sealHead({ stress: st, ran: 5, of: 6 }));
+    }
+  });
   it('the checked line takes the amber glyph when anything was missed or unfinished, and the not-checked line says what', () => {
-    expect(stressChecked(done(12))).toEqual({ text: '12-way stress test (12 caught)', ask: false });
-    expect(stressChecked(done(8))).toEqual({ text: '12-way stress test (8 caught)', ask: true });
+    expect(stressChecked(done(12))).toEqual({ text: 'stress test (caught 12 of 12 deliberate breaks)', ask: false });
+    expect(stressChecked(done(8))).toEqual({ text: 'stress test (caught 8 of 12 deliberate breaks)', ask: true });
     expect(stressChecked({ kind: 'not-run' })).toBeNull();
     expect(stressNotChecked(done(12))).toBeNull();
     expect(stressNotChecked(done(8))).toBe('4 of 12 deliberate breaks went unnoticed by your checks');
     for (const st of [done(8), { kind: 'not-run' }, { kind: 'partial', total: 5, caught: 4, missed: 1, planned: 12 }] as const) {
       expect(`${stressChecked(st)?.text ?? ''} ${stressNotChecked(st) ?? ''} ${sealWords({ stress: st, ran: 5, of: 6 })}`).not.toMatch(/mutant|mutation|fuzz|gate|spec\b|revision/i);
     }
+  });
+  it('one wording for the check and for what it does: it is the "stress test", and the things it does are "deliberate breaks", on every surface', () => {
+    expect(deliberateBreaks(12)).toBe('12 deliberate breaks');
+    expect(deliberateBreaks(1)).toBe('1 deliberate break');
+    expect(stressLabel(12)).toBe('Stress test: 12 deliberate breaks');
+    expect(stressLabel(1)).toBe('Stress test: 1 deliberate break');
+    // before the run has a count (or when nothing is known), no number is made up
+    expect(stressLabel(null)).toBe('Stress test: deliberate breaks');
+    expect(stressLabel(0)).toBe('Stress test: deliberate breaks');
+    const a = attempt(1, 'accepted', [compileOk, testsOk, propsOk, invOk]);
+    const generation = gen([a], 'committed');
+    const partialReport: MutationReport = { ...report(4, 1), skipped: 'time box reached after 5 of 12 mutants' };
+    for (const mutationReport of [report(8, 4), report(12, 0), partialReport]) {
+      const lanes = liveLanes({ generation, facts: full, run: 'done', mutationReport });
+      const lane = lanes[5]!;
+      const st = lane.stress!;
+      expect(lane.label).toBe(stressLabel(st.kind === 'done' || st.kind === 'partial' ? st.total : null));
+      const footer = footerFor(lanes, headerFor({ question: 'q', file: 'orders.csv', rows: 332, generation, lanes, run: 'done' })).text;
+      // the ledger and the footer under the trace read one function, so a number cannot be said two ways: the footer is the ledger's line
+      // without the unit, which lane 06 a line above has already named (a longer footer wrapped to a third line and made the pane taller)
+      const short = stressChecked(st, false)!.text;
+      expect(footer).toContain(short);
+      expect(stressChecked(st)!.text.replace(/ deliberate breaks?/, '')).toBe(short);
+      expect(short).not.toMatch(/deliberate/);
+      const said = [lane.label, lane.aria, stressChecked(st)?.text ?? '', stressNotChecked(st) ?? '', stressWords(st) ?? '', footer].join(' | ');
+      expect(said).not.toMatch(/small (breaks|ways)|on purpose|-way|we broke|\bmutant|\bmutation/i);
+      expect(said).toMatch(/deliberate break/);
+      expect(footer).not.toMatch(/deliberate/);
+    }
+    // the running footer and the ready lane use the same words too
+    const ready = liveLanes({ generation: null, facts: full, run: 'idle' })[5]!;
+    expect(ready.label).toBe('Stress test: deliberate breaks');
+    const waitingLanes = liveLanes({ generation, facts: full, run: 'running', mutation: { fn: 'topCustomers', phase: 'running', done: 3, total: 12 } });
+    const f = footerFor(waitingLanes, headerFor({ question: 'q', file: 'orders.csv', rows: 332, generation, lanes: waitingLanes, run: 'running' }));
+    expect(f.text).toContain('Last is the stress test: it makes deliberate breaks in the calculation');
+    expect(f.text).not.toMatch(/small ways|on purpose/);
+    // not checked, time-boxed: counted in deliberate breaks as well
+    expect(stressNotChecked({ kind: 'partial', total: 5, caught: 4, missed: 1, planned: 12 })).toBe('the stress test ran out of time: it tried 5 of 12 deliberate breaks, and 1 of those went unnoticed by your checks');
   });
   it('the lane, the header, the footer and the live sentence all say the same thing', () => {
     const a = attempt(1, 'accepted', [compileOk, testsOk, propsOk, invOk]);

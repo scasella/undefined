@@ -17,6 +17,7 @@ import { session as telemetry, shellFileChip } from '../state';
 import { delimiterProblem, fileChipFor, fileProblem, jsonFileKind, ownDatasetName, parseRows, textProblem } from './intake';
 import { ReplayGenerator } from '../../core/generator';
 import { agreementRecording, answerableOther, availabilityOf, callSpecFor, fetchRecordings, levelFor, recordedKeys, seedUsable, specHasAgreement, specKey } from './recorded';
+import { noRecordingText, sampleOffer } from './derive';
 import { createSession, sessionFor, type Session } from './session';
 
 const recordingsDir = new URL('../../../public/recordings/', import.meta.url);
@@ -328,7 +329,7 @@ describe('session controller (fake engine)', () => {
     expect(calls[calls.length - 1]).toBe('submit countByStatus(rows)');
     expect(s.outcome.value).toEqual({ kind: 'no-recording', onData: false, message: 'none' });
     expect(s.noRecording.value).toBe(
-      'In this demo, answers are recorded, and this question has no recorded answer with these checks, so it needs the version on your computer. “Top 5 customers by revenue” has one: try it.',
+      'In this demo, answers are recorded, and this question has no recorded answer with these checks, so it needs the version on your computer. “Who are our top customers by revenue?” has one: try it.',
     );
     expect(s.answer.value.held).toBe(true);
     expect(s.trace.value.header.verdict).toBe('Not run · no draft to check');
@@ -497,6 +498,63 @@ describe('session controller (fake engine)', () => {
     s.dispose();
   });
 
+  it('the way out of a file with nothing recorded: switching to the recorded sample selects the question the sentence names, and that one has a recording', async () => {
+    const { engine } = fakeEngine('replay');
+    const s = createSession(engine, { recordings: async () => [ordersRecording()] });
+    expect(await s.intakeText({ text: 'region,amount\nwest,10\neast,5', filename: 'Sales Q3.csv' })).toBe(true);
+    expect(s.source.value).toBe('own');
+    await vi.waitFor(() => expect(Object.values(s.availability.value).length).toBeGreaterThan(0));
+    // every question about your own file needs the version on your computer; the page offers the recorded sample, by name
+    expect(Object.values(s.availability.value).every((a) => a === 'none')).toBe(true);
+    const offer = sampleOffer(s.sampleId.value)!;
+    expect(offer).toMatchObject({ sample: 'orders', file: 'orders.csv' });
+    expect(noRecordingText(true, s.recordedOther.value, offer)).toContain('switch to orders.csv');
+    // the button's action
+    expect(await s.useSample(offer.sample)).toBe(true);
+    expect(s.sampleId.value).toBe('orders');
+    expect(s.questionId.value).toBe(offer.questionId);
+    expect(s.question.value?.text).toBe(offer.question);
+    await vi.waitFor(() => expect(s.availability.value[offer.questionId]).toBe('recorded'));
+    // the offer is gone once the file bound is the recorded one
+    expect(sampleOffer(s.sampleId.value)).toBeNull();
+    s.dispose();
+  });
+
+  it('"Confirmed by you" belongs to the run it was made on: kept while that run is current, none for a new run, another question or other data', async () => {
+    const { engine } = fakeEngine('live');
+    const s = createSession(engine);
+    await s.useSample('orders');
+    // no run, nothing to confirm
+    s.confirm('assumption-1');
+    expect(s.confirmed.value.size).toBe(0);
+    expect(await s.ask()).toBe(true);
+    s.confirm('assumption-1');
+    s.confirm('assumption-3');
+    s.confirm('assumption-1');
+    expect([...s.confirmed.value]).toEqual(['assumption-1', 'assumption-3']);
+    // asking again is a new run: nothing confirmed, and the old marks never come back with the same ids
+    expect(await s.ask()).toBe(true);
+    expect(s.confirmed.value.size).toBe(0);
+    s.confirm('assumption-2');
+    expect([...s.confirmed.value]).toEqual(['assumption-2']);
+    // another question (no run yet), then its own run
+    await s.selectQuestion('status');
+    expect(s.confirmed.value.size).toBe(0);
+    await s.ask();
+    expect(s.confirmed.value.size).toBe(0);
+    s.confirm('assumption-1');
+    // other data: the run is gone, so is the mark
+    await s.useSample('sales');
+    expect(s.confirmed.value.size).toBe(0);
+    await s.ask();
+    expect(s.confirmed.value.size).toBe(0);
+    // a reset
+    s.confirm('assumption-1');
+    await s.reset();
+    expect(s.confirmed.value.size).toBe(0);
+    s.dispose();
+  });
+
   it('refuses to change file or question while the engine is busy', async () => {
     const { engine, state } = fakeEngine();
     const s = createSession(engine);
@@ -565,6 +623,48 @@ describe('the shared session across a route change', () => {
     // a run of its own does not reuse the id of the one it took over (RunPanel keys, telemetry and the page's follower read ids)
     expect(await b.ask()).toBe(true);
     expect(b.run.value!.id).toBeGreaterThan(ran.id);
+    b.dispose();
+  });
+
+  it('what was confirmed travels with the run: the other page shows it, the next run starts with none, and a run-less carry brings none', async () => {
+    const { engine } = fakeEngine('live');
+    const a = sessionFor(engine);
+    await a.useSample('orders');
+    expect(await a.ask()).toBe(true);
+    a.confirm('assumption-1');
+    a.dispose();
+
+    const b = sessionFor(engine);
+    expect(b.run.value?.id).toBe(a.run.value?.id);
+    expect([...b.confirmed.value]).toEqual(['assumption-1']);
+    // and back again
+    b.dispose();
+    const c = sessionFor(engine);
+    expect([...c.confirmed.value]).toEqual(['assumption-1']);
+    // a run of its own starts with none
+    expect(await c.ask()).toBe(true);
+    expect(c.confirmed.value.size).toBe(0);
+    c.dispose();
+  });
+
+  it('leaving with no run carries no mark: a session that counts its run ids from 1 again cannot match an old one', async () => {
+    const { engine } = fakeEngine('live');
+    const a = sessionFor(engine);
+    await a.useSample('orders');
+    expect(await a.ask()).toBe(true);
+    expect(a.run.value!.id).toBe(1);
+    a.confirm('assumption-1');
+    // another question picked, nothing asked yet: no run
+    await a.selectQuestion('status');
+    expect(a.run.value).toBeNull();
+    a.dispose();
+    const b = sessionFor(engine);
+    expect(b.run.value).toBeNull();
+    await b.selectQuestion('top');
+    // its first run is id 1 on the same question again: the key the old mark was made under
+    expect(await b.ask()).toBe(true);
+    expect(b.run.value).toMatchObject({ id: 1, questionId: 'top' });
+    expect(b.confirmed.value.size).toBe(0);
     b.dispose();
   });
 

@@ -58,7 +58,7 @@ describe('followRun', () => {
     // a place focus can go: a labelled region that takes tabindex -1
     expect(t.trace.attrs.get('tabindex')).toBe('-1');
     expect(t.trace.attrs.get('role')).toBe('region');
-    expect(t.trace.attrs.get('aria-label')).toBe('The checks, live');
+    expect(t.trace.attrs.get('aria-label')).toBe('The checks');
     t.stop();
   });
 

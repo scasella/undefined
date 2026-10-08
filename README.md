@@ -30,8 +30,8 @@ revision of your running program. Everything runs in your browser except the mod
 ## Try it
 
 - **In your browser:** [`#/zen`](https://scasella.github.io/undefined/#/zen) (*Step by step*, the first-run path): pick
-  the orders sample and *Top 5 customers by revenue*, press **Continue** after each, then **Run the checks** and watch
-  them run on the recorded answer. The Full view, [`#/start`](https://scasella.github.io/undefined/#/start), is the same
+  the orders sample and *Who are our top customers by revenue?*, press **Continue** after each, then **Run the checks**
+  and watch them run on the recorded answer. The Full view, [`#/start`](https://scasella.github.io/undefined/#/start), is the same
   run on one page. Your own file loads and previews too; new questions about it need
   [the local copy](#run-it-on-your-computer).
 - **Lock an answer:** *Does this look right? Lock this answer* turns it into a check every later version must pass.

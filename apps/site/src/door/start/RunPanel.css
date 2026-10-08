@@ -1,7 +1,7 @@
 /* First run · trace, outcome, answer (V3-Door-FirstRun 208-324): stacked like the design's left column. */
 .fd-run { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 
-/* "Hand this to your data team (download)" under a committed answer: the engine's eject zip */
-.fd-run__handoff { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
-.fd-run__handoff .fd-btn { max-width: 100%; white-space: normal; text-align: left; }
-.fd-run__handoff-msg { margin: 0; max-width: 70ch; font-size: 13px; line-height: 19px; color: var(--fd-ink-2); min-width: 0; overflow-wrap: anywhere; }
+/* "Hand this to your data team (download)" is the answer card's one filled control (its action row, AnswerCard.css). Its spoken
+   result is a line that wraps under that row; while it is empty it takes no room, but stays in the page for the screen reader. */
+.fd-run__handoff-msg { order: 9; flex: 1 0 100%; margin: 0; max-width: var(--fd-measure); font-size: 13px; line-height: 19px; color: var(--fd-ink-2); min-width: 0; overflow-wrap: anywhere; }
+.fd-run__handoff-msg:empty { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }

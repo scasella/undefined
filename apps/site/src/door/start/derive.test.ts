@@ -18,7 +18,8 @@ import type { OutputEntry } from '../model/answer';
 import { dataFacts } from '../model/assumptions';
 import { OFF_NOTES } from '../model/lanes';
 import { seedAgreement, SEEDED_PIN_ID } from '../model/agreements';
-import { SEEDED_NOTE } from '../model/agreement';
+import { DEFAULT_QUESTION_ID, sampleOpeningQuestion } from '../model/questions';
+import { SEEDED_LOCK_NOTE } from '../model/agreement';
 import type { DatasetRef } from '@scasella/undefined-engine/types';
 import {
   agreementFor,
@@ -34,9 +35,11 @@ import {
   noRecordingView,
   outcomeOf,
   runFlag,
+  sampleOffer,
   sealOf,
   silentDiagnostic,
   stressGaveUp,
+  switchToSample,
   telemetryOf,
   traceSummary,
   traceView,
@@ -358,7 +361,7 @@ describe('traceView', () => {
       'Matches your locked answer · Chef Ravioli Starbright = $2,252.07',
       'Follows your 2 house rules on made-up tables',
       'Never changes your data · finishes fast',
-      'Stress test: small breaks on purpose',
+      'Stress test: deliberate breaks',
     ]);
     expect(t.header.right).toBe('waiting for your question');
     expect(t.footer.text).toMatch(/^When you ask, /);
@@ -393,7 +396,17 @@ describe('answerView', () => {
     expect(a.held).toBe(true);
     expect(a.view).toBeNull();
     expect(a.heldCaption).toBe('Held until every check passes. Ask to start the checks.');
-    expect(heldCaptionFor({ kind: 'no-recording', onData: true, message: 'x' }, NO_RECORDING_OWN)).toBe(NO_RECORDING_OWN);
+  });
+
+  it('the veil of a card with nothing to show says what is held, not the sentence the card beside it already says (and offers once)', () => {
+    // was the whole no-recording sentence, a third copy of the way out ("switch to orders.csv") beside the sentence and its button
+    const none = heldCaptionFor({ kind: 'no-recording', onData: true, message: 'x' });
+    expect(none).toBe('Nothing was checked, so no answer is shown.');
+    expect(none).not.toContain(NO_RECORDING_OWN);
+    expect(none).not.toMatch(/switch to|try it|orders\.csv|your computer/i);
+    // the same words as a run that failed before any check: nothing was checked either way
+    expect(heldCaptionFor({ kind: 'error', name: 'E', message: 'm' } as never)).toBe(none);
+    expect(heldCaptionFor({ kind: 'idle' })).toBe('Held until every check passes. Ask to start the checks.');
   });
 
   it('a basic answer: the real list, basic level, the model’s own notes, data-derived "not checked"', () => {
@@ -492,24 +505,28 @@ describe('agreement, copy, version', () => {
   });
   it('no-recording sentences', () => {
     expect(noRecordingText(true, null)).toBe(NO_RECORDING_OWN);
+    // the own-file sentence no longer ends in advice nothing on the page could act on
+    expect(NO_RECORDING_OWN).toBe('In this demo, answers are recorded, so questions about your own file need the version on your computer.');
+    expect(NO_RECORDING_OWN).not.toContain('Try a sample file');
     expect(noRecordingText(false, { label: 'Count orders by status' })).toBe(
       'In this demo, answers are recorded, and this question has no recorded answer with these checks, so it needs the version on your computer. “Count orders by status” has one: try it.',
     );
   });
-  it('the no-recording sentence in pieces: `try it` is the only part a page draws as a button, and the pieces read as the sentence', () => {
+  it('the no-recording sentence in pieces: its action is the only part a page draws as a button, and the pieces read as the sentence', () => {
     const own = noRecordingView(true, null);
     expect(own).toEqual({ before: NO_RECORDING_OWN, action: null, after: '' });
     const none = noRecordingView(false, null);
     expect(none.action).toBeNull();
     expect(none.before + none.after).toBe(noRecordingText(false, null));
     const v = noRecordingView(false, { id: 'top', label: 'Top 5 customers by revenue' });
-    expect(v.action).toEqual({ id: 'top', label: 'Top 5 customers by revenue', text: 'try it' });
+    expect(v.action).toEqual({ kind: 'question', id: 'top', label: 'Top 5 customers by revenue', text: 'try it' });
     expect(v.before.endsWith('“Top 5 customers by revenue” has one: ')).toBe(true);
     expect(v.after).toBe('.');
     // the plain text is the same sentence it always was
-    for (const [ownData, other] of [[false, { id: 'top', label: 'Top 5 customers by revenue' }], [true, { id: 'top', label: 'Top 5 customers by revenue' }], [true, null], [false, null]] as const) {
-      const w = noRecordingView(ownData, other);
-      expect(w.before + (w.action?.text ?? '') + w.after).toBe(noRecordingText(ownData, other));
+    const offer = sampleOffer(null);
+    for (const [ownData, other, o] of [[false, { id: 'top', label: 'Top 5 customers by revenue' }, null], [true, { id: 'top', label: 'Top 5 customers by revenue' }, null], [true, null, null], [false, null, null], [true, null, offer], [false, null, offer]] as const) {
+      const w = noRecordingView(ownData, other, o);
+      expect(w.before + (w.action?.text ?? '') + w.after).toBe(noRecordingText(ownData, other, o));
     }
     expect(noRecordingText(false, { label: 'Top 5 customers by revenue' })).toBe(
       'In this demo, answers are recorded, and this question has no recorded answer with these checks, so it needs the version on your computer. “Top 5 customers by revenue” has one: try it.',
@@ -517,6 +534,28 @@ describe('agreement, copy, version', () => {
     expect(noRecordingText(true, { label: 'How many rows per region' })).toBe(
       'In this demo, answers are recorded, so questions about your own file need the version on your computer. “How many rows per region” has one: try it.',
     );
+  });
+  it('a file with nothing recorded is not a dead end: the sentence names the recorded sample and the question it opens on, and its action binds that sample', () => {
+    const offer = sampleOffer(null)!;
+    expect(offer).toEqual({ sample: 'orders', file: 'orders.csv', questionId: 'top', question: 'Who are our top customers by revenue?' });
+    // the question named is the one binding the sample selects (the sentence stays true), in the question's own words
+    expect(offer.questionId).toBe(DEFAULT_QUESTION_ID.orders);
+    expect(offer.question).toBe(sampleOpeningQuestion('orders').text);
+    const own = noRecordingView(true, null, offer);
+    expect(own.action).toEqual({ kind: 'sample', sample: 'orders', label: 'Who are our top customers by revenue?', text: 'switch to orders.csv' });
+    expect(own.before).toBe(`${NO_RECORDING_OWN} “Who are our top customers by revenue?” has a recorded answer on one sample file: `);
+    expect(own.after).toBe('.');
+    expect(noRecordingText(true, null, offer)).toBe(
+      'In this demo, answers are recorded, so questions about your own file need the version on your computer. “Who are our top customers by revenue?” has a recorded answer on one sample file: switch to orders.csv.',
+    );
+    // the other sample: the same way out, with its own first half
+    const sales = noRecordingView(false, null, sampleOffer('sales'));
+    expect(sales.before.startsWith('In this demo, answers are recorded, and this question has no recorded answer with these checks')).toBe(true);
+    expect(sales.action).toMatchObject({ kind: 'sample', sample: 'orders' });
+    expect(switchToSample('orders.csv')).toBe('switch to orders.csv');
+    // orders.csv itself has no offer (its way out is the other question), and a question on this file wins over the offer
+    expect(sampleOffer('orders')).toBeNull();
+    expect(noRecordingView(false, { id: 'top', label: 'x' }, offer).action).toMatchObject({ kind: 'question' });
   });
   it('version line from the head revision', () => {
     expect(versionLine(state())).toBe('Version 4 · 5 Oct 2026');
@@ -633,8 +672,8 @@ describe('the stress test comes last: the answer, the seal and the lists are hel
       expect(v.outcome.kind).toBe('committed');
       expect(v.a.held).toBe(false);
       expect(v.a.seal).toEqual({ text: seal, ran: 5, of: 6, complete: true });
-      expect(v.a.checked).toContain('12-way stress test (8 caught)');
-      expect(v.a.checkedAsk).toEqual(['12-way stress test (8 caught)']);
+      expect(v.a.checked).toContain('stress test (caught 8 of 12 deliberate breaks)');
+      expect(v.a.checkedAsk).toEqual(['stress test (caught 8 of 12 deliberate breaks)']);
       expect(v.a.notChecked).toContain('4 of 12 deliberate breaks went unnoticed by your checks');
       expect(v.t.header.verdict).toBe(`${seal} ↓ see the list`);
       expect(v.t.header.done).toBe(true);
@@ -647,7 +686,7 @@ describe('the stress test comes last: the answer, the seal and the lists are hel
     it('12 of 12: a green line, nothing added to "Not checked"', () => {
       const v = views(withReport(mutationReport(12, 0), mut('done')));
       expect(v.a.seal?.text).toBe('Passed every check · stress test caught 12 of 12');
-      expect(v.a.checked).toContain('12-way stress test (12 caught)');
+      expect(v.a.checked).toContain('stress test (caught 12 of 12 deliberate breaks)');
       expect(v.a.checkedAsk).toEqual([]);
       expect(v.a.notChecked.join('\n')).not.toMatch(/deliberate|stress/);
       expect(v.t.lanes[5]).toMatchObject({ state: 'passed', glyph: 'pass', done: '12 of 12 caught' });
@@ -665,8 +704,8 @@ describe('the stress test comes last: the answer, the seal and the lists are hel
     it('it ran out of time: partial, said plainly', () => {
       const v = views(withReport(mutationReport(4, 1, { skipped: 'time box reached after 5 of 12 mutants' }), mut('done')));
       expect(v.a.seal).toEqual({ text: 'Passed 5 of 6 checks · stress test ran out of time', ran: 5, of: 6, complete: false });
-      expect(v.a.checkedAsk).toEqual(['stress test (4 of 5 caught, ran out of time)']);
-      expect(v.a.notChecked).toContain('the stress test ran out of time: it tried 5 of 12 small breaks, and 1 of those went unnoticed by your checks');
+      expect(v.a.checkedAsk).toEqual(['stress test (caught 4 of 5 deliberate breaks, ran out of time)']);
+      expect(v.a.notChecked).toContain('the stress test ran out of time: it tried 5 of 12 deliberate breaks, and 1 of those went unnoticed by your checks');
     });
     it('a second ask on an answer already certified (nothing re-runs): released at once, the same final words', () => {
       const s = fresh({ program: program(record(fullSpec, fullArtifact(mutationReport(8, 4)))), generation: { ...gen([att(1, 'accepted', fullGates())], 'committed'), id: 'g1' }, repl: [...before, input, output({ label: 'cached artifact', pinned: true })], mutation: mut('done') });
@@ -731,9 +770,20 @@ describe('the stress test comes last: the answer, the seal and the lists are hel
       const p = { ...pin, id: pinId };
       return fresh({ program: program(record({ ...fullSpec, pins: [p] }, fullArtifact(mutationReport(8, 4)))), mutation: mut('done') });
     };
-    it('the seeded pin: the rail\'s own sentence', () => {
-      expect(views(lockedState(SEEDED_PIN_ID)).a.lockNote).toBe(SEEDED_NOTE);
-      expect(SEEDED_NOTE).toBe('Saved with this demo file from an earlier session.');
+    it('the seeded pin: one short sentence saying the lock comes with the demo file (not "saved earlier": the demo installs it in this visit)', () => {
+      expect(views(lockedState(SEEDED_PIN_ID)).a.lockNote).toBe(SEEDED_LOCK_NOTE);
+      expect(SEEDED_LOCK_NOTE).toBe('This lock comes with the demo file.');
+    });
+    it('in the demo the note and the help are two sentences, not three: the help does not say "Locked, and kept with this answer." again beside the note', () => {
+      const seededHelp = (pinId: string) => {
+        const s = lockedState(pinId);
+        const r = runRef();
+        const m = matchRun(s, r);
+        return answerView({ ...ctx, state: s, match: m, outcome: outcomeOf(s, r, m), mode: 'replay' }).lockHelp;
+      };
+      expect(seededHelp(SEEDED_PIN_ID)).toBe("This demo can't write a later version; on your computer every later version has to give this same list.");
+      // a lock the viewer made keeps the whole sentence (nothing beside it says it is locked)
+      expect(seededHelp('mine')).toBe("Locked, and kept with this answer. This demo can't write a later version; on your computer every later version has to give this same list.");
     });
     it('a pin the viewer made, or no lock at all: nothing', () => {
       expect(views(lockedState('mine')).a.lockNote).toBe('');

@@ -8,8 +8,8 @@
 //      the decision brings median back), a multi-statement line, and a CSV of your own (writing on it needs live mode).
 //   3. the front door: '/' renders its claim with no console errors (besides replay's /generate/health 404); '#/start'
 //      binds orders.csv and, because public/recordings/orders-agreement.json exists (docs/FRONT-DOOR.md "Adaptive
-//      seeding"), installs the seeded agreement (6 examples, 1 locked answer, 2 house rules): "Top 5 customers by
-//      revenue" replays with FULL checks and answers Chef Ravioli Starbright $2,252.07, already locked, the engine's
+//      seeding"), installs the seeded agreement (6 examples, 1 locked answer, 2 house rules): "Who are our top
+//      customers by revenue?" replays with FULL checks and answers Chef Ravioli Starbright $2,252.07, already locked, the engine's
 //      spec/gates/answer agree with what the page shows, asking again says it was already checked, the lock toggles,
 //      and the two unrecorded questions say so honestly. While the AI's draft is replayed the trace shows the
 //      indeterminate writing mark in its FOOTER, by the "drafting · checks start next" label (the header, its title and the
@@ -28,6 +28,13 @@
 //      made from a walk-through pane inherits 'manual'), and every Back and Forward onto Step by step lands at scrollY 0.
 //      Also the router's cross-route behaviour: landing -> Step by step focuses #main, a pane change does not, and an anchor on a pane
 //      ('#/zen/3#main') neither scrolls nor focuses.
+//   3g. the answer card (contract A): under the figure, in body text, one verdict line (how the checks went in the seal's own words with the engine's
+//      own stress-test count, the one thing most worth knowing was not checked, and the hand-off as the next step), replacing the old standalone "Not
+//      checked:" line; the hand-off is the card's one filled control (the lock is a quiet ring; the landing's illustration, which has no hand-off,
+//      keeps its filled lock and names no next step); the pre-set lock says where it came from and "Version 4" is explained from the engine's own
+//      saved steps (demo only, never when a save before the answer is the viewer's own; the basic fallback gets its two set-up saves named too); Confirm says what it really does and does nothing
+//      more (no engine change, no request); the Full view's live sentence names the answer once, and on Step by step the answer pane's heading is
+//      described by the answer's lead (read from the browser's accessibility tree: the name stays "Your answer", no live region repeats it).
 //   3a/3b/3f. the own-file path (docs/FRONT-DOOR.md "Your own file in the demo"): both pickers (Full view, Step by step) say what the
 //      demo cannot do with a file of your own under the drop zone BEFORE one is dropped (one caveat, the same words); once an
 //      own CSV is bound (a pasted one on Step by step, a dropped one on the Full view) the picker stays open, the sample
@@ -53,6 +60,14 @@ const EXPECT = {
   // spec-less over a dataset: no tests, so nothing to reject; it must commit, show a table and be pinnable
   orders: { gate: null, call: 'topCustomersByRevenue(rows)', bound: 'rows' },
 };
+// The orders sample's three questions, in their own words: the chip, the "Asking:" line, the trace header and every sentence that points at
+// one say exactly this (model/questions.ts: label is text). "Top 5 customers by revenue" is the old button wording, kept as an alias a viewer can still type.
+const Q_TOP = 'Who are our top customers by revenue?';
+const Q_STATUS = 'How many orders are there by status?';
+const Q_COUNTRY = 'What is our revenue by country?';
+/** The chip tag for a question the demo cannot answer (start/AskCard.tsx NEEDS_YOUR_COMPUTER): the sentences' own phrase, not "live". */
+const NEEDS_TAG = 'needs your computer';
+const esc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const srv = await startServer({ mode: 'preview', port: Number(process.env.REPLAY_CHECK_PORT) || 5194, outDir: process.env.REPLAY_CHECK_OUT || 'dist-check' });
 const b = await launch({ width: 1440, height: 900 });
 const p = b.page;
@@ -220,7 +235,7 @@ try {
   const texts = (sel) => p.evaluate((x) => [...document.querySelectorAll(x)].map((e) => e.innerText.replace(/\s+/g, ' ').trim()), sel);
   const waitText = (re, timeout = 30000) => p.waitForFunction((src) => new RegExp(src, 'i').test(document.body.innerText), re.source, { timeout }).then(() => true, () => false);
   const waitFor = (fn, arg, timeout = 30000) => p.waitForFunction(fn, arg, { timeout }).then(() => true, () => false);
-  const chip = (label) => p.getByRole('group', { name: 'Suggested questions' }).getByRole('button', { name: new RegExp(label) });
+  const chip = (label) => p.getByRole('group', { name: 'Suggested questions' }).getByRole('button', { name: new RegExp(esc(label)) });
   const askBtn = p.locator('#fd-ask-btn');
   const lockBtn = p.locator('.fd-ac__lock');
   /** The chip, then Ask once the session can ask; then wait for the engine to finish. */
@@ -304,7 +319,7 @@ try {
   };
   /** The two questions with nothing recorded say so, honestly, in the current mode of the page. */
   async function unrecorded(tag) {
-    for (const label of ['Count orders by status', 'Revenue by country']) {
+    for (const label of [Q_STATUS, Q_COUNTRY]) {
       await ask(label);
       const none = await waitText(/No recorded answer for this one\./, 30000);
       const t = await body();
@@ -314,6 +329,57 @@ try {
   const bindOrders = async () =>
     waitFor(() => window.__undefined.state.value.datasets.some((d) => d.name === 'rows') && document.body.innerText.includes('orders.csv'), null, 30000);
   const LEAD = ['Chef Ravioli Starbright', 2252.07];
+  /** The answer card as the viewer meets it (run in the page): filled controls, the verdict line and where it sits, the notes. */
+  const CARD_FACTS = () => {
+    const card = document.querySelector('.fd-ac');
+    if (!card) return null;
+    const rgb = (e) => getComputedStyle(e).backgroundColor;
+    const filled = [...card.querySelectorAll('button, a')].filter((e) => rgb(e) === 'rgb(61, 59, 243)' || rgb(e) === 'rgb(43, 41, 201)').map((e) => e.innerText.trim());
+    const v = card.querySelector('.fd-ac__verdict');
+    const vs = v && getComputedStyle(v);
+    const acts = [...card.querySelectorAll('.fd-ac__actions > button, .fd-ac__actions > a')];
+    const lock = card.querySelector('.fd-ac__lock');
+    const text = (sel) => card.querySelector(sel)?.innerText.replace(/\s+/g, ' ').trim() ?? null;
+    return {
+      filled,
+      verdict: v?.innerText.replace(/\s+/g, ' ').trim() ?? null,
+      verdictStyle: vs && { size: vs.fontSize, lh: vs.lineHeight, color: vs.color, mono: /mono/i.test(vs.fontFamily), icons: v.querySelectorAll('svg').length },
+      afterFigure: v ? v.previousElementSibling?.className ?? null : null,
+      standaloneNotChecked: [...card.querySelectorAll('p')].filter((e) => /^Not checked:/.test(e.innerText)).length,
+      caveat: !!card.querySelector('.fd-ac__caveat'),
+      firstAction: card.querySelector('.fd-ac__actions')?.firstElementChild?.innerText.trim() ?? null,
+      actionHeights: acts.map((e) => Math.round(e.getBoundingClientRect().height)),
+      lockText: lock?.innerText.trim() ?? null,
+      lockBg: lock ? rgb(lock) : null,
+      handoffTitle: card.querySelector('.fd-btn--primary')?.getAttribute('title') ?? null,
+      handoffStatus: card.querySelector('.fd-run__handoff-msg')?.getAttribute('role') ?? null,
+      version: text('.fd-ac__version'),
+      fig: text('.fd-ac__fig'),
+      lockNote: text('.fd-ac__lock-note'),
+      lockInfo: text('.fd-ac__lock-info'),
+      confirmNote: text('.fd-ac__assumed-note'),
+      sideways: document.documentElement.scrollWidth > innerWidth,
+    };
+  };
+  /** The verdict line the card should say for a stress test result {caught, total, missed}, the seal's own words (the numbers come from the engine). */
+  const verdictFor = (r, tail) => `Passed every check, ${r.missed > 0 ? 'though' : 'and'} the stress test caught ${r.caught} of ${r.total} deliberate breaks. ${tail}`;
+  const NEXT = 'if the number matters, hand the calculation to your data team.';
+  const MAIN_NOT_CHECKED = 'Not checked: whether orders.csv is the complete export';
+  /** Every accessible heading of the page and the live regions, from the browser's own accessibility tree. */
+  const axHeadings = async () => {
+    const cdp = await p.context().newCDPSession(p);
+    try {
+      await cdp.send('Accessibility.enable');
+      const { nodes } = await cdp.send('Accessibility.getFullAXTree');
+      const live = (n) => n.properties?.some((x) => x.name === 'live' && x.value.value !== 'off');
+      return {
+        headings: nodes.filter((n) => n.role?.value === 'heading' && !n.ignored).map((n) => ({ name: n.name?.value ?? '', desc: n.description?.value ?? '' })),
+        live: nodes.filter((n) => !n.ignored && live(n)).map((n) => n.name?.value ?? ''),
+      };
+    } finally {
+      await cdp.detach();
+    }
+  };
   /** A file of the viewer's own, with the three kinds of text that look like numbers or dates (model/columnNotes.ts). */
   const OWN_CSV = 'Order,Customer,Region,Net Amt (USD),Tax %,Shipped\n1001,Ada Lovelace,north,"1,234.50",19%,31/01/2024\n1002,Grace Hopper,south,"980.00",7%,15/02/2024\n1003,Linus Torvalds,east,"45.25",19%,03/03/2024\n1004,Ada Lovelace,north,"2,310.10",19%,21/03/2024\n';
   const OWN_CAVEAT = /^In this demo, only some questions about the sample file orders\.csv have recorded answers\. Your own file loads and previews here; asking about it needs the version on your computer\.$/;
@@ -336,18 +402,58 @@ try {
     return { lines: new Set(tops).size, lastLine: tops.filter((t) => t === last).length };
   };
 
+  // ── 3g. the landing's illustrative card: the same verdict line with its own labelled numbers; no hand-off, so no next step and the lock keeps its fill ──
+  {
+    await p.evaluate(() => document.querySelector('.fd-ac')?.scrollIntoView({ block: 'center' }));
+    await p.waitForTimeout(8000); // the illustration's playback settles (the pass scenario reveals the card)
+    const land = await p.evaluate(CARD_FACTS);
+    check(
+      !!land && land.verdict === 'Passed every check, though the stress test caught 11 of 12 deliberate breaks. Not checked: whether orders.csv is the complete export.' && land.verdictStyle.size === '16px' && land.verdictStyle.lh === '24px' && !land.verdictStyle.mono && land.verdictStyle.icons === 0 &&
+        land.afterFigure?.includes('fd-ac__lead-bar') && land.standaloneNotChecked === 0 && !land.caveat && !/data team/.test(land.verdict),
+      "landing: the illustration's card says the same verdict line (its own labelled numbers: caught 11 of 12), in body text under the figure, with no hand-off and so no next step",
+      land,
+    );
+    check(!!land && land.filled.length === 1 && /Lock this answer/.test(land.filled[0]) && !land.version && /Version 4$/.test(land.fig) && /^Confirming only marks a line on this page; nothing is saved, sent or checked\.$/.test(land.confirmNote ?? ''),
+      "landing: the illustration's card keeps its one filled control (the lock), adds no version note, and says what Confirm does", land);
+    // ── landing labels: "live" is not the example's word, and "Illustrative" is said once per section that holds illustrative figures ──
+    const leaves = (sel, re) => p.evaluate(([s, r]) => [...document.querySelectorAll(`${s} *`)].filter((e) => !e.children.length && new RegExp(r, 'i').test(e.textContent ?? '')).map((e) => e.textContent.trim()), [sel, re.source]);
+    const stageHead = await p.evaluate(() => document.getElementById('stage-h')?.textContent?.trim());
+    const stageSays = await leaves('.fd-stage', /illustrat/);
+    const traceSays = await leaves('.fd-trace', /illustrat|slowed|real run/);
+    check(
+      stageHead === 'Example: top customers by revenue' && stageSays.length === 1 && stageSays[0] === 'Illustrative playback of the example below, slowed down' && traceSays.length === 0,
+      "landing: the stage's heading calls it an example (not a live one) and the stage says it is an illustration once, in its caption: the trace's header, footer and timer no longer repeat it",
+      { stageHead, stageSays, traceSays },
+    );
+    await p.locator('.fd-ev-link--block').first().click();
+    await p.waitForSelector('.fd-ev-stress', { timeout: 5000 });
+    const evSays = await leaves('.fd-ev', /illustrat/);
+    const evPlace = await p.evaluate(() => {
+      const label = document.querySelector('.fd-ev-label');
+      const grid = document.querySelector('.fd-ev-grid');
+      const strip = document.querySelector('.fd-ev-stress');
+      return { badges: document.querySelectorAll('.fd-ev-badge').length, before: !!label && !!grid && !!(label.compareDocumentPosition(grid) & Node.DOCUMENT_POSITION_FOLLOWING), stripHead: strip?.querySelector('.fd-ev-stress__h')?.innerText.replace(/\s+/g, ' ').trim(), sub: [...document.querySelectorAll('.fd-ev-sub')].map((e) => e.innerText.trim()), link: document.querySelector('.fd-ev-link--block')?.innerText.trim(), body: document.querySelector('.fd-ev')?.innerText ?? '' };
+    });
+    check(
+      evSays.length === 2 && evSays[0] === 'Illustrative · not yet a recorded run' && evSays[1] === evPlace.stripHead && evPlace.badges === 1 && evPlace.before &&
+        evPlace.stripHead === 'In this illustration, the stress test made 12 deliberate breaks in the calculation. Your checks caught 11.' && evPlace.sub[2] === 'deliberate breaks caught by the stress test' && evPlace.link === 'Hide the 12 deliberate breaks' && !/small (breaks|ways)|on purpose|We broke/.test(evPlace.body),
+      "landing: the evidence section has ONE 'Illustrative' label, above its four tiles; the stress-test strip it opens says 'illustration' in its own heading (a sentence, not a second badge: the strip can sit a screen below the label); the stress test is called the stress test and its twelve are 'deliberate breaks'",
+      { evSays, evPlace },
+    );
+  }
+
   // ── 3. seeded: the recording of the agreement is bundled, so the page installs it and the answer is Full checks ──
   await openApp(p, srv.url + '#/start');
   check(await bindOrders(), "'#/start' binds the sample orders.csv (as rows)", (await body()).slice(0, 400));
 
-  await chip('Top 5 customers by revenue').click();
-  await p.waitForFunction(() => [...document.querySelectorAll('[aria-label="Suggested questions"] button')].some((b) => b.textContent.includes('Top 5 customers by revenue') && b.getAttribute('aria-pressed') === 'true'), null, { timeout: 15000 });
+  await chip(Q_TOP).click();
+  await p.waitForFunction((q) => [...document.querySelectorAll('[aria-label="Suggested questions"] button')].some((b) => b.textContent.includes(q) && b.getAttribute('aria-pressed') === 'true'), Q_TOP, { timeout: 15000 });
   await p.waitForFunction(() => { const b = document.getElementById('fd-ask-btn'); return !!b && b.getAttribute('aria-disabled') !== 'true'; }, null, { timeout: 30000 });
   const chips = await texts('[aria-label="Suggested questions"] button');
   const pre = await fnState();
   const preText = norm(await body());
   check(
-    chips.some((c) => /^Top 5 customers by revenue Full checks$/.test(c)) &&
+    chips.some((c) => c === `${Q_TOP} Full checks`) &&
       preText.includes('Full checks: this demo file comes with 6 examples, 1 locked answer and 2 house rules for this question.') &&
       preText.includes('6 examples · 1 locked answer · 2 house rules') &&
       pre.has && pre.examples === 6 && pre.houseRules === 2 && pre.pins.length === 1 && pre.pins[0].id === 'seeded-locked-top5',
@@ -355,13 +461,22 @@ try {
     { chips, pre: { examples: pre.examples, houseRules: pre.houseRules, pins: pre.pins }, text: preText.slice(0, 500) },
   );
 
-  // the question with a recorded answer comes first, the two that need your computer after it, and one line says what 'needs live' means
+  // the question with a recorded answer comes first, the two that need your computer after it carry that very phrase as their tag, and one line says why
+  // (it does not begin by repeating the tag): how many questions have a recording, counted, and that the others need the version on your computer
   const legend = await texts('.fd-ask__legend');
   check(
-    chips.length === 3 && /^Top 5 customers by revenue /.test(chips[0]) && !/needs live/.test(chips[0]) && chips.slice(1).every((c) => /^(Count orders by status|Revenue by country) needs live$/.test(c)) && legend.length === 1 && legend[0].startsWith('needs live: this demo has recorded answers for one question; the others need the version on your computer.'),
-    "seeded: the question that has a recorded answer comes first, the two that need your computer after it are tagged 'needs live' alone (no 'Basic checks' claim), and one line says what 'needs live' means",
+    chips.length === 3 && chips[0].startsWith(`${Q_TOP} `) && !chips[0].includes(NEEDS_TAG) && chips.slice(1).every((c) => c === `${Q_STATUS} ${NEEDS_TAG}` || c === `${Q_COUNTRY} ${NEEDS_TAG}`) &&
+      legend.length === 1 && legend[0].startsWith('This demo has recorded answers for one question; the others need the version on your computer.') && !legend[0].startsWith(NEEDS_TAG) && !/needs live/i.test(`${chips.join(' ')} ${legend[0]}`),
+    "seeded: the question that has a recorded answer comes first, the two that need your computer are tagged 'needs your computer' alone (no 'Basic checks' claim, no 'live'), and one line says why without repeating the tag",
     { chips, legend },
   );
+  // one wording for one question: the chip, the 'Asking:' line and the trace header read the same words (the chip was 'Top 5 customers by revenue', the line 'Who are our top customers by revenue?')
+  const wording = await p.evaluate(() => ({
+    chip: [...document.querySelectorAll('[aria-label="Suggested questions"] button[aria-pressed="true"]')].map((b) => b.childNodes[0]?.textContent?.trim() ?? ''),
+    asking: document.querySelector('.fd-ask__picked-q')?.innerText.trim(),
+    trace: document.querySelector('.fd-trace__hl-a')?.innerText.replace(/\s+/g, ' ').trim(),
+  }));
+  check(wording.chip.length === 1 && wording.chip[0] === Q_TOP && wording.asking === Q_TOP && !!wording.trace && wording.trace.includes(`· ${Q_TOP} ·`), "full view: the chip, the 'Asking:' line and the trace header say the question in the same words", wording);
 
   const drafted = await observeDrafting(() => ask(null));
   const dm = drafted.during;
@@ -375,7 +490,7 @@ try {
   const lead = (await texts('.fd-ac__lead-name, .fd-ac__lead-num')).join(' | ');
   const eyebrow = await texts('.fd-ac__eyebrow');
   const trace = norm(await body());
-  check(shown && lead === `${LEAD[0]} | ${money(LEAD[1])}` && !consoleErrors.length, "'Top 5 customers by revenue' → Ask: Chef Ravioli Starbright $2,252.07 first", { shown, lead, errors: consoleErrors });
+  check(shown && lead === `${LEAD[0]} | ${money(LEAD[1])}` && !consoleErrors.length, "the top-customers question → Ask: Chef Ravioli Starbright $2,252.07 first", { shown, lead, errors: consoleErrors });
   // the seal arrives with the answer, after the stress test: its count is the engine's own mutation report (killed + killedByBound of total)
   const report = await state(() => {
     const m = window.__undefined.state.value.program.functions.topCustomersByRevenue?.artifact?.evidence?.mutation;
@@ -413,12 +528,74 @@ try {
   // the answer is already locked (the agreement's locked answer): the button says so, and no 'Lock this answer' is offered
   const lockText = await texts('.fd-ac__lock');
   const lockHelp = await texts('.fd-ac__help');
-  check(lockText.length === 1 && lockText[0] === 'Locked' && !/Lock this answer/.test(card) && lockHelp[0] === "Locked, and kept with this answer. This demo can't write a later version; on your computer every later version has to give this same list." && post.pins.length === 1, "seeded: the answer is already locked ('Locked', no 'Lock this answer' offered, one locked answer in the spec)", { lockText, lockHelp, pins: post.pins });
+  check(lockText.length === 1 && lockText[0] === 'Locked' && !/Lock this answer/.test(card) && lockHelp[0] === "This demo can't write a later version; on your computer every later version has to give this same list." && post.pins.length === 1, "seeded: the answer is already locked ('Locked', no 'Lock this answer' offered, one locked answer in the spec)", { lockText, lockHelp, pins: post.pins });
+
+  // 3g. the answer card, seeded, Full view: one verdict line under the figure, one filled control, the lock and the version explained, Confirm honest
+  {
+    const f = await p.evaluate(CARD_FACTS);
+    const rev = await state(() => {
+      const s = window.__undefined.state.value;
+      const v = s.program.functions.topCustomersByRevenue?.artifact?.revision;
+      return { version: v, before: s.revisions.filter((r) => r.id < v).map((r) => r.kind) };
+    });
+    check(
+      !!report && !!f && f.verdict === verdictFor(report, `${MAIN_NOT_CHECKED}, so ${NEXT}`) && f.verdictStyle.size === '16px' && f.verdictStyle.lh === '24px' && !f.verdictStyle.mono && f.verdictStyle.icons === 0 && f.verdictStyle.color === 'rgb(11, 13, 18)' &&
+        f.afterFigure?.includes('fd-ac__lead-num') && f.standaloneNotChecked === 0 && !f.caveat,
+      "seeded: directly under the figure, in 16px body text (ink, not mono, no icon), one verdict line: the seal's own words with the engine's stress-test count, the one thing most worth knowing was not checked, the hand-off as the next step; the old standalone 'Not checked:' line is gone",
+      { f, report },
+    );
+    check(
+      !!f && f.filled.length === 1 && f.filled[0] === 'Hand this to your data team (download)' && f.firstAction === 'Hand this to your data team (download)' && f.lockText === 'Locked' && f.lockBg === 'rgb(255, 255, 255)' && f.actionHeights.every((h) => h >= 44) &&
+        /^Downloads a zip: topCustomersByRevenue\.ts, topCustomersByRevenue\.test\.ts/.test(f.handoffTitle ?? '') && f.handoffStatus === 'status' && !f.sideways,
+      "seeded: the hand-off is the card's one filled control and the first of its action row (keeping its title and its status line); 'Locked' is a quiet secondary control (white, a ring), every control at least 44 px tall",
+      f,
+    );
+    const kindsOk = rev.before.length === rev.version - 1 && rev.before.every((k) => ['init', 'dataset', 'spec-edit'].includes(k)) && rev.before.includes('spec-edit');
+    check(
+      kindsOk && f?.version === `Versions 1 to ${rev.version - 1} were the starting point, the file${rev.before.filter((k) => k === 'dataset').length > 1 ? 's' : ''} and the demo's agreement; this is the first answer.` && f.fig.endsWith(`Version ${rev.version}`) &&
+        f.lockNote === 'This lock comes with the demo file.' && f.lockInfo === "This lock comes with the demo file. This demo can't write a later version; on your computer every later version has to give this same list.",
+      "seeded: the pre-set lock says where it came from, and 'Version 4' is explained from the engine's own saved steps (the starting point, the file, the demo's agreement came first) in the card",
+      { f, rev },
+    );
+    check(f?.confirmNote === 'Confirming only marks a line on this page; nothing is saved, sent or checked.', "seeded: 'What the AI assumed' says once what Confirm does", f?.confirmNote);
+    // what Confirm really does: marks the line on this page; the engine, the program and the network are untouched
+    const before = await state(() => ({ head: window.__undefined.state.value.headRevision, revs: window.__undefined.state.value.revisions.length, repl: window.__undefined.state.value.repl.length }));
+    const reqs = [];
+    const onReq = (r) => reqs.push(r.url());
+    p.on('request', onReq);
+    await p.locator('.fd-ac__confirm').first().click();
+    await p.waitForTimeout(600);
+    p.off('request', onReq);
+    const afterC = await state(() => ({ head: window.__undefined.state.value.headRevision, revs: window.__undefined.state.value.revisions.length, repl: window.__undefined.state.value.repl.length, confirmed: document.querySelector('.fd-ac__confirmed')?.innerText.trim() }));
+    check(afterC.confirmed === 'Confirmed by you' && afterC.head === before.head && afterC.revs === before.revs && afterC.repl === before.repl && reqs.length === 0, "seeded: Confirm marks the line 'Confirmed by you' on the page and nothing else: no new saved step in the engine, nothing in the transcript, no request leaves the page", { before, afterC, reqs });
+    // the full view's live sentence names the answer, once
+    const said = await p.evaluate(() => [...document.querySelectorAll('[aria-live], [role=status], [role=alert]')].map((e) => e.innerText.replace(/\s+/g, ' ').trim()).filter(Boolean));
+    check(said.filter((t) => t.includes(LEAD[0])).length === 1 && said.some((t) => t === `${sealWords}. Showing the answer: ${LEAD[0]}, ${money(LEAD[1])}.`), "seeded: the Full view's live sentence says the verdict and the answer once ('… Showing the answer: Chef Ravioli Starbright, $2,252.07.'), and no other live region repeats the name", said);
+    // the hand-off still works from its new place, and says so in its status line
+    const dl = p.waitForEvent('download', { timeout: 30000 }).catch(() => null);
+    await p.getByRole('button', { name: 'Hand this to your data team (download)' }).click();
+    const file = await dl;
+    const msg = await waitFor(() => /^Downloaded .+\.zip: topCustomersByRevenue\.ts, its checks, provenance\.json and a README\.$/.test(document.querySelector('.fd-run__handoff-msg')?.innerText ?? ''), null, 30000);
+    check(!!file && /\.zip$/.test(file.suggestedFilename()) && msg, "seeded: the hand-off in the card's action row downloads the zip and says so in its status line", { name: file?.suggestedFilename(), msg });
+  }
 
   // the sixth check, the stress test, finishes on its own; the lane reports what the engine counted
   const stressed = await waitFor(() => { const m = window.__undefined.state.value.mutation; return !!m && m.fn === 'topCustomersByRevenue' && m.phase === 'done' && m.total > 0; }, null, 60000);
   const mut = (await fnState()).mutation;
-  check(stressed && (await waitText(new RegExp(`we broke it ${mut?.total} small ways on purpose`), 15000)), 'seeded: the stress test finishes and the sixth check reports what the engine counted', mut);
+  check(stressed && (await waitText(new RegExp(`Stress test: ${mut?.total} deliberate breaks`), 15000)), 'seeded: the stress test finishes and the sixth check is labelled with what the engine counted (deliberate breaks)', mut);
+  // one wording for the stress test: the lane, the ledger line and the seal say "deliberate breaks" / "stress test", never "small ways on purpose" or "N-way"
+  const stressSaid = await p.evaluate(() => ({
+    lane: [...document.querySelectorAll('.fd-lane__label > span:last-child')].map((e) => e.innerText.replace(/\s+/g, ' ').trim()).find((t) => /stress test/i.test(t)),
+    ledger: [...document.querySelectorAll('.fd-ac__checked li > span')].map((e) => e.innerText.replace(/\s+/g, ' ').trim()).find((t) => /stress test/i.test(t)),
+    foot: document.querySelector('.fd-trace__foot-text')?.innerText.replace(/\s+/g, ' ').trim(),
+    body: document.body.innerText,
+  }));
+  const ledgerNums = /^stress test \(caught (\d+) of (\d+) deliberate breaks\)$/.exec(stressSaid.ledger ?? '');
+  check(
+    stressSaid.lane === `Stress test: ${mut?.total} deliberate breaks` && !!ledgerNums && Number(ledgerNums[2]) === mut?.total && (stressSaid.foot ?? '').includes(`stress test (caught ${ledgerNums[1]} of ${ledgerNums[2]}) ·`) && !/small (breaks|ways)|on purpose|\d+-way|we broke it/i.test(stressSaid.body),
+    "full view: the stress test is called the stress test and what it does is 'deliberate breaks' in the lane label, the 'Checked against' line and everywhere else on the page",
+    { lane: stressSaid.lane, ledger: stressSaid.ledger, foot: stressSaid.foot },
+  );
 
   // asking again answers from the certified function: nothing re-runs, no new draft
   await ask(null);
@@ -437,6 +614,10 @@ try {
   await idle();
   const on = await fnState();
   check(relocked && on.pins.length === 1 && on.pins[0].label === 'topCustomersByRevenue(rows)' && on.pins[0].id !== 'seeded-locked-top5', "seeded: 'Lock this answer' locks it again (one locked answer in the spec)", { relocked, pins: on.pins });
+  {
+    const mine = await p.evaluate(CARD_FACTS);
+    check(!!mine && mine.lockText === 'Locked' && mine.lockNote === null && !/demo file/.test(mine.lockInfo ?? '') && /^Locked, and kept with this answer\. This demo can't write a later version/.test(mine.lockInfo ?? ''), "seeded: a lock the viewer made says nothing about the demo file (the note about where the lock came from is only for the one that came with it) and keeps the whole help sentence", mine);
+  }
   await ask(null);
   const cachedAfterLock = await waitText(/Already checked in this session\./, 30000);
   check(cachedAfterLock, 'seeded: ask again after locking shows the cached line', (await body()).slice(0, 600));
@@ -473,6 +654,49 @@ try {
     await p.getByRole('radio', { name: /orders\.csv/ }).click();
     await waitFor(() => document.querySelector('.fd-bring__bound-text')?.innerText.startsWith('orders.csv') && getComputedStyle(document.querySelector('.fd-bring__picker')).display === 'none', null, 20000);
     check(await waitFor(() => document.activeElement?.className.includes('fd-bring__change'), null, 5000), "full view: picking a sample folds the picker again and focus lands on 'Change' (the Full view is as it was)", await p.evaluate(() => `${document.activeElement?.tagName}.${document.activeElement?.className}`));
+    // your own file again: the Ask card's sentence is not a dead end either: it names orders.csv and the question it has a recording for, and the button switches to it
+    await p.getByRole('button', { name: 'Change' }).click();
+    await p.locator('input[type=file]').setInputFiles({ name: 'mine.csv', mimeType: 'text/csv', buffer: Buffer.from(OWN_CSV) });
+    await waitFor(() => document.querySelector('.fd-bring__bound-text')?.innerText.startsWith('mine.csv') && !!document.querySelector('.fd-ask__level button'), null, 30000);
+    const own = await p.evaluate(() => {
+      const level = document.querySelector('.fd-ask__level');
+      return { text: level?.innerText.replace(/\s+/g, ' ').trim(), button: level?.querySelector('button')?.innerText.trim(), tags: [...document.querySelectorAll('.fd-ask__live')].map((e) => e.innerText.trim()), legend: document.querySelector('.fd-ask__legend')?.innerText.replace(/\s+/g, ' ').trim() ?? '' };
+    });
+    check(
+      own.button === 'switch to orders.csv' && own.text === `In this demo, answers are recorded, so questions about your own file need the version on your computer. ${'“'}${Q_TOP}${'”'} has a recorded answer on one sample file: switch to orders.csv.` && !/Try a sample file/.test(own.text) &&
+        own.tags.length >= 1 && own.tags.every((t) => t === NEEDS_TAG) && /^This demo has no recorded answers for these questions; they need the version on your computer\./.test(own.legend),
+      "full view (own file): the Ask card's sentence names orders.csv and the question it has a recorded answer for, with a real 'switch to orders.csv' button, and the chips say 'needs your computer'",
+      own,
+    );
+    await p.locator('.fd-ask__level button').click();
+    await waitFor(() => document.querySelector('.fd-bring__bound-text')?.innerText.startsWith('orders.csv') && document.activeElement?.id === 'fd-ask-btn', null, 20000);
+    const sw = await p.evaluate(() => ({ asking: document.querySelector('.fd-ask__picked-q')?.innerText.trim(), level: document.querySelector('.fd-ask__level')?.innerText.replace(/\s+/g, ' ').trim(), active: document.activeElement?.id, off: document.getElementById('fd-ask-btn')?.getAttribute('aria-disabled') }));
+    check(sw.asking === Q_TOP && /^Full checks: this demo file comes with 6 examples/.test(sw.level ?? '') && sw.active === 'fd-ask-btn' && sw.off !== 'true', "full view (own file): 'switch to orders.csv' binds the sample, selects the question the sentence named (Full checks) and puts focus on Ask", sw);
+    // pressing Ask on a file of your own: the no-recording card offers the way out ONCE, as the button inside its sentence (it also had a
+    // second "Switch to orders.csv" button under it, and the answer's veil said the whole sentence a third time)
+    await p.getByRole('button', { name: 'Change' }).click();
+    await p.locator('input[type=file]').setInputFiles({ name: 'mine.csv', mimeType: 'text/csv', buffer: Buffer.from(OWN_CSV) });
+    await waitFor(() => document.querySelector('.fd-bring__bound-text')?.innerText.startsWith('mine.csv') && document.getElementById('fd-ask-btn')?.getAttribute('aria-disabled') !== 'true', null, 30000);
+    await p.locator('#fd-ask-btn').click();
+    const noRec = await waitText(/No recorded answer for this one\./, 30000);
+    const dead = await p.evaluate(() => {
+      const card = document.querySelector('.fd-rs--no');
+      return {
+        buttons: [...(card?.querySelectorAll('button, [role=button]') ?? [])].map((b) => b.innerText.trim()),
+        links: [...(card?.querySelectorAll('a') ?? [])].map((a) => a.innerText.trim()),
+        said: (document.body.innerText.match(/switch to orders\.csv/gi) ?? []).length,
+        veil: document.querySelector('.fd-ac__veil-caption')?.innerText.trim(),
+        sentence: card?.querySelector('p')?.innerText.replace(/\s+/g, ' ').trim(),
+      };
+    });
+    check(
+      noRec && dead.buttons.length === 1 && dead.buttons[0] === 'switch to orders.csv' && dead.said === 1 && dead.links.join() === 'How to run it on your computer' &&
+        dead.veil === 'Nothing was checked, so no answer is shown.' && /has a recorded answer on one sample file: switch to orders\.csv\.$/.test(dead.sentence ?? ''),
+      "full view (own file) → Ask: the no-recording card offers the way out once (one button, inside the sentence, no second 'Switch to orders.csv' button, the veil does not say the sentence again) and links to how to run it on your computer",
+      dead,
+    );
+    await p.locator('.fd-rs--no button').click();
+    await waitFor(() => document.querySelector('.fd-bring__bound-text')?.innerText.startsWith('orders.csv') && document.activeElement?.id === 'fd-ask-btn', null, 20000);
   } catch (e) {
     check(false, "full view: the own-file path ran without throwing", String(e));
   }
@@ -533,7 +757,7 @@ try {
     check(own.label === "See what's in your file" && own.secondary && !own.primary && own.disabled === null && /is loaded\.$/.test(own.said), "step by step 1: the forward button reads \"See what's in your file\" (secondary, still enabled), and a screen reader hears that the file is loaded", own);
     await cont.click();
     check(await h1Is('Ask a question') && (await hashNow()) === '#/zen/2', "step by step: 'See what's in your file' opens pane 2 at '#/zen/2'", { h1: await p.evaluate(() => document.querySelector('h1')?.innerText), hash: await hashNow() });
-    await waitFor(() => document.querySelectorAll('.zp__chip .zp__live').length >= 1 && !!document.querySelector('.fd-rl'), null, 30000);
+    await waitFor(() => !!document.querySelector('.fd-rl'), null, 30000);
     await waitFor(() => document.activeElement?.id === 'zen-title', null, 5000); // the new pane has spoken its heading; now the checks below may move focus
     const q2 = await p.evaluate(() => {
       const el = (x) => document.querySelector(x);
@@ -544,13 +768,15 @@ try {
         said: (document.body.innerText.match(/Read as text, so questions about/g) ?? []).length,
         text: note?.innerText.replace(/\s+/g, ' ').trim(),
         beforeChips: before(note, el('.zp__chips')),
-        beforeLegend: before(note, el('.zp__legend')),
+        // an own file's pane 2 shows the dead-end sentence (#zen-why), which says what the legend would: no legend beside it
+        legend: !!el('.zp__legend'),
+        beforeWhy: before(note, el('#zen-why')),
         beforeNav: before(note, el('.zen__nav')),
         navBeforeTable: before(el('.zen__nav'), el('.zp__data')),
         underTable: !!el('.zt__note'),
       };
     });
-    check(q2.count === 1 && q2.said === 1 && /^Read as text, so questions about totals or dates can't use them as they are: Net Amt \(USD\), Tax %, Shipped\./.test(q2.text ?? '') && q2.beforeChips && q2.beforeLegend && q2.beforeNav && q2.navBeforeTable && !q2.underTable, "step by step 2: the note about columns read as text is said once, above the suggestions and the buttons (before the nav in the page), and the table under the nav does not repeat it", q2);
+    check(q2.count === 1 && q2.said === 1 && /^Read as text, so questions about totals or dates can't use them as they are: Net Amt \(USD\), Tax %, Shipped\./.test(q2.text ?? '') && q2.beforeChips && !q2.legend && q2.beforeWhy && q2.beforeNav && q2.navBeforeTable && !q2.underTable, "step by step 2: the note about columns read as text is said once, above the suggestions, the dead-end sentence (no legend beside it) and the buttons (before the nav in the page), and the table under the nav does not repeat it", q2);
     const dead = await p.evaluate(() => {
       const why = document.getElementById('zen-why');
       const d = document.querySelector('.fd-rl__d');
@@ -640,14 +866,19 @@ try {
     });
     check(geo.bottom <= geo.vh && geo.dataTop !== null && geo.dataTop > geo.bottom, "step by step 2: Continue is on screen without scrolling (1440x900) and 'Your data' comes after it", geo);
     const c0 = await zenChips();
-    check(c0.length === 3 && /^Top 5 customers by revenue /.test(c0[0]) && c0.slice(1).every((c) => /^(Count orders by status|Revenue by country) needs live$/.test(c)), "step by step 2: the question with a recorded answer comes first, the ones that need live after it are tagged 'needs live' alone (no 'Basic checks' claim)", c0);
+    check(c0.length === 3 && c0[0].startsWith(`${Q_TOP} `) && c0.slice(1).every((c) => c === `${Q_STATUS} ${NEEDS_TAG}` || c === `${Q_COUNTRY} ${NEEDS_TAG}`), "step by step 2: the question with a recorded answer comes first, the ones that need your computer after it are tagged 'needs your computer' alone (no 'Basic checks' claim)", c0);
+    const zenLegend = await p.evaluate(() => document.querySelector('.zp__legend')?.innerText.replace(/\s+/g, ' ').trim() ?? '');
+    check(zenLegend.startsWith('This demo has recorded answers for one question; the others need the version on your computer.') && !/needs live/i.test(zenLegend), "step by step 2: the legend says why (how many questions have a recording, the rest need the version on your computer) and does not begin by repeating the tag", zenLegend);
+    // one wording for one question: the selected chip and the 'Asking:' line are the same words (pane 3 says them again below)
+    const zenWord = await p.evaluate(() => ({ chip: document.querySelector('.zp__chip.is-on .zp__q')?.innerText.trim(), asking: document.querySelector('.zp__picked strong')?.innerText.trim() }));
+    check(zenWord.chip === Q_TOP && zenWord.asking === Q_TOP, "step by step 2: the selected chip and the 'Asking:' line say the question in the same words", zenWord);
     // typing a suggestion's own words selects it: no second chip
     await p.locator('#zen-question').fill('top 5 customers by revenue?');
     await p.getByRole('button', { name: 'Use this question' }).click();
     await p.waitForTimeout(400);
     const dup = await p.evaluate(() => ({ chips: document.querySelectorAll('.zp__chip').length, on: [...document.querySelectorAll('.zp__chip.is-on')].map((b) => b.innerText.replace(/\s+/g, ' ')), box: document.getElementById('zen-question').value }));
-    check(dup.chips === 3 && dup.on.length === 1 && dup.on[0].startsWith('Top 5 customers by revenue') && dup.box === '', "step by step 2: typing 'top 5 customers by revenue?' selects that chip and adds no second one", dup);
-    // a typed question the demo cannot answer: 'needs live' and no level claim; Continue stays off with the reason and a try-it button
+    check(dup.chips === 3 && dup.on.length === 1 && dup.on[0].startsWith(Q_TOP) && dup.box === '', "step by step 2: typing the chip's old words ('top 5 customers by revenue?', an alias) still selects that chip and adds no second one", dup);
+    // a typed question the demo cannot answer: 'needs your computer' and no level claim; Continue stays off with the reason and a try-it button
     await p.locator('#zen-question').fill('What is the weather in Paris?');
     await p.getByRole('button', { name: 'Use this question' }).click();
     await waitFor(() => document.querySelectorAll('.zp__chip').length === 4, null, 10000);
@@ -656,7 +887,7 @@ try {
       const c = document.getElementById('zen-continue');
       return { chip: chip?.innerText.replace(/\s+/g, ' '), disabled: c.getAttribute('aria-disabled'), why: document.getElementById('zen-why')?.innerText.replace(/\s+/g, ' '), tryIt: !!document.querySelector('#zen-why button'), steps: document.querySelector('.fd-rl__sum')?.innerText.trim(), link: document.querySelector('.fd-rl__readme')?.href };
     });
-    check(wx.chip === 'What is the weather in Paris? needs live' && !/checks/i.test(wx.chip) && wx.disabled === 'true' && /^In this demo, answers are recorded/.test(wx.why) && wx.tryIt && wx.steps === 'How to run it on your computer' && /#run-it-on-your-computer$/.test(wx.link ?? ''), "step by step 2: a typed question the demo cannot answer reads 'needs live' alone (no level), Continue is off, and the reason has a try-it button, and the way to run it on your computer follows it inline (the steps' disclosure, ending in the README link)", wx);
+    check(wx.chip === `What is the weather in Paris? ${NEEDS_TAG}` && !/checks/i.test(wx.chip) && wx.disabled === 'true' && /^In this demo, answers are recorded/.test(wx.why) && wx.tryIt && wx.steps === 'How to run it on your computer' && /#run-it-on-your-computer$/.test(wx.link ?? ''), "step by step 2: a typed question the demo cannot answer reads 'needs your computer' alone (no level), Continue is off, and the reason has a try-it button, and the way to run it on your computer follows it inline (the steps' disclosure, ending in the README link)", wx);
     await p.locator('#zen-why button').click();
     const tried = await waitFor(() => document.activeElement?.id === 'zen-continue' && document.getElementById('zen-continue').getAttribute('aria-disabled') !== 'true', null, 10000);
     check(tried, "step by step 2: 'try it' selects the question that has a recorded answer and makes Continue available (focus on it)", await p.evaluate(() => ({ active: document.activeElement?.id, picked: document.querySelector('.zp__picked')?.innerText })));
@@ -753,7 +984,21 @@ try {
       lockNote: document.querySelector('.fd-ac__lock-note')?.innerText,
     }));
     check(!!rep && five.line?.startsWith(want + ' · real run ') && /^Passed every check · stress test caught \d+ of \d+ · real run \d+\.\d\d s$/.test(five.line) && five.btn === 'See the checks' && five.expanded === 'false' && five.lanes === 0, "step by step 5: the answer keeps its proof: one collapsed line with the seal words (the engine's own count) and the real run, behind 'See the checks'", { want, five });
-    check(five.lockNote === 'Saved with this demo file from an earlier session.', "step by step 5: the answer that came with the demo's locked answer says so", five.lockNote);
+    check(five.lockNote === 'This lock comes with the demo file.', "step by step 5: the answer that came with the demo's locked answer says so", five.lockNote);
+    {
+      const z = await p.evaluate(CARD_FACTS);
+      check(
+        !!rep && !!z && z.verdict === verdictFor({ ...rep, missed: rep.total - rep.caught }, `${MAIN_NOT_CHECKED}, so ${NEXT}`) && z.filled.length === 1 && z.filled[0] === 'Hand this to your data team (download)' && z.firstAction === 'Hand this to your data team (download)' && z.lockBg === 'rgb(255, 255, 255)' &&
+          z.afterFigure?.includes('fd-ac__lead-num') && z.standaloneNotChecked === 0 && /^Versions 1 to \d+ were the starting point, the files? and the demo's agreement; this is the first answer\.$/.test(z.version ?? '') && z.fig.endsWith(`Version ${Number(/to (\d+)/.exec(z.version ?? '')?.[1]) + 1}`) && !z.sideways,
+        "step by step 5: the same card: one verdict line under the figure, the hand-off as its one filled control (first in the row), the lock quiet, the version explained",
+        { z, rep },
+      );
+      const ax = await axHeadings();
+      const named = await p.evaluate(() => `${document.querySelector('.fd-ac__lead-name')?.innerText}, ${document.querySelector('.fd-ac__lead-num')?.innerText}`);
+      const h1ax = ax.headings.find((h) => h.name === 'Your answer');
+      check(!!h1ax && h1ax.desc === named && named === `${LEAD[0]}, ${money(LEAD[1])}` && !ax.live.some((t) => t.includes(LEAD[0])) && (await p.evaluate(() => document.getElementById('zen-answer-lead')?.hidden === true && document.activeElement?.id === 'zen-title')),
+        "step by step 5: the focused heading is named 'Your answer' and described by the answer's lead ('Chef Ravioli Starbright, $2,252.07') in the browser's accessibility tree; the sentence is hidden (not read again when browsing) and no live region repeats it", { h1ax, named, live: ax.live });
+    }
     await p.locator('.zpr__btn').focus();
     await p.keyboard.press('Enter');
     await p.waitForTimeout(300);
@@ -778,6 +1023,11 @@ try {
         seeAnswer: !!document.getElementById('zen-see-answer'),
         len: history.length,
       }));
+    // "Confirmed by you" is the viewer's mark on this run's answer: it has to survive the walk Back and Forward (the pane that held it is torn down)
+    const confirmState = () => p.evaluate(() => ({ buttons: document.querySelectorAll('.fd-ac__confirm').length, confirmed: [...document.querySelectorAll('.fd-ac__confirmed')].map((e) => e.innerText.trim()) }));
+    const confirmBefore = await confirmState();
+    await p.locator('.fd-ac__confirm').first().click();
+    const confirmMade = await confirmState();
     await nudge();
     await p.goBack();
     await h1Is('Checking', 5000);
@@ -809,6 +1059,13 @@ try {
     await p.goForward();
     const fwd5 = (await h1Is('Your answer', 5000)) && (await waitFor(() => document.activeElement?.id === 'zen-title', null, 3000)) && (await where());
     check(!!fwd5 && fwd5.hash === '#/zen/5' && fwd5.active === 'zen-title' && fwd5.y === 0 && fwd5.rest === 'manual', "step by step: the browser's Forward returns to pane 4 and then pane 5 with the answer (scroll at the top, 'manual')", fwd5);
+    const confirmKept = await confirmState();
+    check(
+      confirmBefore.buttons >= 1 && confirmBefore.confirmed.length === 0 && confirmMade.confirmed.join() === 'Confirmed by you' && confirmMade.buttons === confirmBefore.buttons - 1 &&
+        confirmKept.confirmed.join() === 'Confirmed by you' && confirmKept.buttons === confirmBefore.buttons - 1,
+      "step by step 5: 'Confirmed by you' is still there after the browser's Back to pane 3 and Forward to pane 5 (kept for the life of the run, not by the pane)",
+      { confirmBefore, confirmMade, confirmKept },
+    );
     // coming from further away, the same button pushes the pane before instead
     await p.getByRole('button', { name: 'Ask another question' }).click();
     await h1Is('Ask a question', 5000);
@@ -838,6 +1095,100 @@ try {
     check(consoleErrors.length === 0, "step by step: '#/zen' logs no console errors (besides the replay /generate/health 404)", consoleErrors);
   } catch (e) {
     check(false, 'step by step flow', e.message.split('\n')[0]);
+  }
+
+  // ── 3b2. the dead end of your own file is not dead: the sentence names orders.csv and the question it has a recording for, and its button switches to it ──
+  consoleErrors.length = 0;
+  try {
+    await openApp(p, srv.url + '#/zen');
+    const h1Is = (t, timeout = 60000) => waitFor((x) => document.querySelector('h1')?.innerText === x, t, timeout);
+    const hashNow = () => p.evaluate(() => location.hash);
+    await waitFor(() => !!document.getElementById('zen-continue'), null, 15000);
+    await p.getByRole('button', { name: 'Paste data' }).click();
+    await p.locator('#zen-paste').fill(OWN_CSV);
+    await p.getByRole('button', { name: 'Use this data' }).click();
+    await waitFor(() => !!document.querySelector('.zd__chip') && document.activeElement?.id === 'zen-continue', null, 20000);
+    await p.locator('#zen-continue').click();
+    check(await h1Is('Ask a question') && (await hashNow()) === '#/zen/2', "step by step (own file): 'See what's in your file' opens pane 2", await hashNow());
+    await waitFor(() => !!document.querySelector('#zen-why button'), null, 30000);
+    const deadEnd = () => p.evaluate(() => {
+      const why = document.getElementById('zen-why');
+      const b = why?.querySelector('button');
+      return { text: why?.innerText.replace(/\s+/g, ' ').trim(), button: b?.innerText.trim(), tag: [...document.querySelectorAll('.zp__live')].map((e) => e.innerText.trim()), legend: document.querySelector('.zp__legend')?.innerText.replace(/\s+/g, ' ').trim() ?? '', said: (document.querySelector('.zp')?.innerText.match(/your computer/gi) ?? []).length };
+    });
+    const d2 = await deadEnd();
+    check(
+      d2.button === 'switch to orders.csv' && d2.text === `In this demo, answers are recorded, so questions about your own file need the version on your computer. ${'“'}${Q_TOP}${'”'} has a recorded answer on one sample file: switch to orders.csv.` && !/Try a sample file/.test(d2.text) &&
+        d2.tag.length === 0 && d2.legend === '' && d2.said === 2,
+      "step by step 2 (own file): the dead end names orders.csv and the question it has a recorded answer for, with a real 'switch to orders.csv' button (the old 'Try a sample file for now.' is gone); no chip is tagged 'needs your computer' when none can be answered, and the legend that says the same is not drawn: 'your computer' is said twice on the pane, by the sentence and the how-to heading",
+      d2,
+    );
+    // pane 3 is reachable by its address and says the same sentence with the same button
+    await p.evaluate(() => (location.hash = '#/zen/3'));
+    await h1Is('What your answer must pass', 15000);
+    await waitFor(() => !!document.querySelector('#zen-why button'), null, 10000);
+    const d3 = await deadEnd();
+    check(d3.button === 'switch to orders.csv' && d3.text === d2.text, "step by step 3 (own file): the checks pane says the same sentence, with the same button", { d2, d3 });
+    // the button: binds orders.csv, selects the question the sentence names (which has a recording), and returns focus to the forward button
+    await p.locator('#zen-why button').click();
+    const switched = await waitFor(() => document.activeElement?.id === 'zen-continue' && !document.querySelector('#zen-why button'), null, 20000).catch(() => false);
+    await waitFor(() => window.__undefined.state.value.datasets.some((d) => d.name === 'rows') && document.getElementById('zen-continue')?.getAttribute('aria-disabled') !== 'true', null, 20000);
+    const after3 = await p.evaluate(() => ({
+      active: document.activeElement?.id,
+      label: document.getElementById('zen-continue')?.innerText.trim(),
+      lede: document.querySelector('.zp__lede')?.innerText.trim(),
+      why: document.getElementById('zen-why')?.innerText.trim() ?? '',
+      sixth: [...document.querySelectorAll('.zp__check')].map((r) => ({ label: r.querySelector('.zp__label')?.innerText.trim(), note: r.querySelector('.zp__note')?.innerText.trim() })).pop(),
+    }));
+    check(
+      after3.active === 'zen-continue' && after3.label === 'Run the checks' && after3.lede === `Before you see an answer to ${'“'}${Q_TOP}${'”'}, it has to pass these.` && after3.why === '',
+      "step by step 3 (own file): 'switch to orders.csv' binds orders.csv, selects the question the sentence named (pane 3 now says it in its own words), clears the dead end and puts focus on the forward button",
+      { switched, after3 },
+    );
+    check(
+      after3.sixth?.label === 'Stress test: deliberate breaks' && after3.sixth?.note === 'It makes deliberate breaks in the calculation; your checks should notice.',
+      "step by step 3: the sixth check is the stress test and says what it does in 'deliberate breaks' (the trace's own label, no 'small breaks on purpose')",
+      after3.sixth,
+    );
+    check(consoleErrors.length === 0, "step by step (own file): switching to the recorded sample logs no console errors", consoleErrors);
+  } catch (e) {
+    check(false, 'step by step own-file dead end', e.message.split('\n')[0]);
+  }
+
+  // ── 3b3. a question the viewer typed is saved before the demo's first answer: the card claims nothing about a save the demo did not make ──
+  // (the saves are the engine's: 1 starting point, 2 the file, 3 the demo's agreement, 4 the typed question's own, 5 the first answer; the card said
+  // "Versions 1 to 4 were … the demo's agreement" until the note read each save's function)
+  consoleErrors.length = 0;
+  try {
+    await openApp(p, srv.url + '#/zen');
+    await waitFor(() => !!document.getElementById('zen-continue'), null, 15000);
+    await p.getByRole('button', { name: 'orders.csv', exact: true }).click();
+    await waitFor(() => document.getElementById('zen-continue')?.getAttribute('aria-disabled') !== 'true', null, 15000);
+    await p.locator('#zen-continue').click();
+    await waitFor(() => document.querySelector('h1')?.innerText === 'Ask a question', null, 15000);
+    await p.locator('#zen-question').fill('How many orders were refunded?');
+    await p.getByRole('button', { name: 'Use this question' }).click();
+    await waitFor(() => document.querySelector('.zp__picked strong')?.innerText === 'How many orders were refunded?', null, 20000);
+    await p.evaluate(() => (location.hash = '#/start'));
+    await waitFor(() => document.getElementById('fd-ask-btn')?.getAttribute('aria-disabled') !== 'true', null, 20000);
+    await askBtn.click();
+    const typedDead = await waitText(/No recorded answer for this one\./, 40000);
+    await idle();
+    await ask(Q_TOP);
+    await waitFor((n) => document.querySelector('.fd-ac__lead-name')?.innerText.includes(n), LEAD[0], 60000);
+    const typedRun = await p.evaluate(() => ({
+      saves: window.__undefined.state.value.revisions.map((r) => `${r.id}:${r.kind}${r.fn ? `(${r.fn})` : ''}`),
+      version: document.querySelector('.fd-ac__version')?.innerText ?? null,
+      fig: document.querySelector('.fd-ac__fig')?.innerText.replace(/\s+/g, ' ').trim() ?? '',
+    }));
+    check(
+      typedDead && typedRun.saves.join(' ') === '1:init 2:dataset 3:spec-edit(topCustomersByRevenue) 4:spec-edit(howManyOrdersWereRefunded) 5:commit(topCustomersByRevenue)' && typedRun.version === null && /Version 5$/.test(typedRun.fig),
+      "full view: a question typed on step by step is saved at ask time (save 4); the recorded question's answer (Version 5) then says nothing about where the saves before it came from, because save 4 is not the demo's agreement",
+      typedRun,
+    );
+    check(consoleErrors.length === 0, "full view (typed question first): no console errors", consoleErrors);
+  } catch (e) {
+    check(false, 'typed question first, then the recorded question', e.message.split('\n')[0]);
   }
 
   // ── 3c. step by step again, fresh: a deep link is held to what the session allows; under reduced motion the writing mark is a
@@ -1320,14 +1671,14 @@ try {
   try {
     await openApp(p, srv.url + '#/start');
     check(await bindOrders(), "seed off: '#/start' binds the sample orders.csv (as rows)", (await body()).slice(0, 400));
-    await chip('Top 5 customers by revenue').click();
-    await waitFor(() => [...document.querySelectorAll('[aria-label="Suggested questions"] button')].some((b) => b.textContent.includes('Top 5 customers by revenue') && b.getAttribute('aria-pressed') === 'true'), null, 15000);
+    await chip(Q_TOP).click();
+    await waitFor((q) => [...document.querySelectorAll('[aria-label="Suggested questions"] button')].some((b) => b.textContent.includes(q) && b.getAttribute('aria-pressed') === 'true'), Q_TOP, 15000);
     await p.waitForFunction(() => { const b = document.getElementById('fd-ask-btn'); return !!b && b.getAttribute('aria-disabled') !== 'true'; }, null, { timeout: 30000 });
     const chips0 = await texts('[aria-label="Suggested questions"] button');
     const text0 = norm(await body());
     const pre0 = await fnState();
     check(
-      chips0.some((c) => /^Top 5 customers by revenue Basic checks$/.test(c)) && text0.includes('Basic checks only: no examples, locked answers or house rules for this question yet.') && text0.includes('0 examples · 0 locked answers · 0 house rules') && !pre0.has,
+      chips0.some((c) => c === `${Q_TOP} Basic checks`) && text0.includes('Basic checks only: no examples, locked answers or house rules for this question yet.') && text0.includes('0 examples · 0 locked answers · 0 house rules') && !pre0.has,
       "seed off: the question is tagged 'Basic checks' and no agreement is installed (the seeded one has no recording to play)",
       { chips0, pre0: pre0.has, text: text0.slice(0, 500) },
     );
@@ -1336,7 +1687,7 @@ try {
     const shown0 = await waitFor((n) => document.querySelector('.fd-ac__lead-name')?.innerText.includes(n), 'Puddlesworth Inc', 60000);
     const lead0 = (await texts('.fd-ac__lead-name, .fd-ac__lead-num')).join(' | ');
     const eyebrow0 = await texts('.fd-ac__eyebrow');
-    check(shown0 && lead0 === 'Puddlesworth Inc | $2,599.13' && eyebrow0.length === 1 && eyebrow0[0] === 'PASSED 2 BASIC CHECKS · NOTHING ELSE CHECKED YET' && !consoleErrors.length, "seed off: 'Top 5 customers by revenue' → Ask: Puddlesworth Inc $2,599.13, 'PASSED 2 BASIC CHECKS · NOTHING ELSE CHECKED YET'", { shown0, lead0, eyebrow0, errors: consoleErrors });
+    check(shown0 && lead0 === 'Puddlesworth Inc | $2,599.13' && eyebrow0.length === 1 && eyebrow0[0] === 'PASSED 2 BASIC CHECKS · NOTHING ELSE CHECKED YET' && !consoleErrors.length, "seed off: 'Who are our top customers by revenue?' → Ask: Puddlesworth Inc $2,599.13, 'PASSED 2 BASIC CHECKS · NOTHING ELSE CHECKED YET'", { shown0, lead0, eyebrow0, errors: consoleErrors });
     const post0 = await fnState();
     check(
       post0.gen?.phase === 'committed' && post0.gen.statuses.length === 1 && post0.gen.statuses[0] === 'accepted' && post0.live && post0.examples === 0 && post0.houseRules === 0 && post0.pins.length === 0 && post0.rows?.length === 5 && post0.rows[0][0] === 'Puddlesworth Inc' && money(post0.rows[0][1]) === '$2,599.13' &&
@@ -1346,6 +1697,21 @@ try {
     );
     const card0 = norm((await texts('.fd-ac')).join(' '));
     check(cardShows(card0, post0.rows ?? []), "seed off: the answer card lists the engine's five customers and amounts in order", { rows: post0.rows, card: card0.slice(0, 500) });
+    {
+      const b0 = await p.evaluate(CARD_FACTS);
+      const first0 = await p.evaluate(() => document.querySelector('.fd-ac__not-checked li')?.innerText.replace(/\s+/g, ' ').trim().replace(/\s*\([^()]*\)\s*$/, '') ?? '');
+      const kinds0 = await state(() => {
+        const s = window.__undefined.state.value;
+        const v = s.program.functions.topCustomersByRevenue?.artifact?.revision;
+        return { version: v, before: s.revisions.filter((r) => r.id < v).map((r) => r.kind) };
+      });
+      check(
+        !!b0 && b0.verdict === `Only the 2 basic checks ran, so nothing has tested the number yet. Not checked: ${first0}, so ${NEXT}` && first0.length > 0 && !b0.verdict.includes('(') && b0.verdictStyle.size === '16px' && b0.afterFigure?.includes('fd-ac__lead-num') && b0.standaloneNotChecked === 0 &&
+          b0.filled.length === 1 && b0.filled[0] === 'Hand this to your data team (download)' && b0.lockBg === 'rgb(255, 255, 255)' && !kinds0.before.includes('spec-edit') && b0.version === 'Versions 1 and 2 were the starting point and the file; this is the first answer.' && kinds0.before.join() === 'init,dataset' && b0.fig.endsWith(`Version ${kinds0.version}`) && b0.lockNote === null,
+        "seed off: basic checks only: the verdict says only the 2 basic checks ran and nothing has tested the number yet, with the same one filled control; no agreement came with it, so no lock note, and a first answer is never an unexplained 'Version 3' (the starting point and the file came first)",
+        { b0, kinds0 },
+      );
+    }
 
     // locking is offered here (nothing is locked yet), and it locks
     const offered = await texts('.fd-ac__lock');

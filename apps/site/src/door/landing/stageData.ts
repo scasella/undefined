@@ -27,12 +27,15 @@ export const STAGE_FILE = 'orders.csv';
  */
 export const STAGE_VERSION = 4;
 
-/** The small mono caption under the trace: the playback is an illustration. */
+/**
+ * The stage's ONE label, the small mono caption under the trace: the playback, and the example answer it leads to, are an
+ * illustration. Nothing else on the stage says it again (the trace's footer and timer used to, twice more).
+ */
 export const ILLUSTRATION_CAPTION = 'Illustrative playback of the example below, slowed down';
-/** Replaces the design's "Slowed down so you can watch · real run 0.41 s" (not a recorded run). */
-export const PASS_META = 'Illustrative · slowed down so you can watch · 6 checks · 1 draft thrown out';
-/** Replaces the design's "0.41 s" timer at the end of the pass playback (no measured duration to show). */
-export const PASS_TIMER = 'illustrative';
+/** Replaces the design's "Slowed down so you can watch · real run 0.41 s" (not a recorded run): what ran, counted from the script. */
+export const PASS_META = `${scenarios.pass.lanes.length} checks · 1 draft thrown out`;
+/** Replaces the design's "0.41 s" timer at the end of the pass playback: there is no measured duration to show, so it shows nothing. */
+export const PASS_TIMER = '';
 
 /** The design's "See the calculation" code (LANDING 297-311), verbatim. */
 export const CALC_SOURCE = `// Top customers by revenue · Version ${STAGE_VERSION}

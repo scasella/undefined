@@ -7,7 +7,7 @@
  * drops focus to <body>. Pressing Ask moves focus on purpose: start/Start.tsx (followRun) scrolls the check trace into
  * view and focuses it, and its aria-live says what happened. A non-happy outcome (RunStates) moves focus to its own
  * heading. `try it` (the no-recording sentence's button) selects the question that has a recorded answer and puts
- * focus on Ask, since the sentence it was in goes away.
+ * focus on Ask, since the sentence it was in goes away; so does `switch to orders.csv`, which binds the recorded sample.
  *
  * The selected question is shown as text ("Asking: …"), not in a read-only field: it is picked from the chips above, and
  * a field that looks like an input but does nothing when clicked was the thing people tried to type into.
@@ -17,17 +17,22 @@ import { agreementPhrase, nextVersionLine, type AgreementView, type CheckMode } 
 import type { SuggestedQuestion } from '../model/questions';
 import { Arrow } from '../icons';
 import { RUN_LOCALLY_URL } from '../components/DemoNote';
-import { noRecordingView, type NoRecordingView } from './derive';
+import type { SampleId } from '../model/samples';
+import { noRecordingView, sampleOffer, type NoRecordingView, type SampleOffer } from './derive';
 import type { Availability } from './recorded';
 import { sessionFor, type Session } from './session';
 import './AskCard.css';
 
-/** The Ask button's id (RunStates focuses it after "Try …" selects another question). */
+/** The Ask button's id (RunStates focuses it after `try it` selects another question, or `switch to orders.csv` binds the recorded sample). */
 export const ASK_BUTTON_ID = 'fd-ask-btn';
 export const ASK_BOX_ID = 'ask-box';
 
 export const BASIC_LEVEL_LINE = "Basic checks only: no examples, locked answers or house rules for this question yet. We'll say so on the answer.";
-export const NEEDS_LIVE = 'needs live';
+/**
+ * The tag on a chip whose question the demo cannot answer: the phrase the sentences use for the same thing ("need the version on
+ * your computer"), so it means something without its legend. One constant: both pages draw it.
+ */
+export const NEEDS_YOUR_COMPUTER = 'needs your computer';
 
 // (the phrase lives with the agreement's other words; kept exported here for the callers that import it from the card)
 export { agreementPhrase };
@@ -47,6 +52,8 @@ export interface LevelLineInput {
   availability: Availability | undefined;
   ownData: boolean;
   recordedOther: Pick<SuggestedQuestion, 'id' | 'label'> | Pick<SuggestedQuestion, 'label'> | null;
+  /** The recorded sample, when the file bound is not it (derive.ts sampleOffer): the way out of a file with no recorded answers. */
+  offer?: SampleOffer | null;
   mode: CheckMode;
   /** The no-recording card (RunStates) is already on screen and says it: leave the line empty for such a question. */
   quiet?: boolean;
@@ -60,7 +67,7 @@ export interface LevelLineView {
 
 export function levelLineView(input: LevelLineInput): LevelLineView {
   const a = input.agreement;
-  if (input.availability === 'none') return { head: '', noRecording: input.quiet ? null : noRecordingView(input.ownData, input.recordedOther) };
+  if (input.availability === 'none') return { head: '', noRecording: input.quiet ? null : noRecordingView(input.ownData, input.recordedOther, input.offer ?? null) };
   let head: string;
   if (input.level === 'basic') {
     head = a.empty
@@ -82,7 +89,7 @@ export interface ChipView {
   id: string;
   label: string;
   pressed: boolean;
-  /** The level that will really run; none for a question that cannot be answered here (replay: needs live; no level is earned). */
+  /** The level that will really run; none for a question that cannot be answered here (replay: needs your computer; no level is earned). */
   tag: 'Full checks' | 'Basic checks' | null;
   /** Replay: nothing recorded for it (availability 'none'). Unknown availability is not 'none'. */
   needsLive: boolean;
@@ -90,7 +97,7 @@ export interface ChipView {
 
 /**
  * The chips: every tag (the selected one too) is the level that will really run (session questions, levelFor); a
- * question the demo cannot answer (replay, nothing recorded) carries "needs live" alone: its level will never run here. Questions this page can answer come first, the ones that
+ * question the demo cannot answer (replay, nothing recorded) carries "needs your computer" alone: its level will never run here. Questions this page can answer come first, the ones that
  * need the version on the viewer's computer after them (each group in list order).
  */
 export function chipsOf(questions: readonly SuggestedQuestion[], selected: string | null, availability: Record<string, Availability>): ChipView[] {
@@ -103,20 +110,39 @@ export function chipsOf(questions: readonly SuggestedQuestion[], selected: strin
 }
 
 /**
- * What "needs live" means, said once near the chips whenever any chip carries it (replay only: live mode answers every
- * question). The number of questions with an answer here is counted, not typed in; null when there is nothing to explain.
+ * Why some chips say "needs your computer", said once near the chips whenever any chip carries the tag (replay only: live mode
+ * answers every question). It does not start by repeating the tag; it says what the tag cannot: how many questions this demo has
+ * a recording for. That number is counted, not typed in; null when there is nothing to explain.
  */
 export function needsLiveLegend(chips: ReadonlyArray<Pick<ChipView, 'needsLive'>>, mode: 'live' | 'replay'): string | null {
   if (mode !== 'replay' || !chips.some((c) => c.needsLive)) return null;
   const n = chips.filter((c) => !c.needsLive).length;
-  if (n === 0) return 'needs live: this demo has no recorded answers for these questions; they need the version on your computer.';
-  return `needs live: this demo has recorded answers for ${n === 1 ? 'one question' : `${n} questions`}; the others need the version on your computer.`;
+  if (n === 0) return 'This demo has no recorded answers for these questions; they need the version on your computer.';
+  return `This demo has recorded answers for ${n === 1 ? 'one question' : `${n} questions`}; the others need the version on your computer.`;
+}
+
+/**
+ * Whether the "needs your computer" tag tells chips apart: some chip CAN be answered here. When none can (a file of your own, or the
+ * sample with no recording), every chip would carry the same tag and the sentence under the question says it once, so Step by step
+ * draws no tag then. A tag that marks every chip marks none of them.
+ */
+export function tagsTellApart(chips: ReadonlyArray<Pick<ChipView, 'needsLive'>>): boolean {
+  return chips.some((c) => !c.needsLive);
+}
+
+/**
+ * Step by step's question pane: the legend, unless the dead-end sentence is on screen beside it (`deadEnd`). That sentence says the same
+ * thing (the version on your computer), names the question that does have a recording, and carries the steps and the link, so the
+ * legend would only repeat it.
+ */
+export function legendUnlessDeadEnd(chips: ReadonlyArray<Pick<ChipView, 'needsLive'>>, mode: 'live' | 'replay', deadEnd: boolean): string | null {
+  return deadEnd ? null : needsLiveLegend(chips, mode);
 }
 
 /**
  * The legend with its way forward: the README's steps, in a new tab so the page and what was picked stay as they are.
- * `link` false leaves the link out where the way forward is already on screen: step by step's dead-end message, which lists
- * the steps and ends in the same link (components/DemoNote.tsx RunLocally).
+ * `link` false leaves the link out where the way forward is already on screen (components/DemoNote.tsx RunLocally lists the
+ * steps and ends in the same link).
  */
 export function NeedsLiveLegend({ text, class: cls, link = true }: { text: string; class: string; link?: boolean }) {
   return (
@@ -135,14 +161,27 @@ export function NeedsLiveLegend({ text, class: cls, link = true }: { text: strin
   );
 }
 
-/** The no-recording sentence with `try it` as a real button (it selects the question that has a recorded answer). */
-export function NoRecordingSentence({ view, onTry, busy = false }: { view: NoRecordingView; onTry: (id: string) => void; busy?: boolean }) {
+/**
+ * The no-recording sentence with its action as a real button: `try it` selects the question that has a recorded answer,
+ * `switch to orders.csv` binds the recorded sample (it replaces the file on screen, and the button says so).
+ */
+export function NoRecordingSentence({
+  view,
+  onTry,
+  onUse,
+  busy = false,
+}: {
+  view: NoRecordingView;
+  onTry: (id: string) => void;
+  onUse: (sample: SampleId) => void;
+  busy?: boolean;
+}) {
   const a = view.action;
   return (
     <>
       {view.before}
       {a && (
-        <button type="button" class="fd-tryit" aria-disabled={busy || undefined} onClick={() => !busy && onTry(a.id)}>
+        <button type="button" class="fd-tryit" aria-disabled={busy || undefined} onClick={() => !busy && (a.kind === 'sample' ? onUse(a.sample) : onTry(a.id))}>
           {a.text}
         </button>
       )}
@@ -170,6 +209,7 @@ export function AskCard({ engine, session }: { engine: Engine; session?: Session
         availability: avail[q.id],
         ownData: s.source.value === 'own',
         recordedOther: s.recordedOther.value,
+        offer: sampleOffer(s.sampleId.value),
         mode,
         quiet: said,
       })
@@ -183,6 +223,10 @@ export function AskCard({ engine, session }: { engine: Engine; session?: Session
   // `try it`: the sentence it sits in goes away once the other question is selected, so focus goes to Ask
   const tryOther = (id: string) => {
     void s.selectQuestion(id).then(() => document.getElementById(ASK_BUTTON_ID)?.focus());
+  };
+  // `switch to orders.csv`: the file changes under the sentence, so focus goes to Ask here too
+  const useSample = (id: SampleId) => {
+    void s.useSample(id).then(() => document.getElementById(ASK_BUTTON_ID)?.focus());
   };
   const ask = () => {
     if (!canAsk) return;
@@ -207,7 +251,7 @@ export function AskCard({ engine, session }: { engine: Engine; session?: Session
           >
             {c.label}
             {c.tag && <span class="fd-ask__tag">{c.tag}</span>}
-            {c.needsLive && <span class="fd-ask__live">{NEEDS_LIVE}</span>}
+            {c.needsLive && <span class="fd-ask__live">{NEEDS_YOUR_COMPUTER}</span>}
           </button>
         ))}
       </div>
@@ -232,7 +276,7 @@ export function AskCard({ engine, session }: { engine: Engine; session?: Session
         <p class="fd-ask__level">
           {line.head}
           {line.head && line.noRecording ? ' ' : ''}
-          {line.noRecording && <NoRecordingSentence view={line.noRecording} onTry={tryOther} busy={!canChange} />}
+          {line.noRecording && <NoRecordingSentence view={line.noRecording} onTry={tryOther} onUse={useSample} busy={!canChange} />}
         </p>
       )}
     </div>

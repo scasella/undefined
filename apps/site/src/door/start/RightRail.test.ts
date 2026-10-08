@@ -1,4 +1,4 @@
-/** seedShown: the "Saved with this demo file from an earlier session." line shows only for the installed, untouched seed. */
+/** seedShown: the "This agreement comes with the demo file." line shows only for the installed, untouched seed. */
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { DatasetRef, FunctionSpec, Program } from '@scasella/undefined-engine/types';
 import { buildDataset } from '../../data/dataset';

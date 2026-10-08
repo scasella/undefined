@@ -1,5 +1,5 @@
 /**
- * The "agreement" the demo pre-loads for one question: orders.csv + "Top 5 customers by revenue".
+ * The "agreement" the demo pre-loads for one question: orders.csv + "Who are our top customers by revenue?".
  *
  * In engine terms (docs/FRONT-DOOR.md vocabulary map) it is a FunctionSpec for `topCustomersByRevenue` with
  *   - 6 examples      = 6 unit tests on made-up rows (test()/eq(), docs/DESIGN.md Test API), all paid, unique ids;

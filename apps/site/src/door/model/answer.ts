@@ -8,8 +8,9 @@
  *   3. else the entry's `value` (show() text) → a labelled raw fallback.
  * Nothing here invents a number: every figure on the card is a value the function returned.
  */
-import type { Json, ReplEntry, TablePreview } from '@scasella/undefined-engine/types';
+import type { Json, ReplEntry, RevisionKind, TablePreview } from '@scasella/undefined-engine/types';
 import { decodeValue } from '@scasella/undefined-engine/shared/serialize';
+import { breaksWord, sealHead, stressWords, type StressStatus } from './lanes';
 
 export type OutputEntry = Extract<ReplEntry, { kind: 'output' }>;
 
@@ -339,4 +340,168 @@ export function leadSummary(encoded: Json, question: string): string | null {
 export function lockedRowsPhrase(view: AnswerView | null): string {
   if (view && view.kind === 'ranked') return view.places === 1 ? 'this same row' : `these same ${view.places} rows`;
   return 'this same answer';
+}
+
+// ───────────────────────── what the answer says, in words ─────────────────────────
+
+/** A basic pass: the two checks that need nothing from you (runs without errors; never changes your data, finishes fast), of six. */
+export const BASIC_CHECKS = 2;
+export const TOTAL_CHECKS = 6;
+
+/**
+ * The one thing left unchecked that most decides whether the figure is right, as one plain line: the first item of the
+ * not-checked list as given (the list is built most decisive first). Nothing is added: no items, no line.
+ */
+export function decisiveCaveat(notChecked: readonly string[]): string | null {
+  const first = notChecked.map((t) => t.trim()).find((t) => t !== '');
+  return first ?? null;
+}
+
+/** The next step the front door really has: the checked calculation, handed over as a download (start/RunPanel.tsx Handoff). */
+export const HANDOFF_NEXT = 'if the number matters, hand the calculation to your data team';
+
+export interface VerdictInput {
+  level: 'full' | 'basic';
+  /** The stress test's result (Full checks only), worded with the seal's own words (lanes.ts stressWords). */
+  stress?: StressStatus | null;
+  /** The checks that apply and how many passed: the seal's `ran` of `of`. Read only when the stress test did not finish. */
+  ran?: number;
+  of?: number;
+  /** The "Not checked" list, most decisive first. */
+  notChecked: readonly string[];
+  /** The card offers the hand-off as its action: only then is it named as the next step. */
+  handoff: boolean;
+}
+
+/**
+ * The answer's verdict in at most two plain sentences, shown directly under the figure: how the checks went (the seal's
+ * own words, lanes.ts sealHead and stressWords, with the ledger's unit), the one thing most worth knowing was not checked
+ * (decisiveCaveat) and, when the card offers it, the one next step the product really has. The next step follows the
+ * caveat with "so", not a semicolon: a semicolon reads as a second thing that was not checked. It never says the answer is
+ * right: it says what ran and what did not.
+ *
+ * Length: about 34 words for every caveat the demo's own data produces (the first sentence is 13 words, the next step 12, the
+ * caveat at most 7: "whether refunded and pending orders should count"); start/derive.test.ts and model/answer.test.ts compute
+ * it from the real facts. It grows only with a caveat built from a viewer's own data (a status column with many values), and
+ * then it is kept whole: cutting an item to fit would change what it says, and the ledger below is where the whole list is.
+ */
+export function verdictLine(i: VerdictInput): string {
+  const sentences = [howItWent(i)];
+  // the item as the list words it, less a closing explanation in brackets and its full stop: the ledger below keeps the whole
+  // ("whether refunded and pending orders should count (your status column has paid, refunded and pending)")
+  const first = decisiveCaveat(i.notChecked);
+  const caveat = first === null ? null : caveatClause(first) || null;
+  const next = i.handoff ? HANDOFF_NEXT : null;
+  if (caveat) sentences.push(`Not checked: ${caveat}${next ? `, so ${next}` : ''}.`);
+  else if (next) sentences.push(`${next.charAt(0).toUpperCase()}${next.slice(1)}.`);
+  return sentences.join(' ');
+}
+
+/** Words that cannot end a clause: a trim that would leave one of them last is not a trim to trust. */
+const DANGLING = /(?:^|[\s,;:])(?:and|or|but|of|the|a|an|to|for|with|that|than|whether|if|as)$/i;
+
+/** Every bracket in `text` closes, and none closes before it opens. */
+function bracketsBalanced(text: string): boolean {
+  let depth = 0;
+  for (const c of text) {
+    if (c === '(') depth++;
+    else if (c === ')' && --depth < 0) return false;
+  }
+  return depth === 0;
+}
+
+/**
+ * The not-checked item as one clause for the verdict: its full stop dropped and, when it ends with the explanation the list adds
+ * about the viewer's own data ("(your status column has paid, refunded and pending)", notCheckedList), that explanation left to
+ * the ledger below. Only that one shape is cut, and only when it is cut cleanly: a balanced group (a bracket inside it is part
+ * of it) that opens after a space, with a clause left that is itself balanced and does not end on a joining word. Brackets in the
+ * middle of an item, or any other kind at the end ("whether (a) and (b)"), belong to what it says and stay. When unsure, the item
+ * comes back whole, never cut inside a word and never with a bracket left open.
+ */
+export function caveatClause(item: string): string {
+  const text = item.trim().replace(/[.\s]+$/, '');
+  if (!text.endsWith(')')) return text;
+  // walk back from the final bracket to the one that opens its group
+  let depth = 0;
+  let open = -1;
+  for (let at = text.length - 1; at >= 0; at--) {
+    const c = text[at];
+    if (c === ')') depth++;
+    else if (c === '(' && --depth === 0) {
+      open = at;
+      break;
+    }
+  }
+  if (open <= 0 || !/\s/.test(text[open - 1]!) || !text.startsWith('(your ', open)) return text;
+  const head = text.slice(0, open).trimEnd();
+  return head !== '' && bracketsBalanced(head) && !DANGLING.test(head) ? head : text;
+}
+
+function howItWent(i: VerdictInput): string {
+  if (i.level === 'basic') return `Only the ${BASIC_CHECKS} basic checks ran, so nothing has tested the number yet.`;
+  const stress: StressStatus = i.stress ?? { kind: 'none' };
+  const ran = i.ran ?? 0;
+  const of = i.of ?? 0;
+  const unfinished = stress.kind === 'partial' || stress.kind === 'not-run';
+  const head = unfinished && of <= 0 ? 'Passed the checks that ran' : sealHead({ stress, ran, of });
+  const words = stressWords(stress);
+  if (!words) return `${head}.`;
+  const clean = stress.kind === 'done' && stress.missed === 0;
+  // the unit is the ledger's and the lane's (lanes.ts breaksWord): "1 of 1 deliberate break", never "1 of 1 deliberate breaks"
+  const detail = stress.kind === 'done' ? `${words} deliberate ${breaksWord(stress.total)}` : words;
+  return `${head}, ${clean ? 'and' : 'though'} the ${detail}.`;
+}
+
+/**
+ * The answer's lead as it is spoken: 'Chef Ravioli Starbright, $2,252.07' for a ranked list (the top name and its figure),
+ * '$9,876.00' or '258 orders' for one figure; null when the answer has no lead (a table, text, an empty list).
+ */
+export function answerLead(view: AnswerView | null): string | null {
+  const lead = view?.lead;
+  if (!lead) return null;
+  const num = lead.unit ? `${lead.num} ${lead.unit}` : lead.num;
+  return lead.name ? `${lead.name}, ${num}` : num;
+}
+
+/**
+ * Where a "Version N" that is not the first answer comes from, in one sentence, when it is only the demo being set up: every save
+ * before it was the starting point, loading the file or installing the demo's agreement FOR THIS ANSWER'S FUNCTION (the engine
+ * numbers every saved step, not only answers), so it names exactly those saves, in order, and says this is the first answer.
+ * null for anything else (no earlier saves, a gap, or any save the viewer made, such as an earlier answer, a lock, a ruling or the
+ * agreement of a question they typed themselves: a 'spec-edit' for another function, or one that names none, is theirs), so it
+ * never claims more than the saved steps show. A first answer with no agreement among them (the demo's basic-checks fallback)
+ * is explained the same way.
+ */
+export function versionNote(revisions: ReadonlyArray<{ id: number; kind: RevisionKind; fn?: string }>, version: number | null, fn: string): string | null {
+  if (version === null || !Number.isFinite(version) || version < 2) return null;
+  const earlier = revisions.filter((r) => r.id < version);
+  if (earlier.length !== version - 1) return null;
+  // what each earlier save was, in the order they happened (a kind once, however many times it was saved)
+  const WHAT: Partial<Record<RevisionKind, string>> = { init: 'the starting point', dataset: 'the file', 'spec-edit': "the demo's agreement" };
+  const what: string[] = [];
+  for (const r of earlier) {
+    const w = WHAT[r.kind];
+    if (w === undefined) return null;
+    // the demo's agreement is the answer's own function's spec; a spec saved for any other function is the viewer's (a typed question)
+    if (r.kind === 'spec-edit' && r.fn !== fn) return null;
+    if (!what.includes(w)) what.push(w);
+  }
+  const files = earlier.filter((r) => r.kind === 'dataset').length;
+  const list = what.map((w) => (w === WHAT.dataset && files > 1 ? 'the files' : w));
+  const range = version === 2 ? 'Version 1 was' : version === 3 ? 'Versions 1 and 2 were' : `Versions 1 to ${version - 1} were`;
+  const said = list.length <= 1 ? (list[0] ?? '') : `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`;
+  return `${range} ${said}; this is the first answer.`;
+}
+
+/**
+ * The version note as the answer card shows it: only in the demo (replay). A copy that runs on your computer gets no new line,
+ * even though it installs the same agreement and so has the same saves (the contract: nothing new on a local copy).
+ */
+export function versionNoteFor(
+  mode: 'live' | 'replay',
+  revisions: ReadonlyArray<{ id: number; kind: RevisionKind; fn?: string }>,
+  version: number | null,
+  fn: string,
+): string | null {
+  return mode === 'replay' ? versionNote(revisions, version, fn) : null;
 }

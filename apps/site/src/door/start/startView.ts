@@ -51,13 +51,13 @@ export const ACCEPT = '.csv,.tsv,.json,.jsonl,.ndjson,.txt';
  * other sample, has no recorded answer at all. Typed once, on purpose: reading model/samples.ts here would build (parse and type)
  * the sample at import time; start/ownFileCaveat.test.ts ties this name to sampleFile('orders').filename.
  */
-const RECORDED_SAMPLE_FILE = 'orders.csv';
+export const RECORDED_SAMPLE_FILE = 'orders.csv';
 
 /**
  * What the demo can and cannot do with a file of your own, said under the drop zone BEFORE anything is dropped (Step by
  * step's picker and the Full view's DataBringer both draw this one string, in the demo only: ownFileCaveat). It agrees
- * with the legend on the question pane ("needs live: this demo has recorded answers for one question; the others need
- * the version on your computer", start/AskCard.tsx needsLiveLegend): the recordings are for questions about orders.csv, and
+ * with the legend on the question pane ("This demo has recorded answers for one question; the others need the version
+ * on your computer", start/AskCard.tsx needsLiveLegend): the recordings are for questions about orders.csv, and
  * only for some of them; sales-q3.csv, the other sample, has none, so this does not say "the sample files".
  */
 export const DEMO_OWN_FILE_CAVEAT = `In this demo, only some questions about the sample file ${RECORDED_SAMPLE_FILE} have recorded answers. Your own file loads and previews here; asking about it needs the version on your computer.`;

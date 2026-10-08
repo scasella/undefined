@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { NOT_RERUN } from '../model/agreement';
-import { OFF_NOTES } from '../model/lanes';
+import { OFF_NOTES, stressLabel } from '../model/lanes';
 import { isZenHash as routerIsZenHash, parseHash } from '../router';
 import {
   afterHistoryBack,
@@ -89,7 +89,7 @@ describe('forwardLabel: the forward button’s words and look on each pane', () 
 
 describe('continueReason', () => {
   const why = 'In this demo, answers are recorded, …';
-  it('gives the words only where Continue is blocked by a question that needs live', () => {
+  it('gives the words only where Continue is blocked by a question that needs your computer', () => {
     expect(continueReason(2, { question: true, needsLive: true }, why)).toBe(why);
     expect(continueReason(3, { question: true, needsLive: true }, why)).toBe(why);
     expect(continueReason(2, { question: true, needsLive: false }, why)).toBe('');
@@ -174,6 +174,16 @@ describe('zenChecks', () => {
   it('the words for a check with nothing to run are the trace\'s own (one wording per state)', () => {
     const c = zenChecks(agr(0, 0, 0), BASIC);
     expect(c.map((x) => x.tag)).toEqual(['Always', OFF_NOTES.examples, OFF_NOTES.locks, OFF_NOTES.rules, 'Always', OFF_NOTES.stress]);
+  });
+  it('the sixth check is named as the trace names it, and speaks of deliberate breaks (never "small breaks on purpose")', () => {
+    for (const [a, ctx] of [[agr(0, 0, 0), BASIC], [agr(6, 1, 2, true), FULL], [agr(6, 1, 2, true), { level: 'basic', mode: 'replay' } as const]] as const) {
+      const six = zenChecks(a, ctx)[5]!;
+      expect(six.label).toBe(stressLabel(null));
+      expect(six.label).toBe('Stress test: deliberate breaks');
+      expect(`${six.label} ${six.note}`).not.toMatch(/small|on purpose/i);
+      expect(six.note).toMatch(/deliberate break|stress test/);
+    }
+    expect(zenChecks(agr(6, 1, 2, true), FULL)[5]!.note).toBe('It makes deliberate breaks in the calculation; your checks should notice.');
   });
   it('the demo agreement counts its parts and switches the stress test on', () => {
     const c = zenChecks(agr(6, 1, 2, true), FULL);

@@ -11,7 +11,7 @@ import { MADE_UP_TABLES } from '../model/agreements';
 import { ILLUSTRATIVE_BREAKS } from '../model/figures';
 import { exampleCount } from './teamFileView';
 
-/** The badge every scripted tile carries (the stress strip's too). */
+/** The one label of the evidence section: every figure in it is an illustrated outcome, not a recorded one. */
 export const ILLUSTRATIVE = 'Illustrative · not yet a recorded run';
 
 export type EvidenceTileId = 'examples' | 'tables' | 'breaks' | 'thrown';
@@ -20,8 +20,16 @@ export interface EvidenceTile {
   id: EvidenceTileId;
   big: string;
   sub: string;
-  /** True when the figure reports the outcome of a run that was not recorded: the tile shows the ILLUSTRATIVE badge. */
+  /** True when the figure reports the outcome of a run that was not recorded: the section's label (`evidenceLabel`) must cover it. */
   illustrative: boolean;
+}
+
+/**
+ * The section's one label, or null when none of its figures is illustrative. Said once for the whole section (the four tiles and
+ * the stress-test strip they open), not on each tile: four copies of the same words were the page's loudest repetition.
+ */
+export function evidenceLabel(tiles: readonly Pick<EvidenceTile, 'illustrative'>[] = evidenceTiles()): string | null {
+  return tiles.some((t) => t.illustrative) ? ILLUSTRATIVE : null;
 }
 
 /** The one stress-test break the example's checks miss (the last in the list). */
@@ -33,7 +41,7 @@ export function evidenceTiles(): EvidenceTile[] {
   return [
     { id: 'examples', big: `${examples} of ${examples}`, sub: 'of your examples match', illustrative: true },
     { id: 'tables', big: String(MADE_UP_TABLES), sub: 'made-up tables, every house rule held', illustrative: true },
-    { id: 'breaks', big: `${breaks - MISSED_BREAKS} of ${breaks}`, sub: 'small breaks caught on purpose', illustrative: true },
+    { id: 'breaks', big: `${breaks - MISSED_BREAKS} of ${breaks}`, sub: 'deliberate breaks caught by the stress test', illustrative: true },
     { id: 'thrown', big: '1', sub: 'first draft thrown out', illustrative: true },
   ];
 }

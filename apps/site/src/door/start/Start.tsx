@@ -92,7 +92,7 @@ function traceIn(region: HTMLElement): HTMLElement | null {
   if (!el) return null;
   if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '-1');
   if (!el.hasAttribute('role')) el.setAttribute('role', 'region');
-  if (!el.hasAttribute('aria-label')) el.setAttribute('aria-label', 'The checks, live');
+  if (!el.hasAttribute('aria-label')) el.setAttribute('aria-label', 'The checks');
   return el;
 }
 

@@ -8,7 +8,7 @@
  * The words for a check with nothing to run are the trace's own (model/lanes.ts OFF_NOTES): one wording per state.
  */
 import { agreementPhrase, isHeldBack, NOT_RERUN, type AgreementView, type CheckMode } from '../model/agreement';
-import { OFF_NOTES } from '../model/lanes';
+import { OFF_NOTES, stressLabel } from '../model/lanes';
 import { isTypedQuestion } from '../model/questions';
 import { isZenHash } from '../router';
 import type { RunOutcome } from '../start/derive';
@@ -263,6 +263,9 @@ export interface ZenContext {
   mode: CheckMode;
 }
 
+/** The sixth check's name, the trace's own (model/lanes.ts stressLabel: the number of breaks is the run's, so none is known yet here). */
+const STRESS_LABEL = stressLabel(null);
+
 /** The six checks for a question: the agreement it will be held to (session.agreement), and what will really run. */
 export function zenChecks(a: Pick<AgreementView, 'n' | 'seeded'>, ctx: ZenContext): ZenCheck[] {
   const { examples, locks, rules } = a.n;
@@ -291,10 +294,10 @@ export function zenChecks(a: Pick<AgreementView, 'n' | 'seeded'>, ctx: ZenContex
       : { num: '04', label: 'Follows your house rules on made-up tables', state: 'none', tag: OFF_NOTES.rules, note: 'No house rules for this question yet.' },
     { num: '05', label: 'Never changes your data · finishes fast', state: 'always', tag: 'Always', note: 'Your table is never edited, and the calculation has a time limit.' },
     held
-      ? { num: '06', label: 'Stress test: small breaks on purpose', state: 'held', tag: NOT_RERUN, note: 'Nothing was set when the answer on file was checked, so no stress test ran on it.' }
+      ? { num: '06', label: STRESS_LABEL, state: 'held', tag: NOT_RERUN, note: 'Nothing was set when the answer on file was checked, so no stress test ran on it.' }
       : any
-        ? { num: '06', label: 'Stress test: small breaks on purpose', state: 'applies', tag: 'Applies', note: 'The calculation is broken in small ways; your checks should notice.' }
-        : { num: '06', label: 'Stress test: small breaks on purpose', state: 'none', tag: OFF_NOTES.stress, note: 'It has nothing to catch the breaks with until you have examples or rules.' },
+        ? { num: '06', label: STRESS_LABEL, state: 'applies', tag: 'Applies', note: 'It makes deliberate breaks in the calculation; your checks should notice.' }
+        : { num: '06', label: STRESS_LABEL, state: 'none', tag: OFF_NOTES.stress, note: 'It has nothing to catch the deliberate breaks with until you have examples or rules.' },
   ];
 }
 

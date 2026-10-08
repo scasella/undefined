@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { zenPrivacyLine } from './Zen';
+import { ZEN_ANSWER_LEAD_ID, zenPrivacyLine } from './Zen';
 
 describe('zenPrivacyLine', () => {
   it('says the demo sends nothing', () => {
@@ -74,5 +74,22 @@ describe('Zen.tsx: owns the scroll while it is mounted (Back and Forward must no
   it('never reads or stores the value itself: "put back what I found" is the leak (entries pushed from a pane are born manual), the default is flow.ts\'s to give', () => {
     const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
     expect(code).not.toMatch(/scrollRestoration/);
+  });
+});
+
+describe('Zen.tsx: the answer pane says the answer once, with the heading that takes focus (A4)', () => {
+  const src = readFileSync(new URL('./Zen.tsx', import.meta.url), 'utf8');
+  it('the heading is described by one hidden sentence holding the answer\'s lead, only on pane 5 while the answer is shown', () => {
+    expect(ZEN_ANSWER_LEAD_ID).toBe('zen-answer-lead');
+    expect(src).toMatch(/const answerSaid = step === 5 && s && !s\.answer\.value\.held \? answerLead\(s\.answer\.value\.view\) : null;/);
+    expect(src).toMatch(/\{\.\.\.\(answerSaid \? \{ 'aria-describedby': ZEN_ANSWER_LEAD_ID \} : \{\}\)\}/);
+    // hidden (not visually-hidden): the description is read with the heading, and browsing the page does not read it a second time
+    expect(src).toMatch(/<span id=\{ZEN_ANSWER_LEAD_ID\} hidden>/);
+  });
+  it('is not a live region, and the heading keeps its id and its focus', () => {
+    const mark = src.indexOf('<span id={ZEN_ANSWER_LEAD_ID}');
+    expect(src.slice(mark, mark + 120)).not.toMatch(/aria-live|role="status"|role="alert"/);
+    expect(src).toContain('<h1 id="zen-title" class="zen__h" tabIndex={-1} ref={title}');
+    expect(src).toContain("title.current?.focus({ preventScroll: true });");
   });
 });

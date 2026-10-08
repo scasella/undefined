@@ -25,8 +25,10 @@ import type { Engine } from '@scasella/undefined-engine/types';
 import { BootError } from '../App';
 import { Button } from '../components/LinkButton';
 import { Mark } from '../icons';
+import { answerLead } from '../model/answer';
+import type { SampleId } from '../model/samples';
 import { rowsShort, sendRows } from '../state';
-import { noRecordingText, noRecordingView, traceSummary } from '../start/derive';
+import { noRecordingText, noRecordingView, sampleOffer, traceSummary } from '../start/derive';
 import { RunPanel } from '../start/RunPanel';
 import { sessionFor, type Session } from '../start/session';
 import {
@@ -53,6 +55,9 @@ import { ZenData } from './ZenData';
 import { ZenChecks, ZenQuestion, ZenYourData } from './ZenPanes';
 import { ZenProof } from './ZenProof';
 import './Zen.css';
+
+/** The hidden sentence the answer pane's heading is described by: the answer's lead, so a screen reader hears it with the heading. */
+export const ZEN_ANSWER_LEAD_ID = 'zen-answer-lead';
 
 export function zenPrivacyLine(mode: 'live' | 'replay', rowsOn: boolean): string {
   return mode === 'replay'
@@ -202,15 +207,22 @@ export function Zen({ engine, initError }: { engine: Engine; initError: string |
   // the forward button's words and look (flow.ts forwardLabel): your own file in the demo opens "See what's in your file", secondary
   const fwd = forwardLabel(step, { ownData, replay: st.mode === 'replay' });
   const other = s?.recordedOther.value ?? null;
-  const why = s ? continueReason(step, { question: picked !== null, needsLive, bound }, noRecordingText(ownData, other)) : '';
-  // the reason as the no-recording sentence in pieces (its `try it` is a button), when that is the reason
-  const whyView = why !== '' && needsLive && (step === 2 || step === 3) ? noRecordingView(ownData, other) : null;
+  // the recorded sample, for a file that is not it: the way out of a question the demo cannot answer, when no other question here can be
+  const offer = s ? sampleOffer(s.sampleId.value) : null;
+  const why = s ? continueReason(step, { question: picked !== null, needsLive, bound }, noRecordingText(ownData, other, offer)) : '';
+  // the reason as the no-recording sentence in pieces (its `try it` / `switch to orders.csv` is a button), when that is the reason
+  const whyView = why !== '' && needsLive && (step === 2 || step === 3) ? noRecordingView(ownData, other, offer) : null;
   const describedBy = why ? { 'aria-describedby': CONTINUE_WHY_ID } : {};
   const pane = paneOf(step);
   // `try it`: another question that has a recorded answer. The sentence it was in goes away, so focus goes to the way forward
   const tryOther = (id: string) => {
     if (!s) return;
     void s.selectQuestion(id).then(() => requestAnimationFrame(() => document.getElementById(ZEN_CONTINUE_ID)?.focus()));
+  };
+  // `switch to orders.csv`: the file under the pane changes and the sentence goes away, so focus goes to the way forward as well
+  const useSample = (sample: SampleId) => {
+    if (!s) return;
+    void s.useSample(sample).then(() => requestAnimationFrame(() => document.getElementById(ZEN_CONTINUE_ID)?.focus()));
   };
 
   const run = () => {
@@ -230,6 +242,9 @@ export function Zen({ engine, initError }: { engine: Engine; initError: string |
   };
   // one plain line, next to the way forward: how the checks went (the seal's words and the real run: the answer pane's own line)
   const verdict = step === 4 && done && s ? traceSummary(s.trace.value) : null;
+  // the answer, said once: on the answer pane the heading takes focus, and its description is the answer's lead (the top name and its figure)
+  // so the viewer does not have to hunt for it; the card below is read only if they read on, and nothing here is a live region
+  const answerSaid = step === 5 && s && !s.answer.value.held ? answerLead(s.answer.value.view) : null;
 
   return (
     <div class="zen">
@@ -272,13 +287,18 @@ export function Zen({ engine, initError }: { engine: Engine; initError: string |
             </ol>
 
             <section class="zen__pane" key={step} aria-labelledby="zen-title">
-              <h1 id="zen-title" class="zen__h" tabIndex={-1} ref={title}>
+              <h1 id="zen-title" class="zen__h" tabIndex={-1} ref={title} {...(answerSaid ? { 'aria-describedby': ZEN_ANSWER_LEAD_ID } : {})}>
                 {pane.title}
               </h1>
+              {answerSaid && (
+                <span id={ZEN_ANSWER_LEAD_ID} hidden>
+                  {answerSaid}
+                </span>
+              )}
 
               {step === 1 && <ZenData engine={engine} />}
-              {step === 2 && <ZenQuestion engine={engine} why={why} whyView={whyView} onTry={tryOther} />}
-              {step === 3 && <ZenChecks engine={engine} why={why} whyView={whyView} onTry={tryOther} />}
+              {step === 2 && <ZenQuestion engine={engine} why={why} whyView={whyView} onTry={tryOther} onUse={useSample} />}
+              {step === 3 && <ZenChecks engine={engine} why={why} whyView={whyView} onTry={tryOther} onUse={useSample} />}
               {step === 4 && <RunPanel engine={engine} zen part="run" onSettled={settled} />}
               {step === 5 && <RunPanel engine={engine} zen part="answer" />}
               {step === 5 && <ZenProof engine={engine} />}

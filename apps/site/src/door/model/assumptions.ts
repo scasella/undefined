@@ -166,7 +166,7 @@ export const hasAgreement = (f: CheckFacts): boolean => f.examples + f.locked + 
 
 /**
  * 'your 6 examples', 'your locked answer (Chef Ravioli Starbright = $2,252.07)', 'your 2 house rules on 100 made-up
- * tables', '12-way stress test (11 caught)', 'never changes your data', 'finishes fast'. With no agreement:
+ * tables', 'stress test (caught 11 of 12 deliberate breaks)', 'never changes your data', 'finishes fast'. With no agreement:
  * 'runs without errors', 'never changes your data', 'finishes fast'.
  */
 export function checkedList(f: CheckFacts): string[] {

@@ -75,7 +75,7 @@ describe('checked against', () => {
     });
     expect(checkedList({ ...f, houseRules: 2 })).toEqual([
       'your 6 examples', 'your locked answer (Chef Ravioli Starbright = $2,252.07)', 'your 2 house rules on 100 made-up tables',
-      '12-way stress test (11 caught)', 'never changes your data', 'finishes fast',
+      'stress test (caught 11 of 12 deliberate breaks)', 'never changes your data', 'finishes fast',
     ]);
   });
   it('never claims a check that did not run', () => {
@@ -122,14 +122,14 @@ describe('checked against', () => {
   });
   it('the stress test line takes the green disc only when nothing was missed (checkedAsk), amber otherwise', () => {
     const f = checkFactsFrom({ artifact: artifact(), spec: spec(), question: 'top customers by revenue' });
-    expect(checkedList(f)).toContain('12-way stress test (11 caught)');
-    expect(checkedAsk(f)).toEqual(['12-way stress test (11 caught)']);
+    expect(checkedList(f)).toContain('stress test (caught 11 of 12 deliberate breaks)');
+    expect(checkedAsk(f)).toEqual(['stress test (caught 11 of 12 deliberate breaks)']);
     const clean: CheckFacts = { ...f, stress: { kind: 'done', total: 12, caught: 12, missed: 0 } };
-    expect(checkedList(clean)).toContain('12-way stress test (12 caught)');
+    expect(checkedList(clean)).toContain('stress test (caught 12 of 12 deliberate breaks)');
     expect(checkedAsk(clean)).toEqual([]);
     const partial: CheckFacts = { ...f, stress: { kind: 'partial', total: 5, caught: 4, missed: 1, planned: 12 } };
-    expect(checkedList(partial)).toContain('stress test (4 of 5 caught, ran out of time)');
-    expect(checkedAsk(partial)).toEqual(['stress test (4 of 5 caught, ran out of time)']);
+    expect(checkedList(partial)).toContain('stress test (caught 4 of 5 deliberate breaks, ran out of time)');
+    expect(checkedAsk(partial)).toEqual(['stress test (caught 4 of 5 deliberate breaks, ran out of time)']);
     // not run: not listed as checked, and no glyph to give
     const none: CheckFacts = { ...f, stress: { kind: 'not-run' } };
     expect(checkedList(none).some((t) => /stress/.test(t))).toBe(false);
@@ -229,10 +229,10 @@ describe('not checked', () => {
       expect(tail({ kind: 'not-run' })[2]).toBe("whether your checks would notice a broken calculation: the stress test didn't run");
     });
     it('a stress test that ran out of time says how far it got', () => {
-      expect(tail({ kind: 'partial', total: 5, caught: 4, missed: 1, planned: 12 })[2]).toBe('the stress test ran out of time: it tried 5 of 12 small breaks, and 1 of those went unnoticed by your checks');
-      expect(tail({ kind: 'partial', total: 5, caught: 5, missed: 0, planned: null })[2]).toBe('the stress test ran out of time: it tried 5 small breaks');
+      expect(tail({ kind: 'partial', total: 5, caught: 4, missed: 1, planned: 12 })[2]).toBe('the stress test ran out of time: it tried 5 of 12 deliberate breaks, and 1 of those went unnoticed by your checks');
+      expect(tail({ kind: 'partial', total: 5, caught: 5, missed: 0, planned: null })[2]).toBe('the stress test ran out of time: it tried 5 deliberate breaks');
     });
-    it('comes before the "added after this answer was checked" line, so the first line (shown under the figure) is unchanged', () => {
+    it('comes before the "added after this answer was checked" line, so the first item (the clause the verdict line under the figure names) is unchanged', () => {
       const out = notCheckedList({ ...q, facts: { ...EMPTY_FACTS, examples: 6, stress: { kind: 'done', total: 12, caught: 10, missed: 2 } }, set: { examples: 6, locks: 1, rules: 0 } });
       expect(out).toEqual(['whether orders.csv is the complete export', 'whether this was the right question', '2 of 12 deliberate breaks went unnoticed by your checks', 'your locked answer: added after this answer was checked']);
     });
