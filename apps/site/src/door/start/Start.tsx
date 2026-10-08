@@ -18,7 +18,8 @@
 import { effect } from '@preact/signals';
 import { useEffect, useRef } from 'preact/hooks';
 import type { Engine } from '@scasella/undefined-engine/types';
-import { AskCard } from './AskCard';
+import { AgreementDraft } from '../components/AgreementDraft';
+import { ASK_BUTTON_ID, AskCard } from './AskCard';
 import { ColumnPreview } from './ColumnPreview';
 import { DataBringer } from './DataBringer';
 import { Intro } from './Intro';
@@ -168,6 +169,7 @@ export function Start({ engine }: { engine: Engine }) {
             <h2 class="fd-sr">Bring a file</h2>
             <DataBringer engine={engine} />
             <AskCard engine={engine} />
+            <AgreementDraft session={sessionFor(engine)} forwardId={ASK_BUTTON_ID} lead={false} />
             <div ref={run} class="fd-start__run">
               <RunPanel engine={engine} />
             </div>

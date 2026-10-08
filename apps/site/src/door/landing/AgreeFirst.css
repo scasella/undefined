@@ -1,0 +1,66 @@
+/* Landing · "It asks before it writes the checks" (AgreeFirst.tsx). A peak in the scroll right after the stage: white band, the
+   headline at full Headline size, and one board of three panels in the order they happen. Each panel is a surface the system already
+   owns: the stop-and-ask card (amber), a document card (white, ringed), the saved card (green). The rule under them is the order. */
+.fd-af { padding: 72px 0; background: var(--fd-surface); border-top: 1px solid var(--fd-line); border-bottom: 1px solid var(--fd-line); }
+.fd-af__intro { max-width: 760px; }
+.fd-af__h { margin: 0; font-size: clamp(26px, 3vw, 36px); line-height: 1.15; font-weight: 600; letter-spacing: -0.025em; color: var(--fd-ink); text-wrap: balance; }
+.fd-af__accent { color: var(--fd-indigo); }
+.fd-af__lede { margin: 16px 0 0; max-width: var(--fd-measure); color: var(--fd-ink-2); }
+
+.fd-af__board { margin: 40px 0 0; padding: 24px; border-radius: var(--fd-r-xl); background: var(--fd-bg); box-shadow: var(--fd-sh-ring); container-type: inline-size; }
+.fd-af__asked { margin: 0 0 16px; overflow-wrap: anywhere; }
+.fd-af__panels { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; position: relative; }
+.fd-af__panel { position: relative; display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 20px; border-radius: var(--fd-r-lg); background: var(--fd-surface); box-shadow: var(--fd-sh-card); }
+/* the order: a small arrowhead in each gap, pointing on to the next panel */
+.fd-af__panel + .fd-af__panel::before {
+  content: ''; position: absolute; left: -12px; top: 30px; width: 8px; height: 8px;
+  border-top: 1.5px solid var(--fd-ink-3); border-right: 1.5px solid var(--fd-ink-3); transform: rotate(45deg);
+}
+.fd-af__panel--ask { background: var(--fd-amber-wash); box-shadow: 0 0 0 1px var(--fd-amber), var(--fd-sh-float); }
+.fd-af__panel--agreed { background: var(--fd-green-wash); box-shadow: 0 0 0 1px var(--fd-green), var(--fd-sh-float); }
+.fd-af__ph { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 16px; line-height: 22px; font-weight: 600; color: var(--fd-ink); }
+.fd-af__ph svg { flex: none; }
+.fd-af__ph--agreed { color: var(--fd-green-ink); }
+.fd-af__pn { font-weight: 400; font-size: 14px; color: var(--fd-amber-ink); }
+
+.fd-af__qs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.fd-af__q { display: flex; flex-direction: column; gap: 6px; }
+.fd-af__qa { font-size: 14px; line-height: 20px; font-weight: 500; color: var(--fd-ink); overflow-wrap: anywhere; }
+/* the answer given: the selected option ring, read-only */
+.fd-af__qr {
+  display: flex; align-items: flex-start; gap: 8px; padding: 8px 12px; border-radius: var(--fd-r-sm); background: var(--fd-surface);
+  box-shadow: 0 0 0 1.5px var(--fd-indigo); font-size: 13px; line-height: 19px; color: var(--fd-ink); overflow-wrap: anywhere;
+}
+.fd-af__dot { flex: none; margin-top: 4px; width: 10px; height: 10px; border-radius: 50%; box-shadow: inset 0 0 0 3px var(--fd-indigo), 0 0 0 1px var(--fd-indigo); background: var(--fd-surface); }
+
+.fd-af__terms { margin: 0; padding: 0; list-style: none; counter-reset: fd-af-t; display: flex; flex-direction: column; gap: 8px; }
+.fd-af__terms li { counter-increment: fd-af-t; position: relative; padding-left: 24px; font-size: 14px; line-height: 20px; color: var(--fd-ink); overflow-wrap: anywhere; }
+.fd-af__terms li::before { content: counter(fd-af-t); position: absolute; left: 0; top: 1px; font-family: var(--fd-mono); font-size: 12px; line-height: 18px; color: var(--fd-ink-3); font-variant-numeric: tabular-nums; }
+.fd-af__more { margin: -4px 0 0 24px; font-size: 13px; line-height: 19px; color: var(--fd-ink-3); }
+.fd-af__count { margin: 4px 0 0; padding-top: 12px; border-top: 1px solid var(--fd-line); font-family: var(--fd-mono); font-size: 12px; line-height: 17px; font-weight: 500; color: var(--fd-ink-2); }
+.fd-af__checks { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.fd-af__checks li { position: relative; padding-left: 20px; font-size: 13px; line-height: 19px; color: var(--fd-ink-2); overflow-wrap: anywhere; }
+/* a check that will run: the trace's tick as a dashed outline (as the agreement pane draws it) */
+.fd-af__checks li::before { content: ''; position: absolute; left: 3px; top: 3px; width: 7px; height: 11px; border-radius: 1.5px; border: 1.5px dashed var(--fd-ink-3); }
+
+.fd-af__agreed { margin: 0; font-size: 14px; line-height: 20px; color: var(--fd-ink); }
+.fd-af__limits { padding: 12px 14px; border-radius: var(--fd-r-md); border: 1.5px dashed var(--fd-line-2); background: var(--fd-surface-3); }
+.fd-af__lh { display: block; font-size: 13px; line-height: 19px; font-weight: 600; color: var(--fd-ink); }
+.fd-af__limits p { margin: 4px 0 0; font-size: 13px; line-height: 19px; color: var(--fd-ink-2); overflow-wrap: anywhere; }
+
+.fd-af__foot { margin-top: 20px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; }
+.fd-af__prov { margin: 0; flex: 1 1 360px; max-width: var(--fd-measure); font-size: 13px; line-height: 19px; color: var(--fd-ink-2); }
+.fd-af__prov strong { font-weight: 600; color: var(--fd-ink); }
+.fd-af__note { margin: 16px 0 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0 4px; font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
+.fd-af__link { height: auto; min-height: 44px; }
+
+@container (max-width: 860px) {
+  .fd-af__panels { grid-template-columns: 1fr; }
+  .fd-af__panel + .fd-af__panel::before { left: 28px; top: -12px; transform: rotate(135deg); }
+}
+@media (max-width: 480px) {
+  .fd-af { padding: 48px 0; }
+  .fd-af__board { padding: 16px; margin-top: 28px; }
+  .fd-af__panel { padding: 16px; }
+  .fd-af__foot .fd-btn { flex: 1 1 100%; }
+}

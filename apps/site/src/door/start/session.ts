@@ -29,7 +29,7 @@
  *                                                       installed: live mode, or replay with a recording made against
  *                                                       it (null: none, seed off, not recorded, or still being checked)
  *   seedState      'none' | 'installing' | 'installed' | 'failed'
- *   availability   Record<questionId, 'certified' | 'recorded' | 'none' | 'live'>   can it be answered here, and how
+ *   availability   Record<questionId, 'certified' | 'recorded' | 'drafted' | 'none' | 'live'>   can it be answered here, and how
  *                                                       ('certified' in either mode: asking again shows the answer on file)
  *   recordedOther  SuggestedQuestion | null             another question that CAN be answered here (for the no-recording copy)
  *   run            RunRef | null                        the run the page started (derive.ts)
@@ -95,6 +95,7 @@ import type { AgreementView } from '../model/agreement';
 import type { DataRow } from '../model/figures';
 import { lastSentPrompt, privacyView, type PrivacyView } from '../model/privacy';
 import { customQuestion, customSpec, DEFAULT_QUESTION_ID, matchQuestion, suggestedQuestions, type SuggestedQuestion } from '../model/questions';
+import { recordedDraftFor, recordedDraftReplays } from '../model/recordedDraft';
 import { sampleFile, sampleIdFor, SAMPLE_IDS, type SampleId } from '../model/samples';
 import { recordChecks, session as telemetry, shellFileChip, shellRunning } from '../state';
 import {
@@ -209,6 +210,11 @@ export interface Session {
   /** Remove a question the viewer typed (suggestions stay). Selects the first question left when it was the selected one. */
   removeQuestion(id: string): Promise<boolean>;
   ask(): Promise<boolean>;
+  /**
+   * Install a contract the viewer approved for the selected question (pane 3's drafted contract, model/specDraft.ts) as its spec.
+   * An answer shown for the question before was held to the old contract, so it is forgotten: the next ask runs against this one.
+   */
+  applySpec(spec: FunctionSpec): Promise<boolean>;
   toggleLock(): Promise<boolean>;
   /** Mark `id` (an assumption of the current answer) as confirmed by the viewer; nothing without a run. Local to the page. */
   confirm(id: string): void;
@@ -428,7 +434,8 @@ export function createSession(engine: Engine, config: Partial<SessionConfig> = {
   const running = computed(() => outcome.value.kind === 'running' || !!run.value?.pending);
   const busy = computed(() => st.value.busy || working.value || running.value || intake.value.busy);
   const canChange = computed(() => st.value.ready && !busy.value);
-  const canAsk = computed(() => canChange.value && !!question.value && !!dataset.value);
+  // a question the demo can answer only under its recorded drafted checks waits until they are approved (start/draft.ts)
+  const canAsk = computed(() => canChange.value && !!question.value && !!dataset.value && availability.value[question.value.id] !== 'drafted');
   const askLabel = computed(() => (run.value && SETTLED_KINDS.has(outcome.value.kind) && run.value.questionId === questionId.value ? 'Ask again' : 'Ask · checks run first'));
 
   // ───────────── effects: shell, telemetry, availability ─────────────
@@ -500,6 +507,10 @@ export function createSession(engine: Engine, config: Partial<SessionConfig> = {
         dataset: d,
         recordings: recs ?? [],
         seedFor: (q) => seedFor(q, d, sid, v, s.mode)?.spec ?? null,
+        drafted: async (q) => {
+          const rd = recordedDraftFor(sid, q.id);
+          return rd && (await recordedDraftReplays(rd, customSpec(q, d))) ? rd.key : null;
+        },
       }).then((a) => {
         if (!disposed && my === availSeq) availability.value = a;
       });
@@ -827,6 +838,19 @@ export function createSession(engine: Engine, config: Partial<SessionConfig> = {
     }
   }
 
+  async function applySpec(spec: FunctionSpec): Promise<boolean> {
+    const q = question.peek();
+    if (!idle() || !q || spec.name !== q.fn || !dataset.peek()) return false;
+    working.value = true;
+    try {
+      await engine.upsertSpec(spec);
+      if (!disposed) run.value = null;
+      return true;
+    } finally {
+      working.value = false;
+    }
+  }
+
   async function toggleLock(): Promise<boolean> {
     if (!idle()) return false;
     const l = lock.peek();
@@ -956,6 +980,7 @@ export function createSession(engine: Engine, config: Partial<SessionConfig> = {
     addQuestion,
     removeQuestion,
     ask,
+    applySpec,
     toggleLock,
     confirm,
     decide,

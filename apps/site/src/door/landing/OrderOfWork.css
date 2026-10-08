@@ -12,6 +12,8 @@
 .fd-ow-step--dashed { padding: 9px 13px; background: transparent; border: 1.5px dashed var(--fd-line-2); }
 .fd-ow-step--ask { background: var(--fd-indigo-wash); color: var(--fd-ink); }
 .fd-ow-step--ink { color: var(--fd-ink); }
+/* the agreement step: the selected-state ring in indigo (the checks are agreed before anything is written) */
+.fd-ow-step--agree { background: var(--fd-surface); color: var(--fd-ink); font-weight: 500; box-shadow: 0 0 0 1.5px var(--fd-indigo); }
 .fd-ow-step--trace { background: var(--tr-bg); color: var(--tr-text); display: inline-flex; align-items: center; gap: 8px; }
 .fd-ow-pulse { flex: none; width: 6px; height: 6px; background: var(--tr-pass); border-radius: 999px; }
 .fd-ow-step--done { background: var(--fd-green-wash); color: var(--fd-green-ink); font-weight: 500; }

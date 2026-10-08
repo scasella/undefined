@@ -34,6 +34,11 @@ revision of your running program. Everything runs in your browser except the mod
   and watch them run on the recorded answer. The Full view, [`#/start`](https://scasella.github.io/undefined/#/start), is the same
   run on one page. Your own file loads and previews too; new questions about it need
   [the local copy](#run-it-on-your-computer).
+- **Agree on the checks first** (the headline feature): on *Step by step*'s pane 3, *Agree what the answer must pass*,
+  the AI drafts the examples and house rules your answer has to pass, **asks you about anything your question leaves
+  open**, and says in plain words what passing them would and would not show; nothing counts until you approve it. In
+  the demo, pick *What is our revenue by country?* (or press *Try this question on orders.csv* on the landing) and the recorded draft
+  plays back, questions and all; on your computer it drafts for any question you type. [Details](docs/FRONT-DOOR.md).
 - **Lock an answer:** *Does this look right? Lock this answer* turns it into a check every later version must pass.
 - **Decide** where the spec was silent: a rejection a check marks as a spec gap becomes *a question only you can
   answer*. Your ruling becomes a house rule and the function is re-checked. [How](docs/FEATURES.md#decide-spec-gaps-become-questions).
@@ -107,6 +112,10 @@ formats, limits: [docs/ENGINE.md](docs/ENGINE.md); npm names: [docs/PACKAGES.md]
   bodies), the argument types of the call, declared types and sample rows. A retry adds the rejected draft, the gates'
   diagnostics and, when the error is fed back, the failing call; these can quote argument values and results, except
   as described in [Data](docs/FEATURES.md#data) while data is loaded.
+- **Drafting the checks** (pane 3 of Step by step and the Full view, live mode, only when you press it): one `POST ./generate` per round
+  with the question, the function's name, the row type, the row count and, when you share them, the same sample rows,
+  plus your answers to the AI's questions and any change you asked for. In the demo the draft is a bundled recording
+  (`src/door/model/recordedDraft.json`, made by `npm run record:draft`) and nothing is sent.
 - **Recording links** (`?recording=<url>`) are ignored by the front door: nothing is fetched. Sharing a session is
   engine API only now ([docs/REPLAY.md](docs/REPLAY.md#share-a-session)).
 - Your program, data and the optional session log stay in this browser's IndexedDB. The CLI makes no network calls;
@@ -115,8 +124,11 @@ formats, limits: [docs/ENGINE.md](docs/ENGINE.md); npm names: [docs/PACKAGES.md]
 ## Limits and known gaps
 
 - **Neither sandbox is a security boundary:** not the browser workers, not the Node runner ([docs/SECURITY.md](docs/SECURITY.md)).
-- **Questions are suggested, not typed:** the front door asks only the questions it suggests for your file (worked out
-  from the column types). Free-form calls are engine API only ([details](docs/FEATURES.md#engine-features-with-no-ui)).
+- **Questions are suggested or typed, not free-form code:** the front door asks the questions it suggests for your file
+  (worked out from the column types) or one you type on Step by step, which becomes a function of your table. Free-form
+  calls are engine API only ([details](docs/FEATURES.md#engine-features-with-no-ui)). A question you type has only the
+  basic checks unless, on a copy running on your computer, you approve the checks the AI drafts for it. In the demo it
+  has no recorded answer.
 - **Composition** (a generated function calling another certified one) was measured once
   ([docs/COMPOSE-MEASUREMENTS.md](docs/COMPOSE-MEASUREMENTS.md)); no cycles, and a dependent is re-checked when a callee changes.
 - A self-recursive function with no declared return type cannot compile (TS7023); one extra attempt is allowed.

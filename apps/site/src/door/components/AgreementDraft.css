@@ -1,0 +1,202 @@
+/* "Agree what the answer must pass" (AgreementDraft.tsx). Every surface here is one the system already owns (DESIGN.md): the
+   answer card's indigo-tinted lift for the invitation, the check trace's night ground for drafting, the stop-and-ask card for the
+   AI's questions, a document card for the draft (a dashed panel for what it would not show: the Dashed Edge Rule) and the saved
+   card once agreed. One authored moment: approving seals the agreement (the saved card is drawn in from the left, as the answer's
+   seal hairline is) while the checks it turned on light up in the list (ZenPanes.css, .zp__check.is-lit). */
+
+.fd-ad { display: flex; flex-direction: column; gap: 16px; }
+
+.fd-ad__card { position: relative; display: flex; flex-direction: column; gap: 14px; padding: 24px; border-radius: var(--fd-r-lg); background: var(--fd-surface); box-shadow: var(--fd-sh-card); }
+.fd-ad__head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px 16px; }
+/* beside a meta or a pill the heading takes the room; alone in a card's column it is only as tall as its lines */
+.fd-ad__head .fd-ad__h { flex: 1 1 280px; }
+.fd-ad__h { margin: 0; flex: none; display: flex; align-items: flex-start; gap: 10px; font-size: 22px; line-height: 28px; font-weight: 600; letter-spacing: -0.015em; color: var(--fd-ink); text-wrap: balance; }
+.fd-ad__h svg { flex: none; margin-top: 4px; }
+.fd-ad__h:focus { outline: none; }
+.fd-ad__h:focus-visible { outline: 2px solid var(--fd-indigo); outline-offset: 4px; border-radius: var(--fd-r-xs); }
+.fd-ad__lead { margin: 0; max-width: var(--fd-measure); font-size: 16px; line-height: 24px; color: var(--fd-ink-2); overflow-wrap: anywhere; }
+.fd-ad__small { margin: 0; max-width: var(--fd-measure); font-size: 13px; line-height: 19px; color: var(--fd-ink-3); overflow-wrap: anywhere; }
+.fd-ad__demo { margin: 0; max-width: var(--fd-measure); font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
+.fd-ad__meta { flex: none; padding-top: 6px; font-family: var(--fd-mono); font-size: 12px; line-height: 17px; font-weight: 500; letter-spacing: 0.01em; color: var(--fd-ink-3); font-variant-numeric: tabular-nums; }
+.fd-ad__acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+/* ── idle: the invitation, lit with the answer card's indigo-tinted lift: the one thing this pane asks of the viewer ── */
+.fd-ad__card--invite { box-shadow: var(--fd-sh-answer); gap: 16px; padding: 28px 28px 24px; }
+.fd-ad__beats { list-style: none; margin: 4px 0 4px; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; border-radius: var(--fd-r-md); box-shadow: var(--fd-sh-ring); overflow: hidden; }
+.fd-ad__beat { position: relative; display: flex; flex-direction: column; gap: 6px; padding: 16px 16px 18px; background: var(--fd-surface-3); }
+.fd-ad__beat + .fd-ad__beat { box-shadow: inset 1px 0 0 var(--fd-line); }
+/* the arrow between beats: the order is the point (asked, then drafted, then agreed) */
+.fd-ad__beat + .fd-ad__beat::before {
+  content: ''; position: absolute; left: -5px; top: 22px; width: 8px; height: 8px; background: var(--fd-surface-3);
+  border-top: 1px solid var(--fd-line); border-right: 1px solid var(--fd-line); transform: rotate(45deg);
+}
+.fd-ad__beat-mark { display: flex; height: 20px; align-items: center; }
+.fd-ad__beat-t { font-size: 15px; line-height: 22px; font-weight: 600; color: var(--fd-ink); }
+.fd-ad__beat-b { font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
+.fd-ad__will { color: var(--fd-ink-2); }
+.fd-ad__you { color: var(--fd-indigo); flex: none; }
+@container (max-width: 560px) {
+  .fd-ad__beats { grid-template-columns: 1fr; }
+  .fd-ad__beat + .fd-ad__beat { box-shadow: inset 0 1px 0 var(--fd-line); }
+  .fd-ad__beat + .fd-ad__beat::before { left: 24px; top: -5px; transform: rotate(135deg); }
+}
+.fd-ad { container-type: inline-size; }
+
+/* ── drafting: a strip that quotes the check trace (night ground, pin dots, the pen-lime ticks) ── */
+.fd-ad__trace {
+  display: flex; flex-direction: column; gap: 14px; padding: 20px 24px; border-radius: var(--fd-r-xl);
+  background-color: var(--tr-bg); background-image: radial-gradient(var(--tr-dot) 1px, transparent 1px); background-size: 8px 8px;
+  box-shadow: var(--fd-sh-float); color: var(--tr-text);
+}
+.fd-ad__trace-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; font-family: var(--fd-mono); font-size: 12px; line-height: 17px; font-weight: 500; letter-spacing: 0.01em; }
+.fd-ad__trace-t { min-width: 0; color: var(--tr-text-2); overflow-wrap: anywhere; }
+.fd-ad__trace .fd-ad__secs { color: var(--tr-pen); font-variant-numeric: tabular-nums; }
+.fd-ad__trace-body { display: flex; align-items: center; gap: 14px; min-height: 44px; padding: 0 14px; border-radius: var(--fd-r-xs); background: var(--tr-lane); box-shadow: 0 0 0 1px var(--tr-pen); }
+.fd-ad__trace-s { font-size: 14px; line-height: 20px; color: var(--tr-text); }
+.fd-ad__trace-note { margin: 0; font-size: 13px; line-height: 19px; color: var(--tr-text-2); }
+.fd-ad__trace-acts { display: flex; }
+.fd-ad__cancel {
+  min-height: 44px; padding: 0 16px; border: 0; border-radius: var(--fd-r-md); cursor: pointer; font: inherit; font-size: 14px; font-weight: 500;
+  background: transparent; color: var(--tr-text); box-shadow: 0 0 0 1px var(--tr-border-2, #303A47); transition: box-shadow 120ms var(--fd-ease), background-color 120ms var(--fd-ease);
+}
+.fd-ad__cancel:hover { background: var(--tr-lane); box-shadow: 0 0 0 1px var(--tr-text-3, #808A99); }
+/* on the night ground the indigo ring is under 3:1: the pen-lime outline, as on the trace */
+.fd-ad__cancel:focus-visible { outline: 2px solid var(--tr-pen); outline-offset: 2px; }
+/* the three ticks of the trace's drafting mark (CheckTrace.css .fd-trace__pen), a touch larger: here they are the whole message */
+.fd-ad__pen { display: inline-flex; align-items: flex-end; gap: 4px; flex: none; height: 16px; }
+.fd-ad__pen > span { width: 7px; height: 16px; border-radius: var(--fd-r-xs); background: var(--tr-pen); transform-origin: 50% 100%; }
+.fd-ad__pen > span:nth-child(1) { opacity: 0.35; }
+.fd-ad__pen > span:nth-child(2) { opacity: 0.65; }
+/* ease-in-out on purpose: this one LOOPS, like the trace's own drafting mark and the mode dot; the one ease-out is for arrivals. */
+@keyframes fd-ad-pen { 0%, 100% { opacity: 0.3; transform: scaleY(0.5); } 45% { opacity: 1; transform: scaleY(1); } }
+.fd-ad__pen > span { animation: fd-ad-pen 1.8s ease-in-out infinite; }
+.fd-ad__pen > span:nth-child(2) { animation-delay: -1.6s; }
+.fd-ad__pen > span:nth-child(3) { animation-delay: -1.4s; }
+
+/* ── asking: the stop-and-ask card ── */
+.fd-ad__card--ask { background: var(--fd-amber-wash); box-shadow: 0 0 0 1px var(--fd-amber), var(--fd-sh-float); }
+.fd-ad__card--ask .fd-ad__lead { color: var(--fd-ink); }
+.fd-ad__card--ask .fd-ad__meta { color: var(--fd-amber-ink); }
+.fd-ad__q { margin: 6px 0 0; padding: 0; border: 0; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.fd-ad__ask { display: flex; align-items: flex-start; gap: 10px; padding: 0; font-size: 16px; line-height: 24px; font-weight: 600; color: var(--fd-ink); }
+.fd-ad__qn {
+  flex: none; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 999px;
+  background: var(--fd-surface); box-shadow: 0 0 0 1px var(--fd-amber); font-family: var(--fd-mono); font-size: 12px; font-weight: 500; color: var(--fd-amber-ink);
+}
+.fd-ad__why { margin: -4px 0 0 34px; max-width: var(--fd-measure); font-size: 14px; line-height: 20px; color: var(--fd-amber-ink); }
+.fd-ad__opts { margin-left: 34px; display: flex; flex-direction: column; gap: 8px; }
+.fd-ad__opt {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-height: 48px; padding: 6px 16px; box-sizing: border-box;
+  border-radius: var(--fd-r-md); background: var(--fd-surface); cursor: pointer; font-size: 15px; line-height: 20px; color: var(--fd-ink-2);
+  box-shadow: var(--fd-sh-ring); transition: box-shadow 120ms var(--fd-ease), background-color 120ms var(--fd-ease);
+}
+.fd-ad__opt:hover { box-shadow: 0 0 0 1px var(--fd-ink-3); }
+.fd-ad__opt.is-on { box-shadow: 0 0 0 1.5px var(--fd-indigo); font-weight: 500; color: var(--fd-ink); }
+.fd-ad__opt.is-disabled { cursor: not-allowed; background: var(--fd-surface-3); color: var(--fd-ink-3); }
+.fd-ad__opt.is-disabled:hover { box-shadow: var(--fd-sh-ring); }
+.fd-ad__radio { width: 18px; height: 18px; margin: 0; flex: none; accent-color: var(--fd-indigo); }
+.fd-ad__opt-t { min-width: 0; overflow-wrap: anywhere; }
+.fd-ad__own {
+  flex: 1 1 180px; min-width: 0; box-sizing: border-box; min-height: 36px; padding: 0 12px; border-radius: var(--fd-r-sm); border: 1px solid var(--fd-edge-input);
+  background: var(--fd-surface); font: inherit; font-size: 15px; color: var(--fd-ink);
+}
+.fd-ad__own:focus-visible { outline: none; border-color: var(--fd-indigo); box-shadow: var(--fd-sh-focus); }
+.fd-ad__own[readonly] { background: var(--fd-surface-3); }
+
+/* ── review: the agreement as a document ── */
+.fd-ad__card--doc { padding: 28px; gap: 12px; }
+/* "Not agreed yet": dashed, because nothing in it is established (the Dashed Edge Rule) */
+.fd-ad__pill {
+  flex: none; margin-top: 3px; padding: 2px 10px; border-radius: 999px; border: 1.5px dashed var(--fd-line-2);
+  font-family: var(--fd-mono); font-size: 12px; line-height: 17px; font-weight: 500; color: var(--fd-ink-2);
+}
+.fd-ad__h3 { margin: 14px 0 0; font-size: 16px; line-height: 22px; font-weight: 600; color: var(--fd-ink); }
+.fd-ad__h3-n { font-weight: 400; color: var(--fd-ink-3); font-size: 14px; }
+/* the contract as numbered terms: the numbers are how a term is pointed at, so they stay */
+.fd-ad__clauses { margin: 0; padding: 0; list-style: none; counter-reset: fd-ad-c; display: flex; flex-direction: column; border-radius: var(--fd-r-md); box-shadow: var(--fd-sh-ring); overflow: hidden; }
+.fd-ad__clause {
+  counter-increment: fd-ad-c; position: relative; padding: 10px 16px 10px 48px; font-size: 15px; line-height: 22px; color: var(--fd-ink);
+  max-width: none; overflow-wrap: anywhere; background: var(--fd-surface);
+}
+.fd-ad__clause + .fd-ad__clause { box-shadow: inset 0 1px 0 var(--fd-line); }
+.fd-ad__clause::before {
+  content: counter(fd-ad-c); position: absolute; left: 16px; top: 12px; width: 20px; text-align: right;
+  font-family: var(--fd-mono); font-size: 12px; line-height: 18px; font-weight: 500; color: var(--fd-ink-3); font-variant-numeric: tabular-nums;
+}
+.fd-ad__returns { margin: 2px 0 0; font-size: 14px; line-height: 20px; color: var(--fd-ink-3); overflow-wrap: anywhere; }
+.fd-ad__returns code { font-family: var(--fd-mono); font-size: 13px; color: var(--fd-ink); background: var(--fd-surface-2); padding: 1px 6px; border-radius: var(--fd-r-xs); }
+.fd-ad__settled { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.fd-ad__settled li { display: flex; align-items: flex-start; gap: 10px; font-size: 15px; line-height: 22px; color: var(--fd-ink-2); }
+.fd-ad__settled li svg { margin-top: 2px; }
+.fd-ad__settled strong { color: var(--fd-ink); font-weight: 600; }
+.fd-ad__items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border-radius: var(--fd-r-md); box-shadow: var(--fd-sh-ring); overflow: hidden; }
+.fd-ad__item { display: flex; flex-direction: column; gap: 6px; padding: 12px 16px; background: var(--fd-surface); transition: background-color 120ms var(--fd-ease); }
+.fd-ad__item + .fd-ad__item { box-shadow: inset 0 1px 0 var(--fd-line); }
+.fd-ad__keep { display: flex; align-items: flex-start; gap: 12px; cursor: pointer; min-height: 24px; }
+.fd-ad__box { flex: none; width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--fd-indigo); cursor: inherit; }
+.fd-ad__box[aria-disabled='true'] { cursor: not-allowed; }
+.fd-ad__plain { flex: 1; min-width: 0; font-size: 15px; line-height: 22px; color: var(--fd-ink); overflow-wrap: anywhere; }
+.fd-ad__state { flex: none; padding-top: 2px; font-family: var(--fd-mono); font-size: 12px; line-height: 17px; font-weight: 500; color: var(--fd-indigo-hover); }
+.fd-ad__item.is-off { background: var(--fd-surface-3); }
+.fd-ad__item.is-off .fd-ad__plain { color: var(--fd-ink-3); text-decoration: line-through; text-decoration-color: var(--fd-line-2); }
+.fd-ad__item.is-off .fd-ad__state { color: var(--fd-ink-3); }
+.fd-ad__assume { margin: 0 0 0 30px; display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 19px; color: var(--fd-ink-2); }
+.fd-ad__assume svg { flex: none; margin-top: 2px; }
+.fd-ad__assume strong { font-weight: 600; color: var(--fd-amber-ink); }
+.fd-ad__code { margin-left: 30px; font-size: 13px; color: var(--fd-ink-2); }
+.fd-ad__code summary { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; cursor: pointer; list-style: none; color: var(--fd-indigo); font-weight: 500; }
+.fd-ad__code summary::-webkit-details-marker { display: none; }
+.fd-ad__code summary:hover { color: var(--fd-indigo-hover); text-decoration: underline; text-underline-offset: 3px; }
+.fd-ad__chev { flex: none; transform: rotate(-90deg); transition: transform 120ms var(--fd-ease); }
+.fd-ad__code[open] .fd-ad__chev { transform: none; }
+.fd-ad__code pre {
+  margin: 4px 0 4px; padding: 12px 14px; max-height: 280px; overflow: auto; border-radius: var(--fd-r-sm); background: var(--fd-surface-2);
+  font-family: var(--fd-mono); font-size: 12px; line-height: 18px; color: var(--fd-ink); white-space: pre; tab-size: 2;
+}
+.fd-ad__means p, .fd-ad__limits p { margin: 6px 0 0; max-width: var(--fd-measure); font-size: 15px; line-height: 22px; color: var(--fd-ink-2); }
+.fd-ad__means .fd-ad__h3, .fd-ad__limits .fd-ad__h3 { margin: 0; }
+.fd-ad__means { margin-top: 8px; }
+/* a stated limit: dashed (the Dashed Edge Rule), on the faintest paper, as the answer's "Not checked" panel is */
+.fd-ad__limits { padding: 16px 18px; border-radius: var(--fd-r-md); border: 1.5px dashed var(--fd-line-2); background: var(--fd-surface-3); }
+.fd-ad__revise { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.fd-ad__label { font-size: 14px; line-height: 20px; font-weight: 500; color: var(--fd-ink); }
+.fd-ad__row { display: flex; flex-wrap: wrap; gap: 8px; }
+.fd-ad__field {
+  flex: 1 1 200px; min-width: 0; box-sizing: border-box; min-height: 44px; padding: 0 14px; border-radius: var(--fd-r-md); border: 1px solid var(--fd-edge-input);
+  background: var(--fd-surface); font: inherit; font-size: 16px; color: var(--fd-ink);
+}
+.fd-ad__field:focus-visible { outline: none; border-color: var(--fd-indigo); box-shadow: var(--fd-sh-focus); }
+/* the signature line: approve sits on its own rule at the foot of the document */
+.fd-ad__acts--sign { margin: 10px -28px -28px; padding: 16px 28px; border-radius: 0 0 var(--fd-r-lg) var(--fd-r-lg); background: var(--fd-surface-3); box-shadow: inset 0 1px 0 var(--fd-line); }
+
+/* ── approved: the saved card ── */
+.fd-ad__card--saved { background: var(--fd-green-wash); box-shadow: 0 0 0 1px var(--fd-green), var(--fd-sh-float); gap: 8px; }
+.fd-ad__h--saved { color: var(--fd-green-ink); }
+.fd-ad__card--saved .fd-ad__lead { color: var(--fd-ink); }
+.fd-ad__meta--saved { padding: 0; color: var(--fd-green-ink); }
+.fd-ad__card--plain { background: var(--fd-surface); }
+
+/* ── motion: one easing (DESIGN.md); arrivals ease out, the pen loops ── */
+@keyframes fd-ad-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes fd-ad-row { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+/* the seal: the saved card is drawn in from the left, the way the answer's seal hairline draws across */
+@keyframes fd-ad-seal { from { clip-path: inset(0 100% 0 0 round var(--fd-r-lg)); } to { clip-path: inset(0 0 0 0 round var(--fd-r-lg)); } }
+@keyframes fd-ad-disc { 0% { transform: scale(0.4); opacity: 0; } 70% { transform: scale(1.12); opacity: 1; } 100% { transform: scale(1); } }
+.fd-ad__enter { animation: fd-ad-rise 220ms var(--fd-ease) both; }
+.fd-ad__card--invite { animation: fd-ad-rise 320ms var(--fd-ease) both; }
+.fd-ad__q { animation: fd-ad-row 300ms var(--fd-ease) both; animation-delay: calc(120ms + var(--fd-ad-i, 0) * 70ms); }
+.fd-ad__clause, .fd-ad__item { animation: fd-ad-row 300ms var(--fd-ease) both; animation-delay: calc(80ms + min(var(--fd-ad-i, 0), 10) * 40ms); }
+.fd-ad__card--saved { animation: fd-ad-seal 520ms var(--fd-ease) both; }
+.fd-ad__card--saved .fd-ad__h--saved svg { animation: fd-ad-disc 420ms var(--fd-ease) 300ms both; }
+@media (prefers-reduced-motion: reduce) {
+  .fd-ad *, .fd-ad__card, .fd-ad__trace { animation: none !important; transition: none !important; }
+}
+
+@media (max-width: 480px) {
+  .fd-ad__card, .fd-ad__card--invite, .fd-ad__card--doc { padding: 20px 16px; }
+  .fd-ad__acts--sign { margin: 8px -16px -20px; padding: 16px; }
+  .fd-ad__acts > * { flex: 1 1 100%; }
+  .fd-ad__trace { padding: 16px; }
+  .fd-ad__opts, .fd-ad__why { margin-left: 0; }
+  .fd-ad__assume, .fd-ad__code { margin-left: 0; }
+}

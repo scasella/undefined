@@ -335,14 +335,19 @@ try {
     }
     return rows.length > 0;
   };
-  /** The two questions with nothing recorded say so, honestly, in the current mode of the page. */
+  /**
+   * The question with nothing recorded says so, honestly, in the current mode of the page. The country question has a recorded answer only
+   * under the checks its recorded draft installs (model/recordedDraft.ts): until they are approved Ask stays off and the line says why.
+   */
   async function unrecorded(tag) {
-    for (const label of [Q_STATUS, Q_COUNTRY]) {
-      await ask(label);
-      const none = await waitText(/No recorded answer for this one\./, 30000);
-      const t = await body();
-      check(none && /In this demo, answers are recorded/.test(t) && /Nothing was checked\./.test(t), `${tag}: '${label}' → Ask: the honest no-recording state`, t.slice(0, 600));
-    }
+    await ask(Q_STATUS);
+    const none = await waitText(/No recorded answer for this one\./, 30000);
+    const t = await body();
+    check(none && /In this demo, answers are recorded/.test(t) && /Nothing was checked\./.test(t), `${tag}: '${Q_STATUS}' → Ask: the honest no-recording state`, t.slice(0, 600));
+    await chip(Q_COUNTRY).click();
+    const drafted = await waitText(/this question's answer was recorded with checks the AI drafted\. Draft them below and approve them, then ask\./, 15000);
+    const st = await p.evaluate(() => ({ ask: document.getElementById('fd-ask-btn')?.getAttribute('aria-disabled'), panel: !!document.getElementById('agreement-draft') }));
+    check(drafted && st.ask === 'true' && st.panel, `${tag}: '${Q_COUNTRY}' → Ask waits for the recorded draft of its checks (the agreement panel is offered, Ask is off and says why)`, st);
   }
   const bindOrders = async () =>
     waitFor(() => window.__undefined.state.value.datasets.some((d) => d.name === 'rows') && document.body.innerText.includes('orders.csv'), null, 30000);
@@ -791,9 +796,9 @@ try {
   // (it does not begin by repeating the tag): how many questions have a recording, counted, and that the others need the version on your computer
   const legend = await texts('.fd-ask__legend');
   check(
-    chips.length === 3 && chips[0].startsWith(`${Q_TOP} `) && !chips[0].includes(NEEDS_TAG) && chips.slice(1).every((c) => c === `${Q_STATUS} ${NEEDS_TAG}` || c === `${Q_COUNTRY} ${NEEDS_TAG}`) &&
-      legend.length === 1 && legend[0].startsWith('This demo has recorded answers for one question; the others need the version on your computer.') && !legend[0].startsWith(NEEDS_TAG) && !/needs live/i.test(`${chips.join(' ')} ${legend[0]}`),
-    "seeded: the question that has a recorded answer comes first, the two that need your computer are tagged 'needs your computer' alone (no 'Basic checks' claim, no 'live'), and one line says why without repeating the tag",
+    chips.length === 3 && chips[0].startsWith(`${Q_TOP} `) && !chips[0].includes(NEEDS_TAG) && chips[1] === `${Q_COUNTRY} AI drafts the checks` && chips[2] === `${Q_STATUS} ${NEEDS_TAG}` &&
+      legend.length === 1 && legend[0].startsWith('This demo has recorded answers for 2 questions; the others need the version on your computer.') && !legend[0].startsWith(NEEDS_TAG) && !/needs live/i.test(`${chips.join(' ')} ${legend[0]}`),
+    "seeded: the questions that have a recorded answer come first (the country question tagged 'AI drafts the checks': its answer was recorded under the checks its recorded draft installs), the one that needs your computer is tagged 'needs your computer' alone (no 'Basic checks' claim, no 'live'), and one line says why without repeating the tag",
     { chips, legend },
   );
   // one wording for one question: the chip, the 'Asking:' line and the trace header read the same words (the chip was 'Top 5 customers by revenue', the line 'Who are our top customers by revenue?')
@@ -1225,7 +1230,7 @@ try {
     await waitFor(() => document.activeElement?.id === 'zen-continue', null, 5000);
     await cont.click();
     check(await h1Is('Ask a question') && (await hashNow()) === '#/zen/2', "step by step: Continue opens pane 2 (Ask a question) at '#/zen/2'", { h1: await p.evaluate(() => document.querySelector('h1')?.innerText), hash: await hashNow() });
-    await waitFor(() => document.querySelectorAll('.zp__chip .zp__live').length === 2, null, 30000);
+    await waitFor(() => document.querySelectorAll('.zp__chip .zp__live').length === 1, null, 30000);
     const geo = await p.evaluate(() => {
       const r = document.getElementById('zen-continue').getBoundingClientRect();
       const d = document.querySelector('.zp__data')?.getBoundingClientRect();
@@ -1233,9 +1238,9 @@ try {
     });
     check(geo.bottom <= geo.vh && geo.dataTop !== null && geo.dataTop > geo.bottom, "step by step 2: Continue is on screen without scrolling (1440x900) and 'Your data' comes after it", geo);
     const c0 = await zenChips();
-    check(c0.length === 3 && c0[0].startsWith(`${Q_TOP} `) && c0.slice(1).every((c) => c === `${Q_STATUS} ${NEEDS_TAG}` || c === `${Q_COUNTRY} ${NEEDS_TAG}`), "step by step 2: the question with a recorded answer comes first, the ones that need your computer after it are tagged 'needs your computer' alone (no 'Basic checks' claim)", c0);
+    check(c0.length === 3 && c0[0].startsWith(`${Q_TOP} `) && c0[1] === `${Q_COUNTRY} AI drafts the checks` && c0[2] === `${Q_STATUS} ${NEEDS_TAG}`, "step by step 2: the questions with a recorded answer come first (the country question tagged 'AI drafts the checks'), the one that needs your computer after them is tagged 'needs your computer' alone (no 'Basic checks' claim)", c0);
     const zenLegend = await p.evaluate(() => document.querySelector('.zp__legend')?.innerText.replace(/\s+/g, ' ').trim() ?? '');
-    check(zenLegend.startsWith('This demo has recorded answers for one question; the others need the version on your computer.') && !/needs live/i.test(zenLegend), "step by step 2: the legend says why (how many questions have a recording, the rest need the version on your computer) and does not begin by repeating the tag", zenLegend);
+    check(zenLegend.startsWith('This demo has recorded answers for 2 questions; the others need the version on your computer.') && !/needs live/i.test(zenLegend), "step by step 2: the legend says why (how many questions have a recording, the rest need the version on your computer) and does not begin by repeating the tag", zenLegend);
     // one wording for one question: the selected chip and the 'Asking:' line are the same words (pane 3 says them again below)
     const zenWord = await p.evaluate(() => ({ chip: document.querySelector('.zp__chip.is-on .zp__q')?.innerText.trim(), asking: document.querySelector('.zp__picked strong')?.innerText.trim() }));
     check(zenWord.chip === Q_TOP && zenWord.asking === Q_TOP, "step by step 2: the selected chip and the 'Asking:' line say the question in the same words", zenWord);
@@ -1259,7 +1264,7 @@ try {
     const tried = await waitFor(() => document.activeElement?.id === 'zen-continue' && document.getElementById('zen-continue').getAttribute('aria-disabled') !== 'true', null, 10000);
     check(tried, "step by step 2: 'try it' selects the question that has a recorded answer and makes Continue available (focus on it)", await p.evaluate(() => ({ active: document.activeElement?.id, picked: document.querySelector('.zp__picked')?.innerText })));
     await cont.click();
-    check(await h1Is('What your answer must pass') && (await hashNow()) === '#/zen/3', "step by step: Continue opens pane 3 at '#/zen/3'", { h1: await p.evaluate(() => document.querySelector('h1')?.innerText), hash: await hashNow() });
+    check(await h1Is('Agree what the answer must pass') && (await hashNow()) === '#/zen/3', "step by step: Continue opens pane 3 at '#/zen/3'", { h1: await p.evaluate(() => document.querySelector('h1')?.innerText), hash: await hashNow() });
     const marks = await p.evaluate(() => ({ rows: document.querySelectorAll('.zp__check').length, dashed: document.querySelectorAll('.zp__ico rect[stroke-dasharray]').length, rings: document.querySelectorAll('.zp__ico circle').length, green: [...document.querySelectorAll('.zp__checks *')].filter((e) => /17A36B|33C793/i.test(`${e.getAttribute('fill')} ${e.getAttribute('stroke')}`) || /rgb\(23, 163, 107\)|rgb\(51, 199, 147\)/.test(`${getComputedStyle(e).color} ${getComputedStyle(e).backgroundColor}`)).length, sum: document.querySelector('.zp__sum')?.innerText }));
     // (rewritten: the will-run mark is the trace's tick drawn dashed, not a dashed ring with a dot, which read as a radio button or a loader: no circle at all)
     check(marks.rows === 6 && marks.dashed === 6 && marks.rings === 0 && marks.green === 0 && /^Full checks: all six apply\. The answer appears after all six have run/.test(marks.sum), 'step by step 3: six dashed will-run markers and nothing green before anything has run; the summary follows the seal rule', marks);
@@ -1273,17 +1278,17 @@ try {
     await p.evaluate(() => (location.hash = '#/zen/3?x=1'));
     await p.waitForTimeout(400);
     const same = await p.evaluate(() => ({ active: document.activeElement?.id, y: scrollY, hash: location.hash, h1: document.querySelector('h1')?.innerText }));
-    check(same.active === 'zen-continue' && same.y === y0 && same.hash === '#/zen/3' && same.h1 === 'What your answer must pass', "step by step: a same-route hash change ('#/zen/3?x=1') moves neither focus nor scroll (the router leaves them to the page), and the address is put back to '#/zen/3'", same);
+    check(same.active === 'zen-continue' && same.y === y0 && same.hash === '#/zen/3' && same.h1 === 'Agree what the answer must pass', "step by step: a same-route hash change ('#/zen/3?x=1') moves neither focus nor scroll (the router leaves them to the page), and the address is put back to '#/zen/3'", same);
     // an in-page anchor after the pane ('#/zen/3#x') is still a request for pane 3, not a request for nothing (which would send the viewer to the opening pane, 2)
     await p.evaluate(() => (location.hash = '#/zen/3#x'));
     await p.waitForTimeout(400);
     const anch = await p.evaluate(() => ({ h1: document.querySelector('h1')?.innerText, hash: location.hash }));
-    check(anch.h1 === 'What your answer must pass' && anch.hash === '#/zen/3', "step by step: '#/zen/3#x' (an in-page anchor after the pane) stays on pane 3 and the address is put back to '#/zen/3'", anch);
+    check(anch.h1 === 'Agree what the answer must pass' && anch.hash === '#/zen/3', "step by step: '#/zen/3#x' (an in-page anchor after the pane) stays on pane 3 and the address is put back to '#/zen/3'", anch);
     // a bare in-page hash typed by hand ('#main') names no route: the router puts back the pane the viewer was on, not the bare route (which would open pane 2)
     await p.evaluate(() => (location.hash = '#main'));
     await p.waitForTimeout(400);
     const bare = await p.evaluate(() => ({ h1: document.querySelector('h1')?.innerText, hash: location.hash }));
-    check(bare.h1 === 'What your answer must pass' && bare.hash === '#/zen/3', "step by step: a bare '#main' typed into the address puts back '#/zen/3' (the pane it was on), not '#/zen'", bare);
+    check(bare.h1 === 'Agree what the answer must pass' && bare.hash === '#/zen/3', "step by step: a bare '#main' typed into the address puts back '#/zen/3' (the pane it was on), not '#/zen'", bare);
     // the URL only asks: with data but no answer, pane 5 and pane 4 are not allowed, and the address says where the viewer really is
     const lenAsk = await p.evaluate(() => history.length);
     await p.evaluate(() => (location.hash = '#/zen/5'));
@@ -1296,7 +1301,7 @@ try {
     // the clamp rewrites the entry the viewer just made (replaceState): the two hashes typed above made two entries, the clamps made none (a push would make four and cut off Forward)
     check(at4.len === lenAsk + 2, "step by step: the clamp of an address that asks for too much rewrites that entry (replaceState) and pushes no entry of its own", { before: lenAsk, after: at4.len });
     await p.evaluate(() => (location.hash = '#/zen/3'));
-    check(await h1Is('What your answer must pass', 5000) && (await hashNow()) === '#/zen/3', "step by step: '#/zen/3' with data bound opens pane 3", await hashNow());
+    check(await h1Is('Agree what the answer must pass', 5000) && (await hashNow()) === '#/zen/3', "step by step: '#/zen/3' with data bound opens pane 3", await hashNow());
     await waitFor(() => document.getElementById('zen-continue')?.getAttribute('aria-disabled') !== 'true', null, 15000);
     let strayTab = null;
     const ran = await observeDrafting(async () => {
@@ -1410,7 +1415,7 @@ try {
     const back4 = await where();
     await nudge();
     await p.goBack();
-    await h1Is('What your answer must pass', 5000);
+    await h1Is('Agree what the answer must pass', 5000);
     const back3 = await where();
     check(
       back4.hash === '#/zen/4' && back4.lanes === 6 && back4.seeAnswer && back4.active === 'zen-title' && back4.y === 0 && back4.rest === 'manual' && back3.hash === '#/zen/3' && back3.active === 'zen-title' && back3.y === 0 && back3.rest === 'manual',
@@ -1423,7 +1428,7 @@ try {
     // the in-app Back goes through the browser's history when the entry before is the pane before (no new entry)
     const lenBefore = (await where()).len;
     await p.getByRole('button', { name: 'Back', exact: true }).click();
-    const inApp = (await h1Is('What your answer must pass', 5000)) && (await where());
+    const inApp = (await h1Is('Agree what the answer must pass', 5000)) && (await where());
     check(!!inApp && inApp.hash === '#/zen/3' && inApp.len === lenBefore && inApp.y === 0 && inApp.rest === 'manual', "step by step: the page's own 'Back' steps back through the browser's history when the previous entry is the previous pane (no new entry), at the top, scroll still 'manual'", { inApp, lenBefore });
     // what the in-app Back asked of the browser was settled when it landed: a Forward afterwards is the viewer's own and must not be taken for the Back's answer (it would push pane 3)
     await nudge();
@@ -1500,7 +1505,7 @@ try {
     );
     // pane 3 is reachable by its address and says the same sentence with the same button
     await p.evaluate(() => (location.hash = '#/zen/3'));
-    await h1Is('What your answer must pass', 15000);
+    await h1Is('Agree what the answer must pass', 15000);
     await waitFor(() => !!document.querySelector('#zen-why button'), null, 10000);
     const d3 = await deadEnd();
     check(d3.button === 'switch to orders.csv' && d3.text === d2.text, "step by step 3 (own file): the checks pane says the same sentence, with the same button", { d2, d3 });
@@ -1586,10 +1591,10 @@ try {
     await waitFor(() => document.getElementById('zen-continue')?.getAttribute('aria-disabled') !== 'true', null, 15000);
     await p.locator('#zen-continue').click();
     await h1Is('Ask a question', 15000);
-    await waitFor(() => document.querySelectorAll('.zp__chip .zp__live').length === 2, null, 30000);
+    await waitFor(() => document.querySelectorAll('.zp__chip .zp__live').length === 1, null, 30000);
     await waitFor(() => document.getElementById('zen-continue')?.getAttribute('aria-disabled') !== 'true', null, 15000);
     await p.locator('#zen-continue').click();
-    await h1Is('What your answer must pass', 15000);
+    await h1Is('Agree what the answer must pass', 15000);
     await waitFor(() => document.getElementById('zen-continue')?.getAttribute('aria-disabled') !== 'true', null, 15000);
     await p.locator('#zen-continue').click();
     await h1Is('Checking', 15000);
@@ -1666,7 +1671,7 @@ try {
     await p.waitForTimeout(500);
     const forwardAgain = await where();
     await p.getByRole('button', { name: 'Back', exact: true }).click();
-    const oneBack = (await h1Is('What your answer must pass', 5000)) && (await where());
+    const oneBack = (await h1Is('Agree what the answer must pass', 5000)) && (await where());
     const oneBackFocus = (await waitFor(() => document.activeElement?.id === 'zen-title', null, 3000)) ? 'zen-title' : await p.evaluate(() => document.activeElement?.id);
     check(
       forwardAgain.h1 === 'Checking' && forwardAgain.hash === '#/zen/4' && !!oneBack && oneBack.hash === '#/zen/3' && oneBackFocus === 'zen-title',
@@ -1717,10 +1722,10 @@ try {
     await waitFor(() => document.getElementById('zen-continue')?.getAttribute('aria-disabled') !== 'true', null, 15000);
     await p.locator('#zen-continue').click();
     await h1Is('Ask a question', 15000);
-    await waitFor(() => document.querySelectorAll('.zp__chip .zp__live').length === 2, null, 30000);
+    await waitFor(() => document.querySelectorAll('.zp__chip .zp__live').length === 1, null, 30000);
     await waitFor(() => document.getElementById('zen-continue')?.getAttribute('aria-disabled') !== 'true', null, 15000);
     await p.locator('#zen-continue').click();
-    await h1Is('What your answer must pass', 15000);
+    await h1Is('Agree what the answer must pass', 15000);
     await waitFor(() => document.getElementById('zen-continue')?.getAttribute('aria-disabled') !== 'true', null, 15000);
     await p.evaluate(() => {
       const digest = crypto.subtle.digest.bind(crypto.subtle);
@@ -1737,7 +1742,7 @@ try {
     const pulled = await h1Is('Checking', 15000);
     await p.evaluate(() => void delete crypto.subtle.digest);
     const late = { h1: await p.evaluate(() => document.querySelector('h1')?.innerText), hash: await hashNow() };
-    check(early.h1 === 'What your answer must pass' && pulled && late.hash === '#/zen/4', "step by step: a Back pressed before the run has started lands on pane 3 (the engine has no run yet), and the viewer is put back on pane 4 once it starts ('#/zen/4')", { early, pulled, late });
+    check(early.h1 === 'Agree what the answer must pass' && pulled && late.hash === '#/zen/4', "step by step: a Back pressed before the run has started lands on pane 3 (the engine has no run yet), and the viewer is put back on pane 4 once it starts ('#/zen/4')", { early, pulled, late });
     await p.waitForSelector('#zen-see-answer', { timeout: 90000 });
     check(await waitFor(() => document.activeElement?.id === 'zen-see-answer', null, 10000), "step by step 4: a run that began while the viewer was away from the pane still ends with focus on 'See the answer'", await focusId());
 
@@ -2122,7 +2127,7 @@ try {
     await waitFor(() => document.querySelector('h1')?.innerText === 'Ask a question', null, 15000);
     zen[2] = { hs: await axLevels() };
     await next();
-    await waitFor(() => document.querySelector('h1')?.innerText === 'What your answer must pass', null, 15000);
+    await waitFor(() => document.querySelector('h1')?.innerText === 'Agree what the answer must pass', null, 15000);
     zen[3] = { hs: await axLevels() };
     // pane 4 while it drafts, so the footer row and the header can be measured at their widths below (the draft takes a few seconds to replay)
     await p.locator('#zen-continue').click();
@@ -2347,6 +2352,103 @@ try {
     check(consoleErrors.length === 0, "polish: no console errors (besides the replay /generate/health 404)", consoleErrors);
   } catch (e) {
     check(false, 'polish block (3p)', e.stack?.split('\n').slice(0, 4).join(' | ') ?? String(e));
+  }
+
+  // ── 3q. the headline feature in the demo: the recorded draft of the checks (model/recordedDraft.ts) plays back on 'What is our revenue by
+  // country?'; the landing quotes it and its button opens the agreement pane on it; the recorded answers are picked and cannot be changed; approving
+  // installs the spec the answer was recorded for, the checks it turned on light up, and the recorded answer replays with every check live. Then the
+  // same on the Full view, where Ask waits for the approval ──
+  consoleErrors.length = 0;
+  try {
+    await openApp(p, srv.url + '#/');
+    await waitFor(() => !!document.getElementById('agree-first'), null, 20000);
+    const land = await p.evaluate(() => ({ text: document.getElementById('agree-first').innerText.replace(/\s+/g, ' '), qs: document.querySelectorAll('.fd-af__q').length }));
+    check(/Recorded run · gpt-6-luna · \d+ \w{3} \d{4}\./.test(land.text) && land.qs > 0 && land.text.includes('What they would not show'),
+      "agreement: the landing section quotes the recorded draft (its questions, answers, terms and limits) under a solid 'Recorded run' line", land);
+    await p.getByRole('button', { name: 'Try this question on orders.csv' }).click();
+    await waitFor(() => location.hash === '#/zen/3' && document.querySelector('h1')?.innerText === 'Agree what the answer must pass' && !!document.querySelector('.fd-ad__card--invite'), null, 20000);
+    const inv = await p.evaluate(() => ({ dis: document.getElementById('zen-continue').getAttribute('aria-disabled'), cls: document.getElementById('zen-continue').className, why: document.getElementById('zen-why')?.innerText ?? '' }));
+    check(inv.dis === 'true' && /fd-btn--secondary/.test(inv.cls) && inv.why.includes("this question's answer was recorded with checks the AI drafted"),
+      "agreement: 'Try this question on orders.csv' opens pane 3 on the country question; Run is off, secondary while the draft is on offer, and says why", inv);
+    await p.getByRole('button', { name: 'Draft the checks with the AI' }).click();
+    await waitFor(() => !!document.querySelector('.fd-ad__trace'), null, 5000);
+    const trace = await p.evaluate(() => document.querySelector('.fd-ad__trace').innerText.replace(/\s+/g, ' '));
+    check(/replaying the recorded draft/.test(trace), "agreement: drafting quotes the trace and says it is replaying the recorded draft", trace);
+    await waitFor(() => !!document.querySelector('.fd-ad__card--ask'), null, 10000);
+    // a locked option: clicking it must leave the recorded answer picked (the native radio must not flip)
+    const locked = await p.evaluate(() => {
+      const first = document.querySelector('.fd-ad__q');
+      const opts = [...first.querySelectorAll('input[type=radio]')];
+      const was = opts.findIndex((o) => o.checked);
+      const other = opts.findIndex((o, i) => i !== was && o.getAttribute('aria-disabled') === 'true');
+      opts[other]?.click();
+      return { was, other, now: opts.findIndex((o) => o.checked), note: document.querySelector('.fd-ad__card--ask .fd-ad__demo')?.innerText ?? '' };
+    });
+    check(locked.was >= 0 && locked.other >= 0 && locked.now === locked.was && /answers are the ones given in the recording/.test(locked.note),
+      "agreement: in the demo the recorded answer is picked, another choice cannot be picked (a click does not flip it), and one sentence says why", locked);
+    for (let i = 0; i < 3 && (await p.locator('.fd-ad__card--ask').count()); i++) {
+      await p.getByRole('button', { name: 'Send answers' }).click();
+      await waitFor(() => !!document.querySelector('.fd-ad__card--ask, .fd-ad__card--doc'), null, 10000);
+      await p.waitForTimeout(1500);
+    }
+    await waitFor(() => !!document.querySelector('.fd-ad__card--doc'), null, 15000);
+    const review = await p.evaluate(() => {
+      const box = document.querySelector('.fd-ad__box');
+      box.click();
+      return {
+        kept: box.checked,
+        state: document.querySelector('.fd-ad__state')?.innerText,
+        limits: !!document.querySelector('.fd-ad__limits'),
+        clauses: document.querySelectorAll('.fd-ad__clause').length,
+        run: document.getElementById('zen-continue').getAttribute('aria-disabled'),
+        revise: !!document.getElementById('fd-ad-revise'),
+      };
+    });
+    check(review.kept && review.state === 'Kept' && review.limits && review.clauses > 0 && review.run === 'true' && !review.revise,
+      "agreement: the draft shows its terms and what it would not show; in the demo a check cannot be dropped (a click does not untick it) and there is no redraft; Run still waits", review);
+    await p.getByRole('button', { name: /^Approve \d+ examples? and \d+ house rules?$/ }).click();
+    await waitFor(() => !!document.querySelector('.fd-ad__card--saved') && document.getElementById('zen-continue')?.getAttribute('aria-disabled') !== 'true', null, 20000);
+    await p.waitForTimeout(300);
+    const agreed = await p.evaluate(() => ({
+      focus: document.activeElement?.id,
+      rows: [...document.querySelectorAll('.zp__check')].map((li) => `${li.querySelector('.zp__num').innerText}:${li.querySelector('.zp__state').innerText}`),
+      lit: [...document.querySelectorAll('.zp__check.is-lit .zp__num')].map((n) => n.innerText),
+    }));
+    check(agreed.focus === 'zen-continue' && ['02:Applies', '04:Applies', '06:Applies'].every((r) => agreed.rows.includes(r)) && agreed.lit.join(',') === '02,04,06',
+      "agreement: approving installs the checks (02, 04, 06 apply and light up) and focus goes to 'Run the checks'", agreed);
+    await p.locator('#zen-continue').click();
+    await waitFor(() => !!document.getElementById('zen-see-answer'), null, 90000);
+    const verdict = await p.evaluate(() => document.querySelector('.zen__verdict')?.innerText ?? '');
+    check(/^Passed every check · stress test caught \d+ of 12/.test(verdict), "agreement: the recorded answer replays under the approved checks, every check live", verdict);
+    check(consoleErrors.length === 0, "agreement (step by step): no console errors", consoleErrors);
+  } catch (e) {
+    check(false, 'agreement block (3q, step by step)', e.stack?.split('\n').slice(0, 4).join(' | ') ?? String(e));
+  }
+  consoleErrors.length = 0;
+  try {
+    await openApp(p, srv.url + '#/start');
+    await bindOrders();
+    await chip(Q_COUNTRY).click();
+    await waitFor(() => !!document.querySelector('.fd-ad__card--invite'), null, 20000);
+    check((await p.evaluate(() => document.getElementById('fd-ask-btn').getAttribute('aria-disabled'))) === 'true', "agreement (full view): the panel is offered under Ask, and Ask waits", null);
+    await p.getByRole('button', { name: 'Draft the checks with the AI' }).click();
+    for (let i = 0; i < 4; i++) {
+      await waitFor(() => !!document.querySelector('.fd-ad__card--ask, .fd-ad__card--doc'), null, 10000);
+      if (await p.locator('.fd-ad__card--doc').count()) break;
+      await p.getByRole('button', { name: 'Send answers' }).click();
+      await p.waitForTimeout(1500);
+    }
+    await p.getByRole('button', { name: /^Approve / }).click();
+    await waitFor(() => document.getElementById('fd-ask-btn')?.getAttribute('aria-disabled') !== 'true', null, 20000);
+    await p.waitForTimeout(300);
+    const focus = await p.evaluate(() => document.activeElement?.id);
+    await askBtn.click();
+    await waitFor(() => !!document.querySelector('.fd-ac__lead-name'), null, 90000);
+    const lead = await p.evaluate(() => document.querySelector('.fd-ac__lead-name')?.innerText ?? '');
+    check(focus === 'fd-ask-btn' && lead !== '', "agreement (full view): approving turns Ask on and moves focus to it, and the recorded answer replays", { focus, lead });
+    check(consoleErrors.length === 0, "agreement (full view): no console errors", consoleErrors);
+  } catch (e) {
+    check(false, 'agreement block (3q, full view)', e.stack?.split('\n').slice(0, 4).join(' | ') ?? String(e));
   }
 
   // ── 4. seed off: no recording of the agreement (the recordings index is served without it), so the spec-less answer ──

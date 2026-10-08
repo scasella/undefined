@@ -10,6 +10,8 @@
 import { agreementPhrase, isHeldBack, NOT_RERUN, type AgreementView, type CheckMode } from '../model/agreement';
 import { OFF_NOTES, stressLabel } from '../model/lanes';
 import { isTypedQuestion } from '../model/questions';
+// the seeded agreement's run count; rules the AI drafted set their own (model/specDraft.ts RULE_RUNS), so their note names none
+import { MADE_UP_TABLES } from '../model/agreements';
 import { isZenHash } from '../router';
 import type { RunOutcome } from '../start/derive';
 
@@ -29,7 +31,7 @@ export interface ZenPane {
 export const ZEN_PANES: readonly ZenPane[] = [
   { step: 1, label: 'Data', title: 'Bring your data' },
   { step: 2, label: 'Question', title: 'Ask a question' },
-  { step: 3, label: 'Checks', title: 'What your answer must pass' },
+  { step: 3, label: 'Agreement', title: 'Agree what the answer must pass' },
   { step: 4, label: 'Run', title: 'Checking' },
   { step: 5, label: 'Result', title: 'Your answer' },
 ];
@@ -41,9 +43,17 @@ export const paneOf = (step: ZenStep): ZenPane => ZEN_PANES[step - 1]!;
  * needs the version on the viewer's computer (`needsLive`: replay, nothing recorded for it) cannot leave the question
  * or checks panes: it would only end in "No recorded answer for this one" three panes later.
  */
-export function canContinue(step: ZenStep, s: { bound: boolean; question: boolean; busy: boolean; needsLive?: boolean }): boolean {
+export function canContinue(
+  step: ZenStep,
+  s: { bound: boolean; question: boolean; busy: boolean; needsLive?: boolean; draft?: boolean; draftPending?: boolean; needsDraft?: boolean },
+): boolean {
   if (s.busy) return false;
+  // pane 3: the viewer asked the AI to draft stricter checks and has not approved or put them away (start/draft.ts), or the demo's
+  // answer to this question was recorded under drafted checks that are not approved yet: the run waits
+  if (step === 3 && (s.draftPending || s.needsDraft)) return false;
   if (step === 1) return s.bound;
+  // words in the box are what Continue asks (draftToAsk): they replace the picked question, so its state does not hold them back
+  if (step === 2 && s.draft) return s.bound;
   if (step === 2 || step === 3) return s.bound && s.question && !s.needsLive;
   return false;
 }
@@ -82,6 +92,10 @@ export const ZEN_SEE_ANSWER_ID = 'zen-see-answer';
 
 /** Why Continue is off on the first pane, said next to it. */
 export const NEEDS_DATA_REASON = 'Choose a sample or bring a file to continue.';
+/** Why "Run the checks" is off while drafted checks wait for the viewer (pane 3, start/draft.ts). */
+export const DRAFT_PENDING_REASON = 'Approve the drafted checks or put the draft away to run the checks.';
+/** Why "Run the checks" is off in the demo for a question whose answer was recorded under checks the AI drafted (availability 'drafted'). */
+export const NEEDS_DRAFT_REASON = "In this demo, this question's answer was recorded with checks the AI drafted. Draft them below and approve them to run the checks.";
 /** Why Continue is off on the second pane when nothing is picked. */
 export const NEEDS_QUESTION_REASON = 'Pick a question to continue.';
 
@@ -91,10 +105,40 @@ export const NEEDS_QUESTION_REASON = 'Pick a question to continue.';
  * noRecordingText). `bound` (default: there is data) says whether the first pane has what it needs. A busy engine is
  * not a reason: it says what it is doing on its own.
  */
-export function continueReason(step: ZenStep, s: { question: boolean; needsLive: boolean; bound?: boolean }, text: string): string {
+export function continueReason(
+  step: ZenStep,
+  s: { question: boolean; needsLive: boolean; bound?: boolean; draft?: boolean; draftPending?: boolean; needsDraft?: boolean },
+  text: string,
+): string {
   if (step === 1) return s.bound === false ? NEEDS_DATA_REASON : '';
+  if (step === 2 && s.draft) return '';
+  if (step === 3 && s.draftPending && !s.needsLive) return DRAFT_PENDING_REASON;
+  if (step === 3 && s.needsDraft) return NEEDS_DRAFT_REASON;
   if (step === 2 && s.bound !== false && !s.question) return NEEDS_QUESTION_REASON;
   return (step === 2 || step === 3) && s.question && s.needsLive ? text : '';
+}
+
+/**
+ * The words in pane 2's box that Continue should ask, or null. A viewer who types a question and presses Continue means that
+ * question, not the chip that happened to be picked, so Continue adds it (session.addQuestion: words already on the list select
+ * that question) before moving on. Under 3 characters is not a question (the box's own button says the same); words that are the
+ * picked question already change nothing.
+ */
+export function draftToAsk(text: string, picked: string | null): string | null {
+  const t = text.trim();
+  if (t.length < 3) return null;
+  if (picked !== null && t.toLowerCase() === picked.trim().toLowerCase()) return null;
+  return t;
+}
+
+/**
+ * After Continue added the typed words: can the question it selected be answered here? Replay has no recording for a question
+ * the viewer typed, and its availability may not be worked out yet (it arrives asynchronously), so a typed question with none is
+ * treated as unanswerable and the pane stays on 2 with the reason; a suggestion's words select the suggestion, which is known.
+ */
+export function typedNeedsLive(s: { id: string; availability: string | undefined; replay: boolean }): boolean {
+  if (s.availability === 'none') return true;
+  return s.replay && isTypedQuestion(s.id) && s.availability === undefined;
 }
 
 /** What the session says, as far as the walk-through's route cares (the engine's own words, no DOM). */
@@ -290,7 +334,7 @@ export function zenChecks(a: Pick<AgreementView, 'n' | 'seeded'>, ctx: ZenContex
     rules > 0
       ? held
         ? { num: '04', label: `Follows your ${plural(rules, 'house rule', 'house rules')} on made-up tables`, state: 'held', tag: NOT_RERUN, note: late() }
-        : { num: '04', label: `Follows your ${plural(rules, 'house rule', 'house rules')} on made-up tables`, state: 'applies', tag: 'Applies', note: `Tried on 100 made-up tables: ${who} ${rules}.` }
+        : { num: '04', label: `Follows your ${plural(rules, 'house rule', 'house rules')} on made-up tables`, state: 'applies', tag: 'Applies', note: `${a.seeded ? `Tried on ${MADE_UP_TABLES}` : 'Tried on many'} made-up tables: ${who} ${rules}.` }
       : { num: '04', label: 'Follows your house rules on made-up tables', state: 'none', tag: OFF_NOTES.rules, note: 'No house rules for this question yet.' },
     { num: '05', label: 'Never changes your data · finishes fast', state: 'always', tag: 'Always', note: 'Your table is never edited, and the calculation has a time limit.' },
     held

@@ -17,7 +17,7 @@ spacing, colours, motion, a11y attributes), translated into Preact + CSS files w
 
 | Route | What | Design board |
 |---|---|---|
-| `#/` (default) | Landing: telemetry bar, hero claim, example stage (check trace + answer + agreement rail), evidence strip, order-of-work, definition ladder, "agree once", "it asks", "says no" + privacy, team file + honest limits, footer, honesty bar | `V3-Door-Landing` |
+| `#/` (default) | Landing: telemetry bar, hero claim, example stage (check trace + answer + agreement rail), "It asks before it writes the checks" (`landing/AgreeFirst.tsx`: the recorded draft, quoted word for word through `agreeFirstView.ts`, with "Try this question" opening pane 3 on it), evidence strip, order-of-work, definition ladder, "agree once", "it asks", "says no" + privacy, team file + honest limits, footer, honesty bar | `V3-Door-Landing` |
 | `#/start` | The full first run, for people who want everything on one page (reached from the landing's footer, "Full view of the demo", and from the step-by-step page's "Full view"): a short task heading, bring a file (drop / paste / sample), ask a question, live check trace, answer, the file's columns, right rail (what the AI will see, your agreement, demo note), and a footer that says where the file is (the demo sends nothing) and links to the source, so each route has one banner, one main and one content-info. Not redirected; `scripts/record-door.mjs` and `replay-check.mjs` open it | `V3-Door-FirstRun` |
 | `#/zen`, `#/zen/N` | **Step by step** (the route is still `#/zen`; the pane is in the address, `#/zen/1` to `#/zen/5`, and nothing moves by itself): where first-time visitors are sent (the landing's "Try the demo" buttons and the top bar's "Step by step" button; in the demo the landing's second hero button reads "Use your own file: run it on your computer" and goes to `#own-file` instead, `landing/teamFileView.ts` `ownFileCta`, and only on a live copy does it lead here). A five-pane walk-through in a bare single column (1 bring data · 2 ask · 3 what the answer must pass, the six checks each tagged in the check trace's own words: `Always` (01 and 05) or `Applies` (the other four, when they will run), `No examples yet` / `Nothing locked yet` / `No house rules yet` / `Needs your rules first` (the stress test) when there is nothing to run it on, and `Not re-run` when the agreement holds it but the answer on file was checked before it was set (`zen/flow.ts` `zenChecks`, `model/lanes.ts` `OFF_NOTES`) · 4 the live check trace, which starts the run and stays on the finished trace until the viewer presses "See the answer" · 5 the answer, its one-line proof, download, ask again). Same session and components as `#/start`; nothing scripted. What each pane does is under "Step by step, pane by pane" below | (no board; `src/door/zen/`) |
 
@@ -79,12 +79,47 @@ spacing, colours, motion, a11y attributes), translated into Preact + CSS files w
   computer (a disclosure that starts open, below), Back / Continue, and only then "Your data" (the whole table, scrollable; it no longer
   repeats the note). The table is reference and 320px tall: above the buttons it pushed Continue off the screen
   (y 970 at 1440x900, 1062 at 390x844; it is now at 650 and 693).
-- **3 · What your answer must pass.** The six checks as a list. Nothing has run on this pane, so none of them is green: a
-  check that will run (`Always` / `Applies`) carries the trace's own tick (10 by 14) drawn as a neutral dashed outline (a ring with a
-  dot read as a radio button or a loader, and a square as a checkbox), a check that will not run keeps the dashed circle and its tag
-  (`No examples yet` …). Green appears only after a pass (the trace, the answer). The sentence
-  under the list follows the seal rule: for Full checks the answer appears after all six have run, the first five must pass,
-  and the stress test reports how many of its deliberate breaks the checks caught.
+  Words typed in the box (3 characters or more, not the question already picked) are what Continue asks: it adds them as
+  "Use this question" would (words that match a listed question select it) and moves on; the box's words are held by the page
+  (`zen/flow.ts` `draftToAsk`), so the picked question's reason does not hold Continue back while they are there. The latest
+  choice wins: picking a chip, `try it` or `switch to orders.csv` after typing clears the box. In the demo a typed question has
+  no recording, so Continue adds it and the pane stays, with the no-recording sentence under "Asking:" (`typedNeedsLive`: a typed
+  question whose availability is not worked out yet counts as unanswerable, so Continue is never briefly on for it).
+- **3 · Agree what the answer must pass** (rail label "Agreement"; the headline feature). The six checks as a list. Nothing has
+  run on this pane, so none of them is green: a check that will run (`Always` / `Applies`) carries the trace's own tick (10 by 14)
+  drawn as a neutral dashed outline (a ring with a dot read as a radio button or a loader, and a square as a checkbox), a check that
+  will not run keeps the dashed circle and its tag (`No examples yet` …; check 04's note names a table count only for the demo's
+  seeded agreement, `Tried on 100 made-up tables`, since drafted rules set their own). Green appears only after a pass (the trace,
+  the answer). The sentence under the list follows the seal rule: for Full checks the answer appears after all six have run, the
+  first five must pass, and the stress test reports how many of its deliberate breaks the checks caught.
+  **The AI drafts the checks, the viewer agrees** (`components/AgreementDraft.tsx`, shared with the Full view; run by
+  `start/draft.ts`; words and checks in `model/specDraft.ts`). Above the list, for a question with no checks of its own and no
+  seeded agreement, the AI can draft what the answer will be held to, in a call separate from the one that writes the answer. One
+  surface per phase, each one the system already owns: an invitation lit with the answer card's indigo lift (the three beats: it
+  asks first, it drafts the checks, you agree; while it is on offer its button is the pane's one primary action and "Run the
+  checks" steps back to secondary), a drafting strip that quotes the check trace (night ground, the pen-lime ticks, a counter beside
+  the status, never in it), the stop-and-ask card for the AI's questions, a document card for the draft, and the saved card once
+  agreed. Where the question leaves something open that changes the answer (which rows count, ties, rounding, order, the shape of
+  the result, an empty table) it asks first: up to 3 questions with choices and "Something else:", at most 2 rounds (questions after
+  the last round go back to the model once, then are an error), then it must draft and mark what it chose itself (`silentOn` /
+  `reasonable` on the check, shown as "Not settled by you:"). The draft: the contract in numbered terms, the return type, what the
+  viewer settled, each example and house rule in plain words beside its keep box (the code behind "Show the check"), "If an answer
+  passes all of these", and "What that would not show" on a dashed panel. "Ask for a change" redrafts. Nothing is a check until
+  "Approve N examples and N house rules" installs it (`session.applySpec`; an answer shown before is forgotten): the saved card is
+  drawn in from the left and the checks it turned on (02, 04, 06) light up in the list one after another (`ZenPanes` `is-lit`; reduced
+  motion keeps the finished rows), and focus goes to "Run the checks". While a draft waits on the AI or the viewer the run waits and
+  says why (`flow.ts` `DRAFT_PENDING_REASON`; on the Full view Ask waits, `AskCard` `DRAFT_WAITS_LINE`); "Put the draft away" installs
+  nothing. Every point the viewer settled is written into the contract (`doc`) too, because the model that writes the answer sees the
+  contract and the checks' names, never their bodies. A draft whose checks do not parse goes back to the model once with the reason
+  (`syntaxProblem`). The words never say "proof": these are checks on made-up tables.
+  **In the demo** the draft is one real recorded run (`model/recordedDraft.json`, `npm run record:draft`: orders.csv, "What is our
+  revenue by country?"; every model reply verbatim, the answers given, and the curation in its title), played back with a short pause
+  per reply and said to be a replay. Its answer is a normal recording (`public/recordings/orders-draft.json`) keyed by the spec
+  approving the draft installs; the question's availability is `drafted` (recorded.ts) only when the draft reads back to exactly that
+  spec and the recording is bundled, so the chip says "AI drafts the checks", Run (or Ask) is off until the draft is approved
+  (`NEEDS_DRAFT_REASON`, `DRAFTED_LEVEL_LINE`), and then the recorded answer replays with every check live. In the demo the recorded
+  answers are picked and nothing that would change the checks can be changed (no other choice, no unticking, no redraft), each said
+  in one plain sentence. A test pins that the recording reads back and replays (`model/recordedDraft.test.ts`).
 - **4 · Checking** is the live trace and **never hands over by itself** (there is no timer: the old 1.1 s hand-over is gone, so
   the finished trace can be read for as long as the viewer wants). While the AI's draft is replayed (up to about 5 s in the
   demo) the trace shows the seconds counter and, in its footer, a small indeterminate mark by the "drafting · checks start next"

@@ -41,6 +41,9 @@ const RECORDED: Record<string, Array<[string, string, string]>> = {
     ['median', '9d21d9cd048e1f37bd1b66a8272fed6d43125c400567e0b85843f4900a6a24a2', '881ef16eef654298b4037ca2d4f9f3a1e40e1c8ea969a0d66565a58c221a5d8d'],
     ['median', '9cb6dee85e922117e424b73fc68c981a06635f09ecb183bb51a6398da04dff41', 'dd56ea479a256ac251195581954e02a2852f75e54298ea00ffa3fc034a1dd0f5'],
   ],
+  'orders-draft.json': [
+    ['revenueByCountry', '3f1f18c06cd6118585582af3f902839b878f9ac0dad7d4e0c855303f138e638b', '94851f5cc3215c391442855a364cf332a9994495afab291063cba83148a41118'],
+  ],
   'orders-agreement.json': [
     ['topCustomersByRevenue', 'd6e81acb638ab7a2017497ebe43a5d95980709238c4f83d1e1dbd3b39a7e746c', '5c934788236ad017fe4438b4a7ab60e62ef68d038382d8787dc35c5372b3d025'],
   ],

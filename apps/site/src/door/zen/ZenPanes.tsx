@@ -1,5 +1,6 @@
 /** Step by step · the panes that are not already a shared component: the question (2) and "what your answer must pass" (3). */
-import { useMemo, useRef, useState } from 'preact/hooks';
+import { useMemo, useRef } from 'preact/hooks';
+import type { ComponentChildren } from 'preact';
 import type { Engine } from '@scasella/undefined-engine/types';
 import { NotChecked } from '../icons';
 import { columnNote } from '../model/columnNotes';
@@ -77,13 +78,26 @@ export interface WhyProps {
   onUse?: (sample: SampleId) => void;
 }
 
-export function ZenQuestion({ engine, why = '', whyView = null, onTry = () => undefined, onUse = () => undefined }: { engine: Engine } & WhyProps) {
+/** The typed question's words, held by the page (Zen.tsx) so Continue can ask them (flow.ts draftToAsk). */
+export interface DraftProps {
+  draft: string;
+  setDraft: (text: string) => void;
+}
+
+export function ZenQuestion({
+  engine,
+  draft: text,
+  setDraft: setText,
+  why = '',
+  whyView = null,
+  onTry = () => undefined,
+  onUse = () => undefined,
+}: { engine: Engine } & DraftProps & WhyProps) {
   const s = sessionFor(engine);
   const q = s.question.value;
   const canChange = s.canChange.value;
   const avail = s.availability.value;
   const chips = chipsOf(s.questions.value, s.questionId.value, avail);
-  const [text, setText] = useState('');
   const group = useRef<HTMLDivElement>(null);
   const mode = engine.state.value.mode;
   const replay = mode === 'replay';
@@ -117,7 +131,12 @@ export function ZenQuestion({ engine, why = '', whyView = null, onTry = () => un
               class={'zp__chip' + (c.pressed ? ' is-on' : '')}
               aria-pressed={c.pressed}
               aria-disabled={!canChange || undefined}
-              onClick={() => canChange && void s.selectQuestion(c.id)}
+              // the latest choice wins: a chip picked after typing is the question, so the words in the box go (Continue would ask them)
+              onClick={() => {
+                if (!canChange) return;
+                setText('');
+                void s.selectQuestion(c.id);
+              }}
             >
               <span class="zp__q">{c.label}</span>
               {c.tag && <span class="zp__tag fd-mono">{c.tag}</span>}
@@ -204,22 +223,44 @@ function WillRun() {
   );
 }
 
-export function ZenChecks({ engine, why = '', whyView = null, onTry = () => undefined, onUse = () => undefined }: { engine: Engine } & WhyProps) {
+export function ZenChecks({
+  engine,
+  why = '',
+  whyView = null,
+  onTry = () => undefined,
+  onUse = () => undefined,
+  children,
+}: { engine: Engine; children?: ComponentChildren } & WhyProps) {
   const s = sessionFor(engine);
   const q = s.question.value;
   const agreement = s.agreement.value;
   const level = q?.level ?? 'basic';
   const mode = engine.state.value.mode;
   const rows = zenChecks(agreement, { level, mode });
+  // the checks an approval just turned on light up once (the agreement's one authored moment, AgreementDraft.css): a row is lit when
+  // it was off for this question a moment ago and is on now; a new question or a fresh visit lights nothing
+  const was = useRef<{ q: string | null; on: Set<string> } | null>(null);
+  const on = new Set(rows.filter((c) => c.state === 'always' || c.state === 'applies').map((c) => c.num));
+  const lit = new Set<string>();
+  if (was.current && was.current.q === (q?.id ?? null)) for (const n of on) if (!was.current.on.has(n)) lit.add(n);
+  const litNow = useRef<Set<string>>(new Set());
+  if (lit.size > 0) litNow.current = lit;
+  else if (was.current?.q !== (q?.id ?? null)) litNow.current = new Set();
+  was.current = { q: q?.id ?? null, on };
   return (
     <div class="zp">
       <p class="zp__lede">
         {q ? <>Before you see an answer to “{q.text}”, it has to pass these.</> : 'Pick a question first.'}
       </p>
       <Why text={why} view={whyView} replay={mode === 'replay'} onTry={onTry} onUse={onUse} />
+      {children}
       <ol class="zp__checks" aria-label="The six checks">
-        {rows.map((c) => (
-          <li key={c.num} class={'zp__check ' + TAG_CLASS[c.state]}>
+        {rows.map((c, i) => (
+          <li
+            key={c.num}
+            class={'zp__check ' + TAG_CLASS[c.state] + (litNow.current.has(c.num) ? ' is-lit' : '')}
+            style={{ '--zp-lit': `${i * 90}ms` } as Record<string, string>}
+          >
             <span class="zp__num fd-mono">{c.num}</span>
             <span class="zp__ico">{c.state === 'always' || c.state === 'applies' ? <WillRun /> : <NotChecked size={18} />}</span>
             <span class="zp__body">

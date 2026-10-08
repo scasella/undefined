@@ -15,6 +15,7 @@
     "test": "vitest run --configLoader runner",
     "record": "node scripts/record.mjs",
     "record:door": "node scripts/record-door.mjs",
+    "record:draft": "node scripts/record-draft.mjs",
     "build:check": "NODE_ENV=development vite build --configLoader runner --mode development --outDir dist-check",
     "check:replay": "npm run build:check && node scripts/replay-check.mjs",
     "check:csp": "node scripts/csp-check.mjs",

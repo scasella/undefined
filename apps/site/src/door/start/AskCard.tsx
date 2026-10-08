@@ -20,6 +20,7 @@ import { RUN_LOCALLY_URL } from '../components/DemoNote';
 import type { SampleId } from '../model/samples';
 import { noRecordingView, sampleOffer, type NoRecordingView, type SampleOffer } from './derive';
 import type { Availability } from './recorded';
+import { draftFor } from './draft';
 import { sessionFor, type Session } from './session';
 import './AskCard.css';
 
@@ -43,6 +44,11 @@ export const NEEDS_YOUR_COMPUTER = 'needs your computer';
  * sentence the no-recording outcome will show, and nothing about a level: that calculation will never run in the demo
  * (`quiet`: the no-recording card below already says it, so the line says nothing).
  */
+/** The level line for a question the demo answers only once its recorded draft of the checks is approved. */
+export const DRAFTED_LEVEL_LINE = "In this demo, this question's answer was recorded with checks the AI drafted. Draft them below and approve them, then ask.";
+/** The level line while drafted checks wait for the viewer (start/draft.ts pending). */
+export const DRAFT_WAITS_LINE = 'Approve the drafted checks below, or put the draft away, to ask.';
+
 export interface LevelLineInput {
   level: 'full' | 'basic';
   agreement: Pick<AgreementView, 'empty' | 'seeded' | 'n'>;
@@ -65,6 +71,8 @@ export interface LevelLineView {
 export function levelLineView(input: LevelLineInput): LevelLineView {
   const a = input.agreement;
   if (input.availability === 'none') return { head: '', noRecording: input.quiet ? null : noRecordingView(input.ownData, input.recordedOther, input.offer ?? null) };
+  // the demo answers this one only under the checks its recorded draft installs (recorded.ts 'drafted', components/AgreementDraft)
+  if (input.availability === 'drafted') return { head: DRAFTED_LEVEL_LINE, noRecording: null };
   let head: string;
   if (input.level === 'basic') {
     head = a.empty
@@ -80,7 +88,7 @@ export interface ChipView {
   label: string;
   pressed: boolean;
   /** The level that will really run; none for a question that cannot be answered here (replay: needs your computer; no level is earned). */
-  tag: 'Full checks' | 'Basic checks' | null;
+  tag: 'Full checks' | 'Basic checks' | 'AI drafts the checks' | null;
   /** Replay: nothing recorded for it (availability 'none'). Unknown availability is not 'none'. */
   needsLive: boolean;
 }
@@ -93,7 +101,8 @@ export interface ChipView {
 export function chipsOf(questions: readonly SuggestedQuestion[], selected: string | null, availability: Record<string, Availability>): ChipView[] {
   const chips = questions.map((q): ChipView => {
     const needsLive = availability[q.id] === 'none';
-    const tag = needsLive ? null : q.level === 'full' ? 'Full checks' : 'Basic checks';
+    // the demo's recorded draft: its level comes from checks the viewer has yet to approve, so the tag says what happens instead
+    const tag = needsLive ? null : availability[q.id] === 'drafted' ? 'AI drafts the checks' : q.level === 'full' ? 'Full checks' : 'Basic checks';
     return { id: q.id, label: q.label, pressed: q.id === selected, tag, needsLive };
   });
   return [...chips.filter((c) => !c.needsLive), ...chips.filter((c) => c.needsLive)];
@@ -178,12 +187,16 @@ export function AskCard({ engine, session }: { engine: Engine; session?: Session
   const avail = s.availability.value;
   const busy = s.busy.value;
   const canChange = s.canChange.value;
-  const canAsk = s.canAsk.value;
+  // drafted checks waiting on the AI or the viewer hold Ask, as they hold "Run the checks" on Step by step
+  const draftWaits = draftFor(s).pending.value;
+  const canAsk = s.canAsk.value && !draftWaits;
   const chips = chipsOf(s.questions.value, s.questionId.value, avail);
   // once the no-recording card below says it, the level line does not repeat it
   const said = s.outcome.value.kind === 'no-recording';
   const mode = engine.state.value.mode;
-  const line = q
+  const line = q && draftWaits
+    ? { head: DRAFT_WAITS_LINE, noRecording: null }
+    : q
     ? levelLineView({
         level: q.level,
         agreement,

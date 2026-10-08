@@ -99,8 +99,10 @@ describe('the edge of a text field is 3:1 against what it sits on (WCAG 1.4.11)'
     }
   }
 
-  it('finds the four text fields the product has (the question box, two paste areas, the house-rule reason box)', () => {
+  it('finds the six text fields the product has (the question box, two paste areas, the house-rule reason box, the drafted checks\' own answer and change boxes)', () => {
     expect(fields.sort()).toEqual([
+      'components/AgreementDraft.tsx: <input> .fd-ad__field',
+      'components/AgreementDraft.tsx: <input> .fd-ad__own',
       'start/DataBringer.tsx: <textarea> .fd-bring__textarea',
       'start/RunStates.tsx: <input> .fd-rs__why-box',
       'zen/ZenData.tsx: <textarea> .zd__textarea',
@@ -113,7 +115,7 @@ describe('the edge of a text field is 3:1 against what it sits on (WCAG 1.4.11)'
     for (const f of stylesheets) {
       for (const [sel, body] of rules(read('./' + f))) if (/var\(--fd-edge-input\)/.test(body)) owners.push(sel);
     }
-    expect(owners.sort()).toEqual(['.fd-bring__textarea', '.fd-rs__why-box', '.zd__textarea', '.zp__box']);
+    expect(owners.sort()).toEqual(['.fd-ad__field', '.fd-ad__own', '.fd-bring__textarea', '.fd-rs__why-box', '.zd__textarea', '.zp__box']);
     for (const f of fields) {
       const cls = /\.(\S+)$/.exec(f)![1]!;
       const css = stylesheets.map((s) => read('./' + s)).find((c) => rules(c).some(([sel]) => sel === '.' + cls))!;
@@ -370,6 +372,7 @@ describe('transitions that arrive use the one easing (var(--fd-ease)), not a lit
   // a loop.
   const LEFT = [
     'components.css::.fd-btn',
+    'components/AgreementDraft.css::.fd-ad__pen > span',
     'components/AgreementRail.css::.fd-agree__chip',
     'components/CheckTrace.css::.fd-trace__pen > span',
     'components/Segmented.css::.fd-seg__item',

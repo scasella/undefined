@@ -29,6 +29,8 @@ export function OrderOfWork() {
             <span class="fd-eyebrow fd-ow-label fd-ow-label--here">HERE</span>
             <span class="fd-ow-step fd-ow-step--ask">You ask</span>
             <Arrow />
+            <span class="fd-ow-step fd-ow-step--agree">The AI drafts the checks · you agree</span>
+            <Arrow />
             <span class="fd-ow-step fd-ow-step--ink">The AI drafts a calculation</span>
             <Arrow />
             <span class="fd-ow-step fd-ow-step--trace">

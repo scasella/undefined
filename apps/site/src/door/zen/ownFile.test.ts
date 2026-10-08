@@ -141,7 +141,7 @@ describe('the dead end is not dead: panes 2 and 3 can switch to the recorded sam
     expect(zen).toContain('const offer = s ? sampleOffer(s.sampleId.value) : null;');
     expect(zen).toContain('noRecordingText(ownData, other, offer)');
     expect(zen).toContain('noRecordingView(ownData, other, offer)');
-    expect(zen).toMatch(/const useSample = \(sample: SampleId\) => \{\s*if \(!s\) return;\s*void s\.useSample\(sample\)\.then\(\(\) => requestAnimationFrame\(\(\) => document\.getElementById\(ZEN_CONTINUE_ID\)\?\.focus\(\)\)\);/);
+    expect(zen).toMatch(/const useSample = \(sample: SampleId\) => \{\s*if \(!s\) return;\s*setDraft\(''\);\s*void s\.useSample\(sample\)\.then\(\(\) => requestAnimationFrame\(\(\) => document\.getElementById\(ZEN_CONTINUE_ID\)\?\.focus\(\)\)\);/);
     // both panes that say it get the button
     expect(zen).toContain('onTry={tryOther} onUse={useSample} />}');
     expect([...zen.matchAll(/onUse=\{useSample\}/g)]).toHaveLength(2);

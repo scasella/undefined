@@ -8,6 +8,8 @@ import {
   canContinue,
   CONTINUE_WHY_ID,
   continueReason,
+  DRAFT_PENDING_REASON,
+  draftToAsk,
   forwardLabel,
   hashForStep,
   holdManualScroll,
@@ -19,6 +21,7 @@ import {
   paneOf,
   resolveStep,
   stepFromHash,
+  typedNeedsLive,
   ZEN_CONTINUE_ID,
   ZEN_PANES,
   ZEN_SEE_ANSWER_ID,
@@ -229,7 +232,7 @@ describe('zenChecks', () => {
     expect(s).toBe("Basic checks: the two that always run. Your agreement (1 locked answer) isn't re-run: the answer on file was checked before it was added.");
   });
   it('names the panes', () => {
-    expect(paneOf(3).title).toBe('What your answer must pass');
+    expect(paneOf(3).title).toBe('Agree what the answer must pass');
   });
 });
 
@@ -474,5 +477,38 @@ describe('holdManualScroll: while the walk-through is on screen the page owns th
     const undo = holdManualScroll(flaky);
     expect(flaky.v).toBe('manual');
     expect(() => undo()).not.toThrow();
+  });
+});
+
+describe('a typed question and Continue', () => {
+  it('Continue asks the words in the box, not the chip picked before', () => {
+    expect(draftToAsk('  How many orders were refunded? ', 'Who are our top customers by revenue?')).toBe('How many orders were refunded?');
+    expect(draftToAsk('ab', null)).toBeNull();
+    expect(draftToAsk('', 'Who are our top customers?')).toBeNull();
+    // the words of the question already picked change nothing
+    expect(draftToAsk('who are our top customers?', 'Who are our top customers?')).toBeNull();
+  });
+  it('words in the box let Continue go, even with nothing picked or a picked question the demo cannot answer', () => {
+    expect(canContinue(2, { bound: true, question: false, busy: false, draft: true })).toBe(true);
+    expect(canContinue(2, { bound: true, question: true, busy: false, needsLive: true, draft: true })).toBe(true);
+    expect(canContinue(2, { bound: false, question: false, busy: false, draft: true })).toBe(false);
+    expect(canContinue(2, { bound: true, question: false, busy: true, draft: true })).toBe(false);
+    expect(continueReason(2, { question: false, needsLive: false, draft: true }, 'x')).toBe('');
+  });
+  it('a typed question with no answer in the demo keeps the pane', () => {
+    expect(typedNeedsLive({ id: 'own:1', availability: undefined, replay: true })).toBe(true);
+    expect(typedNeedsLive({ id: 'own:1', availability: undefined, replay: false })).toBe(false);
+    expect(typedNeedsLive({ id: 'own:1', availability: 'live', replay: false })).toBe(false);
+    expect(typedNeedsLive({ id: 'top-customers', availability: 'recorded', replay: true })).toBe(false);
+    expect(typedNeedsLive({ id: 'top-customers', availability: 'none', replay: true })).toBe(true);
+  });
+});
+
+describe('drafted checks waiting on pane 3', () => {
+  it('hold "Run the checks" and say why, until they are approved or put away', () => {
+    expect(canContinue(3, { bound: true, question: true, busy: false, draftPending: true })).toBe(false);
+    expect(canContinue(3, { bound: true, question: true, busy: false, draftPending: false })).toBe(true);
+    expect(continueReason(3, { question: true, needsLive: false, draftPending: true }, 'x')).toBe(DRAFT_PENDING_REASON);
+    expect(continueReason(3, { question: true, needsLive: false, draftPending: false }, 'x')).toBe('');
   });
 });

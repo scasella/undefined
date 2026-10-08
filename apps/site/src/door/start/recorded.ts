@@ -27,10 +27,11 @@ import type { SampleId } from '../model/samples';
 
 /**
  * certified: answered from a function already certified (either mode: nothing is written or re-checked) · recorded: a
- * recorded draft exists · none: no recorded answer, so it needs your computer (live mode) · live: live mode, and a new
- * version would be written.
+ * recorded draft exists · drafted: replay, no recorded answer for the spec as it is, but one for the checks the AI drafted
+ * for it in the recorded draft (model/recordedDraft.ts): approving that draft makes it `recorded` · none: no recorded answer,
+ * so it needs your computer (live mode) · live: live mode, and a new version would be written.
  */
-export type Availability = 'certified' | 'recorded' | 'none' | 'live';
+export type Availability = 'certified' | 'recorded' | 'drafted' | 'none' | 'live';
 
 /** The spec a spec-less call `fn(<dataset>)` grows from (core/engine.ts callSpec; exampleId is not hashed). */
 export function callSpecFor(fn: string, dataset: Pick<DatasetRef, 'typeName' | 'typeDecl'>): FunctionSpec {
@@ -117,6 +118,11 @@ export async function availabilityOf(input: {
   dataset: Pick<DatasetRef, 'typeName' | 'typeDecl'>;
   recordings: readonly Recording[];
   seedFor: (q: SuggestedQuestion) => FunctionSpec | null;
+  /**
+   * Replay: the key (`specHash`, `testsHash`) of the spec approving the recorded draft for `q` installs, when there is one and it reads
+   * back to that spec (model/recordedDraft.ts recordedDraftReplays). 'drafted' also needs a bundled recording for that key.
+   */
+  drafted?: (q: SuggestedQuestion) => Promise<{ specHash: string; testsHash: string } | null>;
 }): Promise<Record<string, Availability>> {
   const out: Record<string, Availability> = {};
   const keys = recordedKeys(input.recordings);
@@ -135,7 +141,12 @@ export async function availabilityOf(input: {
     }
     const spec = seed ?? expectedSpec(q, input.program, input.dataset, null);
     const h = await hashesFor(spec);
-    out[q.id] = keys.has(`${q.fn} ${h.specHash} ${h.testsHash}`) ? 'recorded' : 'none';
+    if (keys.has(`${q.fn} ${h.specHash} ${h.testsHash}`)) out[q.id] = 'recorded';
+    // only a question still at its spec-less start can take the recorded draft (one with checks of its own is not offered one)
+    else {
+      const k = !seed && !specHasAgreement(spec) && input.drafted ? await input.drafted(q) : null;
+      out[q.id] = k && keys.has(`${q.fn} ${k.specHash} ${k.testsHash}`) ? 'drafted' : 'none';
+    }
   }
   return out;
 }

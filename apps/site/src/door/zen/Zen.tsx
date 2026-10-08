@@ -1,6 +1,6 @@
 /**
  * Step by step: the product as a five-pane walk-through, one pane at a time, in a bare single column:
- *   1 Bring your data · 2 Ask a question · 3 What your answer must pass · 4 Checking (the live check trace) · 5 Your answer
+ *   1 Bring your data · 2 Ask a question · 3 Agree what the answer must pass · 4 Checking (the live check trace) · 5 Your answer
  * It is the first run's own session, check trace and answer card (start/*); nothing here is scripted. Nothing moves by
  * itself: pane 4 starts the run and stays on the finished trace (a plain line saying how the checks went, Back, and
  * "See the answer", which takes focus once the run has settled, wherever focus was) until the viewer presses it; any other
@@ -37,6 +37,7 @@ import {
   canContinue,
   CONTINUE_WHY_ID,
   continueReason,
+  draftToAsk,
   forwardLabel,
   hashForStep,
   holdManualScroll,
@@ -44,6 +45,7 @@ import {
   paneOf,
   resolveStep,
   stepFromHash,
+  typedNeedsLive,
   ZEN_CONTINUE_ID,
   ZEN_PANES,
   ZEN_SEE_ANSWER_ID,
@@ -53,6 +55,8 @@ import {
 } from './flow';
 import { ZenData } from './ZenData';
 import { ZenChecks, ZenQuestion, ZenYourData } from './ZenPanes';
+import { AgreementDraft } from '../components/AgreementDraft';
+import { draftFor } from '../start/draft';
 import { ZenProof } from './ZenProof';
 import './Zen.css';
 
@@ -106,6 +110,8 @@ export function Zen({ engine, initError }: { engine: Engine; initError: string |
   const watching = useRef(false);
   // the pane the in-app "Back" was pressed on, from the moment it asks the browser to step back until the browser has landed
   const backFrom = useRef<ZenStep | null>(null);
+  // the words in pane 2's box: held here so Continue asks them (flow.ts draftToAsk) instead of the chip that was picked before
+  const [draft, setDraft] = useState('');
 
   useEffect(() => {
     if (initError) return;
@@ -199,16 +205,25 @@ export function Zen({ engine, initError }: { engine: Engine; initError: string |
   // replay, nothing recorded for the selected question (typed ones, other suggestions, anything on your own file): it
   // can only end in "No recorded answer for this one", so Continue stays off and says why
   const picked = s?.question.value ?? null;
-  const needsLive = !!picked && s?.availability.value[picked.id] === 'none';
+  // words typed on pane 2 and not yet added: Continue asks them, and the picked question's reason no longer applies
+  const typed = step === 2 ? draftToAsk(draft, picked?.text ?? null) : null;
+  const needsLive = !typed && !!picked && typedNeedsLive({ id: picked.id, availability: s?.availability.value[picked.id], replay: st.mode === 'replay' });
   const bound = !!s && s.source.value !== 'none';
-  const can = s ? canContinue(step, { bound, question: picked !== null, busy, needsLive }) : false;
+  // pane 3: drafted checks waiting on the AI or the viewer hold the run (start/draft.ts)
+  const draftPending = step === 3 && !!s && draftFor(s).pending.value;
+  // the demo answers this question only under the checks its recorded draft installs (recorded.ts 'drafted')
+  const needsDraft = step === 3 && !!picked && s?.availability.value[picked.id] === 'drafted';
+  const can = s ? canContinue(step, { bound, question: picked !== null, busy, needsLive, draft: typed !== null, draftPending, needsDraft }) && (!typed || s.canChange.value) : false;
   const ownData = s?.source.value === 'own';
   // the forward button's words and look (flow.ts forwardLabel): your own file in the demo opens "See what's in your file", secondary
-  const fwd = forwardLabel(step, { ownData, replay: st.mode === 'replay' });
+  const fwdBase = forwardLabel(step, { ownData, replay: st.mode === 'replay' });
+  // pane 3 while the AI's draft is on offer and not started: drafting the checks is the one primary action, so Run steps back to secondary
+  const invite = step === 3 && !!s && draftFor(s).offered.value && draftFor(s).state.value.phase === 'idle';
+  const fwd = invite ? { ...fwdBase, variant: 'secondary' as const } : fwdBase;
   const other = s?.recordedOther.value ?? null;
   // the recorded sample, for a file that is not it: the way out of a question the demo cannot answer, when no other question here can be
   const offer = s ? sampleOffer(s.sampleId.value) : null;
-  const why = s ? continueReason(step, { question: picked !== null, needsLive, bound }, noRecordingText(ownData, other, offer)) : '';
+  const why = s ? continueReason(step, { question: picked !== null, needsLive, bound, draft: typed !== null, draftPending, needsDraft }, noRecordingText(ownData, other, offer)) : '';
   // the reason as the no-recording sentence in pieces (its `try it` / `switch to orders.csv` is a button), when that is the reason
   const whyView = why !== '' && needsLive && (step === 2 || step === 3) ? noRecordingView(ownData, other, offer) : null;
   const describedBy = why ? { 'aria-describedby': CONTINUE_WHY_ID } : {};
@@ -216,16 +231,32 @@ export function Zen({ engine, initError }: { engine: Engine; initError: string |
   // `try it`: another question that has a recorded answer. The sentence it was in goes away, so focus goes to the way forward
   const tryOther = (id: string) => {
     if (!s) return;
+    setDraft('');
     void s.selectQuestion(id).then(() => requestAnimationFrame(() => document.getElementById(ZEN_CONTINUE_ID)?.focus()));
   };
   // `switch to orders.csv`: the file under the pane changes and the sentence goes away, so focus goes to the way forward as well
   const useSample = (sample: SampleId) => {
     if (!s) return;
+    setDraft('');
     void s.useSample(sample).then(() => requestAnimationFrame(() => document.getElementById(ZEN_CONTINUE_ID)?.focus()));
   };
 
+  // Continue: on pane 2 with words in the box, those words are the question (added, or the listed question they match, selected).
+  // If the demo cannot answer it, the pane stays with the reason under "Asking:" and focus stays on Continue, which it describes.
+  const next = async (): Promise<void> => {
+    if (!s || !can) return;
+    if (step !== 2 || !typed) return go((step + 1) as ZenStep);
+    const ok = await s.addQuestion(typed);
+    if (!ok) return;
+    setDraft('');
+    const q = s.question.peek();
+    if (!q || stepRef.current !== 2) return;
+    if (typedNeedsLive({ id: q.id, availability: s.availability.peek()[q.id], replay: engine.state.peek().mode === 'replay' })) return;
+    go(3);
+  };
+
   const run = () => {
-    if (!s || !s.canAsk.value || needsLive) return;
+    if (!s || !s.canAsk.value || needsLive || draftPending || needsDraft) return;
     watching.current = true;
     go(4);
     void s.ask();
@@ -296,8 +327,12 @@ export function Zen({ engine, initError }: { engine: Engine; initError: string |
               )}
 
               {step === 1 && <ZenData engine={engine} />}
-              {step === 2 && <ZenQuestion engine={engine} why={why} whyView={whyView} onTry={tryOther} onUse={useSample} />}
-              {step === 3 && <ZenChecks engine={engine} why={why} whyView={whyView} onTry={tryOther} onUse={useSample} />}
+              {step === 2 && <ZenQuestion engine={engine} draft={draft} setDraft={setDraft} why={why} whyView={whyView} onTry={tryOther} onUse={useSample} />}
+              {step === 3 && (
+                <ZenChecks engine={engine} why={why} whyView={whyView} onTry={tryOther} onUse={useSample}>
+                  <AgreementDraft session={s} forwardId={ZEN_CONTINUE_ID} />
+                </ZenChecks>
+              )}
               {step === 4 && <RunPanel engine={engine} zen part="run" onSettled={settled} />}
               {step === 5 && <RunPanel engine={engine} zen part="answer" />}
               {step === 5 && <ZenProof engine={engine} />}
@@ -329,7 +364,7 @@ export function Zen({ engine, initError }: { engine: Engine; initError: string |
                 )}
                 <span class="zen__spacer" />
                 {step < 3 && (
-                  <Button id={ZEN_CONTINUE_ID} variant={fwd.variant} icon="arrow" aria-disabled={can ? undefined : 'true'} {...describedBy} onClick={() => can && go((step + 1) as ZenStep)}>
+                  <Button id={ZEN_CONTINUE_ID} variant={fwd.variant} icon="arrow" aria-disabled={can ? undefined : 'true'} {...describedBy} onClick={() => void next()}>
                     {fwd.label}
                   </Button>
                 )}

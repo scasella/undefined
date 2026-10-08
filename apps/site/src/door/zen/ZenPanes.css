@@ -75,3 +75,12 @@
 .zp__state { flex: none; max-width: 9.5em; padding-top: 2px; font-size: 12px; line-height: 17px; font-weight: 500; color: var(--fd-ink); text-align: right; overflow-wrap: anywhere; }
 .zp__check.is-off .zp__state { color: var(--fd-ink-3); }
 .zp__sum { margin: 0; max-width: var(--fd-measure); font-size: 14px; line-height: 20px; font-weight: 500; color: var(--fd-ink); }
+
+/* a check an approval just turned on (ZenChecks is-lit, AgreementDraft's one authored moment): the row washes indigo and fades back to
+   white while its dashed tick draws in, one row after another (90ms apart); reduced motion keeps the finished row */
+@keyframes zp-lit { 0% { background: var(--fd-indigo-wash); } 100% { background: var(--fd-surface); } }
+@keyframes zp-lit-tick { 0% { transform: scale(0.3) rotate(-12deg); opacity: 0; } 60% { transform: scale(1.15); opacity: 1; } 100% { transform: none; } }
+.zp__check.is-lit { animation: zp-lit 1.6s var(--fd-ease) var(--zp-lit, 0ms) both; }
+.zp__check.is-lit .zp__ico { animation: zp-lit-tick 420ms var(--fd-ease) calc(var(--zp-lit, 0ms) + 120ms) both; }
+.zp__check.is-lit .zp__state { color: var(--fd-indigo-hover); }
+@media (prefers-reduced-motion: reduce) { .zp__check.is-lit, .zp__check.is-lit .zp__ico { animation: none; } }

@@ -23,7 +23,7 @@ What it lets you do, in the engine's terms:
 | On the page | Engine feature |
 |---|---|
 | Bring a file: drop, **Choose a file**, paste, or a sample | `previewDataset` / `loadDataset` (CSV, TSV, JSON, JSON Lines; 20,000 rows, 1 MB) |
-| The suggested questions for the file | Deterministic call suggestions from the column types (`data/suggest.ts`), no model asked; the ask box is read-only |
+| The suggested questions for the file | Deterministic call suggestions from the column types (`data/suggest.ts`), no model asked. Step by step also takes a question you type (`model/questions.ts` `customQuestion`), and on a live copy can have the AI draft stricter checks for it, which you approve ([FRONT-DOOR.md](FRONT-DOOR.md), pane 3) |
 | Ask · checks run first | `setInput` + `submit`: the grow loop and the four gates, shown as the check trace |
 | Drafts thrown out, the answer | Rejected and accepted candidates of the run (`state.generation`) |
 | Stress test | The mutation check, run automatically after a commit (`state.mutation`) |
