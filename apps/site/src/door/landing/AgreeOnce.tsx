@@ -32,7 +32,7 @@ export function AgreeOnce() {
     <section class="fd-once" aria-labelledby="agree-h">
       <div class="fd-once__wrap">
         <div class="fd-once__intro">
-          <div class="fd-once__eyebrow">FIG. 3 · ONE AGREEMENT, EVERY VERSION</div>
+          <div class="fd-label-line">Fig. 3 · One agreement, every version</div>
           <h2 id="agree-h" class="fd-once__h">Agree once, held every time.</h2>
           <p class="fd-once__lede">
             Every version has to pass all of your rules. When you add a rule, the next version is held to it too. A rewrite that breaks an
@@ -41,7 +41,7 @@ export function AgreeOnce() {
           <p class="fd-once__small">Going back to an earlier version is saved as a new version. Nothing is erased.</p>
         </div>
         <div class="fd-once__board">
-          <div class="fd-once__title" id="agree-table-t">
+          <div class="fd-label-line fd-once__title" id="agree-table-t">
             {t.title}
           </div>
           {/* scrolls sideways on narrow screens: focusable so it can be scrolled from the keyboard */}

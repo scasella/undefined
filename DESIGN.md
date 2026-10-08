@@ -336,7 +336,7 @@ A cool, near-neutral paper palette with one electric indigo, three verdict hues 
 
 Both families are self-hosted through @fontsource-variable (latin and latin-ext subsets, `font-display: swap`); no third-party fonts or scripts load.
 
-**Character:** Geist is a plain, even sans that reads like a well-set form; headings are heavy (600) and tightly tracked, body is regular at 16px/24px. Geist Mono, with tabular slashed-zero figures, is the measuring tape: it sets numbers, file names, counts, verdict words on the trace and the labels above sections.
+**Character:** Geist is a plain, even sans that reads like a well-set form; headings are heavy (600) and tightly tracked, body is regular at 16px/24px. Geist Mono is the measuring tape: it sets file names, counts, verdict words on the trace and short noun labels above sections. Money and counts with separators (the answer's lead, ranked amounts, evidence figures) are set in Geist with tabular figures (`.fd-num`), because a monospaced comma and point each take a full digit cell and read as "$2 , 252 . 07".
 
 ### Hierarchy
 - **Display** (600, clamp(40px, 5.2vw, 64px), 1.04, -0.035em): the landing headline only.
@@ -349,12 +349,13 @@ Both families are self-hosted through @fontsource-variable (latin and latin-ext 
 - **Body Small** (400, 14px, 20px): supporting lines, list items, notes, trace lane labels.
 - **Caption** (400, 13px, 19px): figure captions, helper text, footers, in ink-3 or ink-2.
 - **Control** (500, 14px, 20px): the label of every button, chip, segmented item and text link.
-- **Label** (Geist Mono 500, 12px, 18px, 0.06em, uppercase): the small mono eyebrow above landing sections, cards and rails (YOUR AGREEMENT, WHAT THE AI WILL SEE, FIG. 2 · …). It is an incumbent pattern, recorded here as shipped; the letter-spacing never exceeds 0.06em. It is not a prompt to put an eyebrow on a new surface.
+- **Label** (Geist Mono 500, 12px, 18px, 0.06em, uppercase; `.fd-eyebrow`): the small mono eyebrow, ONLY for a short noun label of at most 3 words and about 22 characters (FIG. 1, YOUR AGREEMENT, HONEST LIMITS, THE USUAL ORDER). The letter-spacing never exceeds 0.06em. It is not a prompt to put an eyebrow on a new surface; the rule lives in model/labels.ts and is pinned by tests.
+- **Label Line** (Geist 400, 14px, 20px, Quiet Slate, no tracking, sentence case; `.fd-label-line`): everything that would have been a long eyebrow: any label longer than the rule above or that reads as a clause ("Answers from your spreadsheet exports · checked before you see them", "Fig. 2 · Same file, three meanings", "When the rules run out", "You asked · {the viewer's question}"). A label that holds the viewer's own words is always a Label Line, never caps. The seal, the trace's DRAFT N and data tags are not eyebrows and keep their mono caps.
 - **Mono Data** (Geist Mono 500, 12px, 17px, 0.01em): trace headers, counts, verdict words and the footer version line.
-- **Stat** (Geist Mono 500, 40px, 44px, -0.02em) and **Figure** (Geist Mono 500, 56px, 60px, -0.02em; 28px/34px when the value is long, 44px/48px at 480px and under): the evidence-strip numbers and the answer's lead value.
+- **Stat** (Geist 500 tabular, 40px, 44px, -0.02em) and **Figure** (Geist 500 tabular, 56px, 60px, -0.02em; 28px/34px when the value is long, 44px/48px at 480px and under): the evidence-strip numbers and the answer's lead value. Running text sets `text-wrap: pretty` and headings `balance` once, in base.css, so leads and ledes do not end on a single word.
 
 ### Named Rules
-**The Measurement Rule.** Geist Mono carries things that are measured or named by the machine: numbers, counts, file names, verdict words on the trace, and the labels above sections. It never sets running prose.
+**The Measurement Rule.** Geist Mono carries things that are measured or named by the machine: counts, file names, verdict words on the trace, and short noun labels above sections. Money and large figures are Geist with tabular figures. Mono never sets running prose. Known exceptions the owner may revisit: the dashed "Illustrative · …" badge and the stage caption are sentence-length labels set in mono (untracked, sentence case).
 
 **The Plain Words Rule.** State words on every surface are the plain ones: Passed, Not checked, Thrown out, Basic checks, Full checks, example, locked answer, house rule, Version N. The labels never say gate, spec, property, fuzz, mutant, revision or pin.
 

@@ -1,6 +1,6 @@
 /**
  * First run · the outcomes that are not a plain answer, shown between the check trace and the (held) answer card:
- *   stopped      "A QUESTION ONLY YOU CAN ANSWER · Needs you" (LANDING 683-731's card, fed by the engine's GapQuestion)
+ *   stopped      "A question only you can answer · Needs you" (LANDING 683-731's card, fed by the engine's GapQuestion)
  *                → session.decide → the green "Saved as a house rule." (kept while the decide's own run is shown)
  *   declined     the grey "I can't do that reliably." panel (LANDING 759-765), from GenerationView.declined
  *   no-recording the honest replay message (session.noRecording) with the way out in it as ONE real button (the question that
@@ -17,6 +17,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import type { AttemptView, DecideOptions, Declined, Engine, GapAlternative, GapQuestion, GenerateError, GenerationView } from '@scasella/undefined-engine/types';
 import { dayText } from '../model/agreement';
 import { ghostFromAttempts, type LaneFacts } from '../model/lanes';
+import { ASK_LABEL } from '../model/labels';
 import { AskDiamond, CheckDisc, ThrownOut } from '../icons';
 import { Button } from '../components/LinkButton';
 import { ASK_BUTTON_ID, NoRecordingSentence } from './AskCard';
@@ -95,7 +96,7 @@ export function gapView(g: GapQuestion): GapView {
     body: isRule
       ? `We tried a made-up table where this happens. Your rules are silent on “${g.silentOn}”. We won't guess.`
       : `One of your examples lands on this case, and your rules are silent on “${g.silentOn}”. We won't guess.`,
-    caseTag: isRule ? 'MADE-UP TABLE · THE SMALLEST ONE THAT SHOWS IT' : 'YOUR EXAMPLE',
+    caseTag: isRule ? 'Made-up table · the smallest one that shows it' : 'Your example',
     call: g.call,
     caseLine: `draft gave ${g.actualShown} · ${whose} ${g.expectedShown}`,
     legend: 'What should happen?',
@@ -131,7 +132,7 @@ const DECLINE_HELP: Record<Declined['reason'], string> = {
 };
 
 export function declinedView(reason: Declined['reason'], message: string, asked: string): { asked: string; why: string; help: string } {
-  return { asked: `YOU ASKED · ${asked}`, why: DECLINE_WHY[reason], help: message.trim() || DECLINE_HELP[reason] };
+  return { asked: `You asked · ${asked}`, why: DECLINE_WHY[reason], help: message.trim() || DECLINE_HELP[reason] };
 }
 
 // ───────────────────────── thrown out ─────────────────────────
@@ -232,7 +233,7 @@ export function RunStates({ engine, session }: { engine: Engine; session?: Sessi
     const v = declinedView(o.reason, o.message, label);
     card = (
       <div class="fd-rs fd-rs--no" role="status">
-        <div class="fd-rs__eyebrow">{v.asked}</div>
+        <div class="fd-label-line">{v.asked}</div>
         <h3 class="fd-rs__no-h" tabIndex={-1} ref={headRef}>
           I can't do that reliably.
         </h3>
@@ -252,7 +253,7 @@ export function RunStates({ engine, session }: { engine: Engine; session?: Sessi
     const offer = sampleOffer(s.sampleId.value);
     card = (
       <div class="fd-rs fd-rs--no" role="status">
-        <div class="fd-rs__eyebrow">YOU ASKED · {label}</div>
+        <div class="fd-label-line">You asked · {label}</div>
         <h3 class="fd-rs__no-h" tabIndex={-1} ref={headRef}>
           No recorded answer for this one.
         </h3>
@@ -363,15 +364,16 @@ function GapCard({
 
   return (
     <div role="group" aria-labelledby="fd-gap-h" class="fd-rs fd-rs--ask">
-      <div class="fd-rs__ask-eyebrow">
-        <AskDiamond solid size={16} />A QUESTION ONLY YOU CAN ANSWER · Needs you
+      <div class="fd-label-line fd-label--ask">
+        <AskDiamond solid size={16} />
+        {ASK_LABEL}
       </div>
       <h3 id="fd-gap-h" tabIndex={-1} ref={headRef} class="fd-rs__ask-h">
         {v.head}
       </h3>
       <p class="fd-rs__ask-body">{v.body}</p>
       <div class="fd-rs__case">
-        <div class="fd-rs__case-tag">{v.caseTag}</div>
+        <div class="fd-label-line fd-rs__case-tag">{v.caseTag}</div>
         <div class="fd-rs__case-row">
           <span class="fd-rs__case-call">{v.call}</span>
           <span>{v.caseLine}</span>

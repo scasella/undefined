@@ -5,6 +5,11 @@
   font-size: clamp(40px, 5.2vw, 64px); line-height: 1.04; font-weight: 600; letter-spacing: -0.035em; color: var(--fd-ink);
 }
 .fd-hero__accent { color: var(--fd-indigo); }
+/* the headline breaks into even lines (base.css); the indigo phrase is one unit where it fits, so a lone "it." never starts the second line.
+   (inline-block, not white-space: nowrap: Chrome does not balance a block that has a nowrap run in it) */
+@media (min-width: 560px) { .fd-hero__accent { display: inline-block; } }
+/* and where a phrase cannot fit whole (a phone), it may break, but never before its last word: no line starts with a lone "it." */
+.fd-hero__tail { display: inline-block; }
 .fd-hero__row { margin-top: 24px; display: flex; flex-wrap: wrap; gap: 24px 48px; align-items: flex-end; }
 .fd-hero__p { flex: 999 1 520px; margin: 0; max-width: var(--fd-measure); font-size: 16px; line-height: 24px; color: var(--fd-ink-2); }
 .fd-hero__ctas { flex: 1 1 320px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: flex-start; }

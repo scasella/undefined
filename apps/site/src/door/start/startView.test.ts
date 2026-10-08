@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { INTRO_EYEBROW, INTRO_TITLE, introSteps, offScreen, previewModel, radioKeyIndex, rememberedSample, showOwnFileNote } from './startView';
+import { INTRO_LABEL, INTRO_TITLE, introSteps, offScreen, previewModel, radioKeyIndex, rememberedSample, showOwnFileNote } from './startView';
 
 describe('the first run\'s heading', () => {
   it('is a task in plain words: not the landing\'s claim, and no promise about what this copy can answer', () => {
     expect(INTRO_TITLE).toBe('Ask a question about a file');
     expect(INTRO_TITLE).not.toMatch(/AI writes|check it|passes/i);
-    expect(INTRO_TITLE).not.toBe(INTRO_EYEBROW);
+    expect(INTRO_TITLE).not.toBe(INTRO_LABEL);
   });
 });
 

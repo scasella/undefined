@@ -41,13 +41,8 @@
   box-shadow: var(--fd-sh-float); padding: 20px;
   animation: fd-stage-qi var(--fd-qi-dur, 0.24s) var(--fd-ease) var(--fd-qi-delay, 2.8s) 1 both;
 }
-.fd-stage__q-eyebrow {
-  display: flex; align-items: center; gap: 8px;
-  font-family: var(--fd-mono); font-size: 12px; line-height: 18px; font-weight: 500; letter-spacing: 0.06em; color: var(--fd-amber-ink);
-}
-.fd-stage__q-eyebrow svg { flex: none; }
 .fd-stage__q-head { margin-top: 8px; font-size: 16px; line-height: 22px; font-weight: 600; color: var(--fd-ink); }
-.fd-stage__q-body { margin: 6px 0 0; font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
+.fd-stage__q-body { margin: 6px 0 0; max-width: var(--fd-measure); font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
 .fd-stage__q-cta {
   display: inline-flex; align-items: center; margin-top: 12px; min-height: 44px; padding: 10px 14px; border-radius: var(--fd-r-md);
   background: var(--fd-indigo); color: #FFFFFF; text-decoration: none; font-size: 14px; font-weight: 500;

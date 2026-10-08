@@ -7,13 +7,16 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { bundledOrders } from '../../data/orders';
 import { Switch } from '../components/Switch';
 import { HOUSE_RULES } from '../model/agreements';
-import { definitionLadder, ladderLeader, offLadderNote, type LadderColumn } from '../model/figures';
+import { definitionLadder, ladderLeader, LADDER_DEFS, offLadderNote, type LadderColumn } from '../model/figures';
+import { labelClass } from '../model/labels';
 import { LADDER_EXIT, ladderConnectors, type Connectors } from './ladderPaths';
 import './Ladder.css';
 
 const ROWS = bundledOrders();
 const LADDER = definitionLadder(ROWS);
 const OFF_NOTE = offLadderNote(ROWS);
+/** The three column tags are one family: one look for all (model/labels.ts), whichever of them is the longest. */
+const LADDER_TAGS = LADDER_DEFS.map((d) => d.tag);
 const names = (c: LadderColumn) => c.rows.map((r) => r.name);
 const HIGHLIGHT = LADDER.fall?.name ?? null;
 const LINKS: [Connectors, Connectors] = [
@@ -45,7 +48,7 @@ function Column({ col, lit, locked, onLock }: { col: LadderColumn; lit: boolean;
   return (
     <div class={'fd-ld-col' + (lit ? ' is-lit' : '')}>
       <div class="fd-ld-col__head">
-        <div class="fd-eyebrow fd-ld-col__tag">{col.tag}</div>
+        <div class={`${labelClass(LADDER_TAGS)} fd-ld-col__tag`}>{col.tag}</div>
         <div class="fd-ld-col__title">{col.head}</div>
       </div>
       {col.rows.map((r, j) => (
@@ -55,7 +58,7 @@ function Column({ col, lit, locked, onLock }: { col: LadderColumn; lit: boolean;
             {r.name}
             {r.note && <span class="fd-ld-row__note">{r.note}</span>}
           </span>
-          <span class="fd-ld-row__amt fd-mono">{r.amount}</span>
+          <span class="fd-ld-row__amt fd-num">{r.amount}</span>
         </div>
       ))}
       {lit && (
@@ -116,7 +119,7 @@ export function Ladder() {
   return (
     <section aria-labelledby="ladder-h" class="fd-ld">
       <div class="fd-wrap">
-        <div class="fd-eyebrow">FIG. 2 · SAME FILE, THREE MEANINGS</div>
+        <div class="fd-label-line">Fig. 2 · Same file, three meanings</div>
         <h2 id="ladder-h" class="fd-ld-h">Who's #1 depends on what you mean by revenue.</h2>
         <p class="fd-ld-lede">Flip the rules and watch the leader change on the real sample file.</p>
 
@@ -126,7 +129,7 @@ export function Ladder() {
           <div class="fd-ld-leader" aria-live="polite" aria-atomic="true">
             <span>#1 under these rules</span>
             <span class="fd-ld-leader__name">{leader.name}</span>
-            <span class="fd-ld-leader__amt fd-mono">{leader.amount}</span>
+            <span class="fd-ld-leader__amt fd-num">{leader.amount}</span>
           </div>
         </div>
         {lit === null && <p class="fd-ld-off">{OFF_NOTE}</p>}

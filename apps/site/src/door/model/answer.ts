@@ -31,7 +31,7 @@ export interface AnswerLead {
   num: string;
   /** e.g. 'orders' after a count; '' for money or when nothing says what was counted. */
   unit: string;
-  /** True when `num` is long text that would overflow the 56px mono figure: render it at heading size. */
+  /** True when `num` is long text that would overflow the 56px figure: render it at heading size. */
   long: boolean;
 }
 
@@ -148,6 +148,19 @@ export function figCaption(title: string, ctx: AnswerContext): string {
 }
 
 const rank2 = (i: number): string => String(i).padStart(2, '0');
+
+/**
+ * The words over the ranked list under the lead ("Places 2 to 5"), worked out from the rows' own places so they cannot say a
+ * different range than the list shows: the list starts at "02" and nothing else says it is the places after the first. One place
+ * left is "Place 2". No rows: null (nothing to label). The list's accessible name is these same words.
+ */
+export function placesLabel(rest: ReadonlyArray<Pick<AnswerRow, 'rank'>>): string | null {
+  if (rest.length === 0) return null;
+  const place = (r: Pick<AnswerRow, 'rank'>): number => Number.parseInt(r.rank, 10);
+  const first = place(rest[0]!);
+  const last = place(rest[rest.length - 1]!);
+  return first === last ? `Place ${first}` : `Places ${first} to ${last}`;
+}
 
 // ───────────────────────── recognising shapes ─────────────────────────
 

@@ -3,7 +3,7 @@ import { encodeValue } from '@scasella/undefined-engine/shared/serialize';
 import type { ReplEntry } from '@scasella/undefined-engine/types';
 import {
   answerLead, answerTitle, BASIC_CHECKS, caveatClause, decisiveCaveat, figCaption, formatMoney, formatPlain, HANDOFF_NEXT, humanizeName, isMoney, leadSummary,
-  lockedRowsPhrase, MAX_REST, shapeAnswer, shapeEncoded, shapeValue, unitFromQuestion, verdictLine, versionNote, versionNoteFor, type AnswerContext,
+  lockedRowsPhrase, MAX_REST, placesLabel, shapeAnswer, shapeEncoded, shapeValue, unitFromQuestion, verdictLine, versionNote, versionNoteFor, type AnswerContext,
 } from './answer';
 import { bundledOrders } from '../../data/orders';
 import { dataFacts, EMPTY_FACTS, notCheckedList } from './assumptions';
@@ -99,6 +99,21 @@ describe('ranked list (array of objects)', () => {
     expect(w.rest).toHaveLength(MAX_REST);
     expect(w.hiddenRows).toBe(30 - 1 - MAX_REST);
     expect(w.places).toBe(30);
+  });
+});
+
+describe('placesLabel: the words over the ranked list, from the rows it shows', () => {
+  it('says "Places 2 to N" from the places the list really starts and ends at', () => {
+    expect(placesLabel(shapeValue(TOP5, ctx).rest)).toBe('Places 2 to 5');
+    expect(placesLabel([{ rank: '02' }, { rank: '03' }])).toBe('Places 2 to 3');
+    // a long list is capped at MAX_REST rows after the lead: the label follows what is drawn, not the whole list
+    const many = Array.from({ length: 30 }, (_, i) => ({ name: `c${i}`, total: 100 - i }));
+    expect(placesLabel(shapeValue(many, { ...ctx, callName: 'totals' }).rest)).toBe(`Places 2 to ${MAX_REST + 1}`);
+  });
+  it('one place left is "Place 2"; no rows, no label', () => {
+    expect(placesLabel([{ rank: '02' }])).toBe('Place 2');
+    expect(placesLabel([])).toBeNull();
+    expect(placesLabel(shapeValue([{ customer: 'A', revenue: 5 }], ctx).rest)).toBeNull();
   });
 });
 

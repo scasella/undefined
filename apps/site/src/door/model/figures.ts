@@ -136,9 +136,9 @@ export interface LadderColumn {
 }
 
 export const LADDER_DEFS: ReadonlyArray<{ tag: string; head: string; def: RevenueDefinition }> = [
-  { tag: "THE AI'S FIRST ASSUMPTION", head: 'Every row counted', def: { paidOnly: false, once: false } },
-  { tag: '+ ONE HOUSE RULE', head: 'Paid orders only', def: { paidOnly: true, once: false } },
-  { tag: '+ TWO HOUSE RULES', head: 'Paid orders only, each order number once', def: { paidOnly: true, once: true } },
+  { tag: "The AI's first assumption", head: 'Every row counted', def: { paidOnly: false, once: false } },
+  { tag: '+ One house rule', head: 'Paid orders only', def: { paidOnly: true, once: false } },
+  { tag: '+ Two house rules', head: 'Paid orders only, each order number once', def: { paidOnly: true, once: true } },
 ];
 
 export interface Fall {

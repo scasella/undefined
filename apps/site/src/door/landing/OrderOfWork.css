@@ -4,11 +4,9 @@
 .fd-ow-h__accent { color: var(--fd-indigo); }
 .fd-ow-rows { margin-top: 32px; display: flex; flex-direction: column; gap: 16px; }
 .fd-ow-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
-.fd-ow-label {
-  width: 128px; font-family: var(--fd-mono); font-size: 12px; line-height: 18px; font-weight: 500;
-  letter-spacing: 0.06em; color: var(--fd-ink-3);
-}
-.fd-ow-label--here { color: var(--fd-indigo); }
+/* (the label itself is the shared .fd-eyebrow: a short noun label in mono capitals; only its column and its colour are the row's) */
+.fd-ow-label { width: 128px; }
+.fd-ow-row .fd-ow-label--here { color: var(--fd-indigo); }
 .fd-ow-arrow { color: var(--fd-ink-3); }
 .fd-ow-step { padding: 10px 14px; border-radius: var(--fd-r-md); background: var(--fd-surface-2); font-size: 14px; color: var(--fd-ink-2); }
 .fd-ow-step--dashed { padding: 9px 13px; background: transparent; border: 1.5px dashed var(--fd-line-2); }

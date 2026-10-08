@@ -18,7 +18,8 @@
   font-family: var(--fd-mono); font-size: 12px; line-height: 17px; font-weight: 500; min-width: 0; overflow-wrap: anywhere;
 }
 .fd-tf__files { list-style: none; margin: 0; padding: 8px 16px 12px; font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
-.fd-tf__files > li { padding: 6px 0; border-bottom: 1px solid var(--fd-line); }
+/* the rows' hairlines run the card's width; their words are held to the reading measure by padding (max-width would cut the rules short) */
+.fd-tf__files > li { padding: 6px max(0px, calc(100% - var(--fd-measure))) 6px 0; border-bottom: 1px solid var(--fd-line); }
 .fd-tf__files > li:last-child { border-bottom: 0; }
 .fd-tf__title { color: var(--fd-ink); font-weight: 500; }
 .fd-tf__file { font-family: var(--fd-mono); font-size: 12px; overflow-wrap: anywhere; }
@@ -32,6 +33,7 @@
   margin: 12px 0 0; padding: 0 0 0 18px; font-size: var(--fd-fs-row); line-height: var(--fd-lh-row); color: var(--fd-ink-2);
   display: flex; flex-direction: column; gap: 8px;
 }
+.fd-tf__limit-list > li { max-width: var(--fd-measure); }
 .fd-tf__steps { margin-top: 20px; }
 .fd-tf__run { display: inline-flex; align-items: center; min-height: 44px; margin-top: 8px; font-size: var(--fd-fs-row); font-weight: 500; }
 .fd-tf__claim { font-size: 28px; line-height: 32px; font-weight: 600; letter-spacing: -0.015em; }

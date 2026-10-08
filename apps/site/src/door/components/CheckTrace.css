@@ -78,6 +78,8 @@
   font-size: 14px; line-height: 20px; color: var(--tr-text);
 }
 .fd-trace__ghost-note svg { flex: none; margin-top: 2px; }
+/* the note is a sentence: held to the reading measure like any other (the wash behind it still runs the trace's width) */
+.fd-trace__ghost-note > span { max-width: var(--fd-measure); }
 
 /* ── a lane ──
    Wide trace (content >= 678px): one row, label | cells | verdict. The label gives way first (280px down to 200px), then

@@ -103,9 +103,9 @@ describe('definition ladder (Fig. 2)', () => {
 
   it('three columns with the design tags, heads and rows', () => {
     expect(ladder.columns.map((c) => [c.tag, c.head])).toEqual([
-      ["THE AI'S FIRST ASSUMPTION", 'Every row counted'],
-      ['+ ONE HOUSE RULE', 'Paid orders only'],
-      ['+ TWO HOUSE RULES', 'Paid orders only, each order number once'],
+      ["The AI's first assumption", 'Every row counted'],
+      ['+ One house rule', 'Paid orders only'],
+      ['+ Two house rules', 'Paid orders only, each order number once'],
     ]);
     expect(ladder.columns.map((c) => c.rows.map((r) => [r.rank, r.name, r.amount, r.note]))).toEqual([
       [

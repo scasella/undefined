@@ -41,7 +41,7 @@ export function SaysNoAndPrivacy({ engine }: { engine: Engine }) {
             ))}
           </div>
           <div class="fd-sn__no">
-            <div class="fd-sn__asked">YOU ASKED · {d.label}</div>
+            <div class="fd-label-line">You asked · {d.label}</div>
             <div class="fd-sn__no-h">I can't do that reliably.</div>
             <p class="fd-sn__no-p">
               <span class="fd-sn__b">Why: </span>

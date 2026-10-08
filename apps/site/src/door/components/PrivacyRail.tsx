@@ -22,7 +22,7 @@ export function PrivacyRail({ view, onToggleRows, lastPrompt }: PrivacyRailProps
   const note = afterRun ? (view.sentNote ? REPLAY_PROMPT_NOTE : null) : view.sentNote;
   return (
     <div class="fd-priv fd-card">
-      <div class="fd-eyebrow">WHAT THE AI WILL SEE</div>
+      <div class="fd-label-line">What the AI will see</div>
       <ol class="fd-priv__list">
         <li>
           <span class="fd-priv__k">Your question</span>

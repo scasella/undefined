@@ -39,7 +39,7 @@
 .fd-ac__ring-arc--rest { stroke: var(--fd-line-2); }
 
 /* where "Version N" comes from, when it is not the first thing the viewer made: a second line of the caption */
-.fd-ac__version { margin-top: 2px; font-size: 13px; line-height: 19px; color: var(--fd-ink-3); }
+.fd-ac__version { margin-top: 2px; max-width: var(--fd-measure); font-size: 13px; line-height: 19px; color: var(--fd-ink-3); }
 
 /* whether the number can be relied on, in body text right under the number: how the checks went, what was not checked, the next step */
 .fd-ac__verdict { margin: 12px 0 0; max-width: var(--fd-measure); font-size: 16px; line-height: 24px; color: var(--fd-ink); overflow-wrap: anywhere; }
@@ -70,6 +70,9 @@
 
 /* the rest of the list: start (ordered list) */
 .fd-ac__rest { list-style: none; margin: 16px 0 0; padding: 0; min-height: 188px; }
+/* the places the list shows, said once over it ("Places 2 to 5"), in the shared sentence-case label */
+.fd-ac__places { margin: 16px 0 0; }
+.fd-ac__places + .fd-ac__rest { margin-top: 4px; }
 .fd-ac__row { display: flex; align-items: center; gap: 12px; min-height: 47px; border-top: 1px solid var(--fd-line); }
 .fd-ac__rank { width: 40px; flex: none; font-size: 12px; color: var(--fd-ink-3); }
 .fd-ac__name { flex: 1 1 auto; min-width: 0; font-size: 15px; line-height: 22px; font-weight: 500; overflow-wrap: anywhere; }
@@ -97,7 +100,7 @@
 .fd-ac--landing .fd-ac__assumed { margin-top: 24px; }
 .fd-ac__h3 { margin: 0; font-size: 16px; line-height: 22px; font-weight: 600; }
 .fd-ac--landing .fd-ac__assumed .fd-ac__h3 { letter-spacing: -0.005em; }
-.fd-ac__assumed-note { margin: 2px 0 0; font-size: 13px; line-height: 19px; color: var(--fd-ink-3); }
+.fd-ac__assumed-note { margin: 2px 0 0; max-width: var(--fd-measure); font-size: 13px; line-height: 19px; color: var(--fd-ink-3); }
 .fd-ac__assumed-note + .fd-ac__assumed-list { margin-top: 10px; }
 .fd-ac__assumed-list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .fd-ac__no-notes { margin: 10px 0 0; font-size: 14px; line-height: 20px; color: var(--fd-ink-3); }
@@ -107,13 +110,13 @@
   border: 1.5px dashed var(--fd-line-2); color: var(--fd-ink-2);
 }
 .fd-ac__assumption--done { border: 0; background: var(--fd-surface); box-shadow: var(--fd-sh-ring); color: var(--fd-ink); }
-.fd-ac__assumption-text { flex: 1; min-width: 0; }
+.fd-ac__assumption-text { flex: 1; min-width: 0; max-width: var(--fd-measure); }
 .fd-ac__confirm {
-  min-height: 44px; padding: 0 12px; border: 0; border-radius: var(--fd-r-md); background: transparent;
+  margin-left: auto; min-height: 44px; padding: 0 12px; border: 0; border-radius: var(--fd-r-md); background: transparent;
   color: var(--fd-indigo); font-family: inherit; font-size: 14px; line-height: 20px; font-weight: 500; cursor: pointer;
 }
 .fd-ac__confirm:hover { color: var(--fd-indigo-hover); }
-.fd-ac__confirmed { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--fd-green-ink); padding: 0 8px; }
+.fd-ac__confirmed { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--fd-green-ink); padding: 0 8px; }
 .fd-ac__confirmed svg { flex: none; }
 
 /* evidence ledger: checked against / not checked */

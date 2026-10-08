@@ -7,6 +7,7 @@ import { bundledOrders } from '../../data/orders';
 import { Segmented } from '../components/Segmented';
 import { Button } from '../components/LinkButton';
 import { AskDiamond, CheckDisc, Lock } from '../icons';
+import { ASK_LABEL } from '../model/labels';
 import {
   ASK_MODES,
   ASKS_SMALL_PRINT,
@@ -47,7 +48,7 @@ export function Asks() {
     <section id="asks" class="fd-asks" aria-labelledby="asks-h">
       <div class="fd-asks__wrap">
         <div class="fd-asks__intro">
-          <div class="fd-asks__eyebrow">WHEN THE RULES RUN OUT</div>
+          <div class="fd-label-line">When the rules run out</div>
           <h2 id="asks-h" class="fd-asks__h">It asks instead of guessing.</h2>
           <p class="fd-asks__lede">
             The checks try your calculation on made-up tables full of awkward cases. When one lands on something your rules don't cover, or two of
@@ -61,8 +62,9 @@ export function Asks() {
         <div class="fd-asks__main">
           {!s.saved ? (
             <div role="group" aria-labelledby="q-head" class="fd-asks__q" key={q.mode}>
-              <div class="fd-asks__q-eyebrow">
-                <AskDiamond solid size={16} />A QUESTION ONLY YOU CAN ANSWER · Needs you
+              <div class="fd-label-line fd-label--ask">
+                <AskDiamond solid size={16} />
+                {ASK_LABEL}
               </div>
               <h3 id="q-head" tabIndex={-1} ref={headRef} class="fd-asks__q-h">
                 {q.head}
@@ -71,7 +73,7 @@ export function Asks() {
 
               {q.mode === 'gap' ? (
                 <div class="fd-asks__case">
-                  <div class="fd-asks__case-tag">MADE-UP · TABLE 47 OF 100</div>
+                  <div class="fd-label-line fd-asks__case-tag">Made-up · table 47 of 100</div>
                   <div class="fd-asks__case-row">Test Customer A · 2 orders · both refunded · draft gave $0.00</div>
                 </div>
               ) : (
@@ -87,7 +89,7 @@ export function Asks() {
                   <div class="fd-asks__side">
                     <span class="fd-asks__side-name fd-asks__side-name--lock">
                       <Lock size={14} />
-                      {f.lockedName} = <span class="fd-mono">{f.lockedAmount}</span>
+                      {f.lockedName} = <span class="fd-num">{f.lockedAmount}</span>
                     </span>
                     <span class="fd-asks__side-note">{f.lockedNote}</span>
                   </div>

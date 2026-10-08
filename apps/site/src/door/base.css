@@ -25,10 +25,35 @@ button { font-family: inherit; }
   font-variant-numeric: tabular-nums slashed-zero;
   font-feature-settings: 'tnum', 'zero';
 }
+/* Money and counts with separators: Geist's own tabular figures (digits level in a column, punctuation tight). A monospaced face gives a
+   comma and a point a whole digit's width and sets "$2 , 252 . 07". Geist has no slashed zero, so none is asked for. Mono stays for file
+   names, ranks, code and the trace. */
+.fd-num {
+  font-family: var(--fd-sans);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+/* Labels above a section, card or rail: ONE rule (model/labels.ts, pinned by labels.test.ts). A short noun label (at most 3 words and
+   about 22 characters: FIG. 1, HONEST LIMITS, YOUR AGREEMENT) is mono capitals, tracked. Anything longer, or anything that reads as a
+   clause or holds the viewer's own words, is a sentence-case line in Geist with no tracking (.fd-label-line), Body Small in Quiet Slate. */
 .fd-eyebrow {
   font-family: var(--fd-mono); font-size: 12px; line-height: 18px; font-weight: 500;
   letter-spacing: 0.06em; text-transform: uppercase; color: var(--fd-ink-3);
 }
+.fd-label-line {
+  font-family: var(--fd-sans); font-size: 14px; line-height: 20px; font-weight: 400;
+  letter-spacing: normal; text-transform: none; color: var(--fd-ink-3);
+}
+/* the same line on the amber question cards: Ask Ink, with its drawn diamond beside it */
+.fd-label--ask { display: flex; align-items: center; gap: 8px; color: var(--fd-amber-ink); }
+.fd-label--ask svg { flex: none; }
+/* No text ends on a lone word, and a heading or a short control label breaks into even lines (a class that needs otherwise says so).
+   `pretty` is set on the body and inherited, not keyed to element names: a sentence set in a div or a span (a note, a caption, a waiting line)
+   is prose too, and a rule on p/li alone left those ending on "AI." and "decide.". */
+body { text-wrap: pretty; }
+/* `pretty` leaves a lone word where the line before it breaks at a hyphen ("…on 100 made-up / tables": measured in Chrome). The short lines that sit in a
+   narrow column (a check's name in the trace and in the lists, the honesty bar) are balanced instead, like a heading and a control's label. */
+h1, h2, h3, button, .fd-btn, .fd-tf__run, .fd-lane__label, .fd-ac__ledger-list li, .fd-honesty__in { text-wrap: balance; }
 .fd-sr {
   position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
 }

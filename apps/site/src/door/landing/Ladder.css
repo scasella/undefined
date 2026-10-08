@@ -46,6 +46,9 @@
 .fd-ld-row__name { flex: 1; min-width: 0; line-height: 20px; }
 .fd-ld-row__note { display: block; font-size: 12px; line-height: 17px; white-space: nowrap; font-weight: 500; color: var(--fd-indigo); }
 .fd-ld-row__amt { font-size: var(--fd-fs-row); }
+/* the lit column's leader row is bold (its name is the bold one), and tabular digits are wider at 600 than at 400: pin its amount to the weight
+   of the rows under it so the column of amounts lines up. The other columns have no bold row and keep the weight they always had. */
+.fd-ld-col.is-lit .fd-ld-row.is-first .fd-ld-row__amt { font-weight: 400; }
 
 .fd-ld-lock {
   margin-top: 12px; width: 100%; min-height: 44px; padding: 11px 12px; border-radius: var(--fd-r-md);

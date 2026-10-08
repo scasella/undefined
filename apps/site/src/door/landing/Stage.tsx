@@ -183,9 +183,9 @@ export function Stage(_props: { engine?: Engine }) {
         <AgreementRail variant="landing" view={data.agreement} highlight={hl} onPick={(id) => setHl(hl === id ? '' : id)}>
           {stop && (
             <div key={run} class="fd-stage__q" style={`--fd-qi-delay:${MINI_QUESTION.delay}s;--fd-qi-dur:${MINI_QUESTION.dur}s`}>
-              <div class="fd-stage__q-eyebrow">
+              <div class="fd-label-line fd-label--ask">
                 <AskDiamond size={14} solid />
-                {MINI_QUESTION.eyebrow}
+                {MINI_QUESTION.label}
               </div>
               <div class="fd-stage__q-head">{MINI_QUESTION.head}</div>
               <p class="fd-stage__q-body">{MINI_QUESTION.body}</p>

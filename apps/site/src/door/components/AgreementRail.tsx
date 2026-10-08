@@ -3,8 +3,8 @@
  *
  * - variant 'landing' (V3-Door-Landing 326-382): the interactive rail. Each chip is a toggle (aria-pressed) that
  *   reports which check-trace lane holds it ('ex' | 'lock' | 'rules') through `onPick`; the parent owns `highlight`
- *   because the trace outlines the matching lane. `children` is the slot above the card (the "A QUESTION ONLY YOU CAN
- *   ANSWER" mini card).
+ *   because the trace outlines the matching lane. `children` is the slot above the card (the "A question only you can
+ *   answer" mini card).
  * - variant 'start' (V3-Door-FirstRun 356-378): the compact card on the first-run page, read from the real program.
  *
  * Views come from model/agreement.ts; this component holds only "show all" and "confirmed" UI state.
@@ -92,7 +92,7 @@ function LandingRail({ view, highlight, onPick, children, collapsedCount = 3 }: 
                 <Lock size={14} class="fd-agree__lock" />
                 {l.label !== undefined && l.value !== undefined ? (
                   <span>
-                    {l.label} = <span class="fd-mono">{l.value}</span>
+                    {l.label} = <span class="fd-num">{l.value}</span>
                   </span>
                 ) : (
                   <span>{l.t}</span>

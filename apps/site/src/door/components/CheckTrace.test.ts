@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { draftingView } from '../start/RunPanel';
+import { noteValueClass } from './CheckTrace';
+import { SCRIPT_GHOST_NOTE } from '../model/traceScript';
 
 const css = readFileSync(new URL('./CheckTrace.css', import.meta.url), 'utf8');
 const tsx = readFileSync(new URL('./CheckTrace.tsx', import.meta.url), 'utf8');
@@ -98,3 +100,19 @@ describe('the drafting mark\'s easing is a decision, not an accident', () => {
   });
 });
 
+
+describe('a thrown-out note sets its money in Geist, not in the mono face (no "$2 , 252 . 07")', () => {
+  it('a figure with separators is a tabular Geist figure; a call, an error or a text value stays mono', () => {
+    for (const t of ['$2,252.07', '$2,260.06', '1,994.23', '2252.07', '-12.5', '12%', '5']) expect(noteValueClass(t), t).toBe('fd-num');
+    for (const t of ['topCustomers(rows, 5)', 'TypeError: x is not iterable', '"Chef Ravioli Starbright"', '[1, 2, 3]', '$', '']) expect(noteValueClass(t), t).toBe('fd-trace__mono');
+  });
+  it('the landing note quotes two amounts, and both take the figure class', () => {
+    const quoted = SCRIPT_GHOST_NOTE.filter((s) => s.mono).map((s) => s.text);
+    expect(quoted).toEqual(['$2,252.07', '$2,260.06']);
+    expect(quoted.map(noteValueClass)).toEqual(['fd-num', 'fd-num']);
+  });
+  it('the component picks the class by the quoted text, not a fixed mono class', () => {
+    expect(tsx).toContain('<span key={i} class={noteValueClass(s.text)}>{s.text}</span>');
+    expect(tsx).not.toContain('<span key={i} class="fd-trace__mono">{s.text}</span>');
+  });
+});

@@ -62,7 +62,7 @@ export function agreeOnceTable(rows: readonly DataRow[]): AgreeTable {
   const locked = topCustomers(rows, AGREED, 1)[0];
   const lockedTerm = locked ? `Matches your locked answer · ${locked.name} = ${formatMoney(locked.value)}` : 'Matches your locked answer';
   return {
-    title: 'YOUR AGREEMENT × EVERY VERSION · Top 5 customers by revenue',
+    title: 'Your agreement × every version · Top 5 customers by revenue',
     caption: 'A version reaches you only when its whole column passes.',
     versions: [
       { name: `Version ${STAGE_VERSION - 2}`, sub: head({ paidOnly: false, once: false }), outcome: 'replaced' },

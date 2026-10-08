@@ -49,7 +49,7 @@ describe('gapView', () => {
 describe('declinedView', () => {
   it('uses the reason for Why and the model sentence for What would help', () => {
     const v = declinedView('needs-spec', 'Say which status counts as revenue.', 'Top 5 customers by revenue');
-    expect(v).toEqual({ asked: 'YOU ASKED · Top 5 customers by revenue', why: DECLINE_WHY['needs-spec'], help: 'Say which status counts as revenue.' });
+    expect(v).toEqual({ asked: 'You asked · Top 5 customers by revenue', why: DECLINE_WHY['needs-spec'], help: 'Say which status counts as revenue.' });
     expect(declinedView('cannot-be-pure', '  ', 'x').help.length).toBeGreaterThan(0);
   });
 });

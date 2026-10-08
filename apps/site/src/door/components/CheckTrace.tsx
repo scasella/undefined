@@ -11,6 +11,18 @@ import type { GhostView, HeaderView, LaneLink, LaneState, LaneView } from '../mo
 import { gridPenLeft, laneMotion, LIVE_TIMING, panelMotion, suffix, type Scenario, type Sfx, type Timing } from '../model/traceScript';
 import './CheckTrace.css';
 
+/** A money amount or a count with separators ("$2,252.07", "1,994.23", "12%"): the thing a monospaced face sets with a gap round its comma and point. */
+const FIGURE = /^[-+]?[$€£]?\d[\d,]*(\.\d+)?%?$/;
+
+/**
+ * The class for a value a thrown-out note quotes. A figure is Geist with tabular figures (`fd-num`, base.css), so "expected $2,252.07, got
+ * $2,260.06" reads as one tight sentence ("$2 , 252 . 07" is what a monospaced face makes of it); anything else the note quotes (a call, an
+ * error message, a text value) stays in the mono face, as code does.
+ */
+export function noteValueClass(text: string): 'fd-num' | 'fd-trace__mono' {
+  return FIGURE.test(text.trim()) ? 'fd-num' : 'fd-trace__mono';
+}
+
 export interface CheckTraceProps {
   lanes: LaneView[];
   /** Earlier drafts that were thrown out, shown faded above the lanes. */
@@ -175,7 +187,7 @@ export function CheckTrace(p: CheckTraceProps) {
           <div class="fd-trace__ghost-note" style={css(pm.ghostNote)}>
             <ThrownOut size={16} />
             <span>
-              {gh.note.map((s, i) => (s.mono ? <span key={i} class="fd-trace__mono">{s.text}</span> : s.text))}
+              {gh.note.map((s, i) => (s.mono ? <span key={i} class={noteValueClass(s.text)}>{s.text}</span> : s.text))}
             </span>
           </div>
         </div>

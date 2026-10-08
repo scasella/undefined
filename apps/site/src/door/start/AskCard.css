@@ -49,7 +49,7 @@
 .fd-ask__go { min-height: 48px; }
 .fd-ask__go[aria-disabled='true'] { cursor: not-allowed; opacity: 0.55; }
 .fd-ask__go[aria-disabled='true']:hover { background: var(--fd-indigo); }
-.fd-ask__level { margin: 10px 0 0; max-width: 70ch; font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
+.fd-ask__level { margin: 10px 0 0; max-width: var(--fd-measure); font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
 
 @media (max-width: 479px) {
   .fd-ask__go { flex: 1 1 100%; }

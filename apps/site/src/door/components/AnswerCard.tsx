@@ -7,7 +7,7 @@
  */
 import type { ComponentChildren } from 'preact';
 import type { AnswerView } from '../model/answer';
-import { BASIC_CHECKS, decisiveCaveat, lockedRowsPhrase, TOTAL_CHECKS, verdictLine } from '../model/answer';
+import { BASIC_CHECKS, decisiveCaveat, lockedRowsPhrase, placesLabel, TOTAL_CHECKS, verdictLine } from '../model/answer';
 import type { AssumptionList } from '../model/assumptions';
 import { lockedHelp, type CheckMode } from '../model/agreement';
 import type { StressStatus } from '../model/lanes';
@@ -216,7 +216,7 @@ function Body(props: AnswerCardProps & { view: AnswerView; variant: 'landing' | 
 
       {lead && lead.name && <div class="fd-ac__lead-name fd-ac__ri" style={vars({ '--fd-ri': '0.1s' })}>{lead.name}</div>}
       {lead && (
-        <div class={`fd-ac__lead-num fd-mono fd-ac__ri${lead.long ? ' fd-ac__lead-num--long' : ''}`} style={vars({ '--fd-ri': '0.16s' })}>
+        <div class={`fd-ac__lead-num fd-num fd-ac__ri${lead.long ? ' fd-ac__lead-num--long' : ''}`} style={vars({ '--fd-ri': '0.16s' })}>
           {lead.num}
           {lead.unit && <span class="fd-ac__unit">{lead.unit}</span>}
         </div>
@@ -335,12 +335,13 @@ function Rest({ view, variant }: { view: AnswerView; variant: 'landing' | 'start
       + {view.hiddenRows} more {view.hiddenRows === 1 ? 'place' : 'places'} not shown here
     </p>
   );
+  // the places the list shows, in words ("Places 2 to 5"): the table's caption, or the visible line over the first-run list and its name
+  const places = placesLabel(view.rest)!;
   if (variant === 'landing') {
-    const last = view.rest[view.rest.length - 1]!.rank.replace(/^0/, '');
     return (
       <>
         <table class="fd-ac__table">
-          <caption class="fd-sr">{`Places 2 to ${last}`}</caption>
+          <caption class="fd-sr">{places}</caption>
           <tbody>
             {view.rest.map((r, k) => (
               <tr key={r.rank} class="fd-ac__ri" style={vars({ '--fd-ri': `${(0.22 + 0.06 * k).toFixed(2)}s` })}>
@@ -351,7 +352,7 @@ function Rest({ view, variant }: { view: AnswerView; variant: 'landing' | 'start
                     <div class="fd-ac__fill" style={{ width: `${r.pct}%` }} />
                   </div>
                 </td>
-                <td class="fd-ac__td-amt fd-mono">{r.amt}</td>
+                <td class="fd-ac__td-amt fd-num">{r.amt}</td>
               </tr>
             ))}
           </tbody>
@@ -362,7 +363,11 @@ function Rest({ view, variant }: { view: AnswerView; variant: 'landing' | 'start
   }
   return (
     <>
-      <ol aria-label="The rest of the list" class="fd-ac__rest">
+      {/* aria-hidden: the list below carries the same words as its name, so a screen reader says them once, not twice. It rises in just ahead of its first row. */}
+      <p aria-hidden="true" class="fd-label-line fd-ac__places fd-ac__ri" style={vars({ '--fd-ri': '0.16s' })}>
+        {places}
+      </p>
+      <ol aria-label={places} class="fd-ac__rest">
         {view.rest.map((r, k) => (
           <li key={r.rank} class="fd-ac__row fd-ac__ri" style={vars({ '--fd-ri': `${(0.22 + 0.06 * k).toFixed(2)}s` })}>
             <span class="fd-ac__rank fd-mono">{r.rank}</span>
@@ -370,7 +375,7 @@ function Rest({ view, variant }: { view: AnswerView; variant: 'landing' | 'start
             <span class="fd-ac__track fd-ac__track--row">
               <span class="fd-ac__fill" style={{ width: `${r.pct}%` }} />
             </span>
-            <span class="fd-ac__amt fd-mono">{r.amt}</span>
+            <span class="fd-ac__amt fd-num">{r.amt}</span>
           </li>
         ))}
       </ol>

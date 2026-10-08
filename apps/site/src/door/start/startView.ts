@@ -15,7 +15,7 @@ export interface IntroStep {
   text: string;
 }
 
-export const INTRO_EYEBROW = 'START HERE · BRING A FILE, ASK IN PLAIN WORDS';
+export const INTRO_LABEL = 'Start here · bring a file, ask in plain words';
 
 /**
  * The page's h1: the task, in plain words. It promises nothing about what this copy can answer (the public demo plays

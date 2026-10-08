@@ -55,7 +55,18 @@ describe('AnswerCard', () => {
     expect(r.text).toContain('$2,252.07');
     expect(r.text).toContain('Does this look right? Lock this answer');
     expect(r.text).toContain('You checked it; we hold every later version to it.');
-    expect(r.nodes.find((n) => n.type === 'ol')!.props['aria-label']).toBe('The rest of the list');
+    // the ranked list says which places it shows, once, in the shared label over it, and that is also its name
+    expect(r.nodes.find((n) => n.type === 'ol')!.props['aria-label']).toBe('Places 2 to 5');
+    const places = r.nodes.find((n) => String(n.props.class ?? '').split(' ').includes('fd-ac__places'))!;
+    expect(places.props.class).toBe('fd-label-line fd-ac__places fd-ac__ri');
+    expect(places.props.children).toBe('Places 2 to 5');
+    expect(r.nodes.indexOf(places)).toBe(r.nodes.findIndex((n) => n.type === 'ol') - 1);
+    // said once to a screen reader (the list's name), and it rises in with the rows, just ahead of the first one, not after them
+    expect(places.props['aria-hidden']).toBe('true');
+    const delay = (n: { props: Record<string, unknown> }): number => Number(/--fd-ri:([\d.]+)s/.exec(String(n.props.style))?.[1]);
+    const firstRow = r.nodes.find((n) => String(n.props.class ?? '').split(' ').includes('fd-ac__row'))!;
+    expect(delay(places)).toBeLessThan(delay(firstRow));
+    expect(delay(places)).toBeGreaterThan(0);
     expect(r.nodes[0]!.props['aria-label']).toBe('Answer: Top 5 customers by revenue');
     expect(r.nodes[0]!.props['aria-busy']).toBe(false);
   });
@@ -173,7 +184,7 @@ describe('AnswerCard', () => {
     const r = render({ ...base, notChecked, stress: { kind: 'done', total: 12, caught: 8, missed: 4 }, seal: { text: 'Passed every check · stress test caught 8 of 12', ran: 5, of: 6, complete: true } });
     const at = (cls: string) => r.nodes.findIndex((n) => String(n.props.class ?? '').split(' ').includes(cls));
     expect(at('fd-ac__verdict')).toBeGreaterThan(at('fd-ac__lead-num'));
-    expect(at('fd-ac__verdict')).toBeLessThan(r.nodes.findIndex((n) => n.props['aria-label'] === 'The rest of the list'));
+    expect(at('fd-ac__verdict')).toBeLessThan(r.nodes.findIndex((n) => n.props['aria-label'] === 'Places 2 to 5'));
     const verdict = r.nodes.filter((n) => n.props.class === 'fd-ac__verdict fd-ac__ri');
     expect(verdict).toHaveLength(1);
     // plain text, no icon beside it (the seal already has one)

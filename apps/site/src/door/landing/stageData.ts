@@ -95,7 +95,7 @@ export const STAGE_SEAL = { text: SCRIPT_SEAL, ran: 5, of: 6, complete: true } a
 
 /** The rail's stop-and-ask mini card (the stop scenario only). */
 export const MINI_QUESTION = {
-  eyebrow: 'A QUESTION ONLY YOU CAN ANSWER',
+  label: 'A question only you can answer',
   head: 'What should happen to a customer whose orders were all refunded?',
   body: "We tried a made-up table where that happens. Your house rules don't say. We won't guess.",
   cta: 'Answer it below',

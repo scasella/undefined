@@ -245,7 +245,7 @@ export function DataBringer({ engine }: { engine: Engine }) {
         </div>
 
         <div role="radiogroup" aria-label="Sample files" class="fd-bring__samples" onKeyDown={onRadioKey}>
-          <div class="fd-eyebrow fd-bring__samples-h">OR START WITH A SAMPLE FILE</div>
+          <div class="fd-label-line fd-bring__samples-h">Or start with a sample file</div>
           {samples.map((f, i) => {
             const on = f.id === sampleId;
             const focusable = current < 0 ? i === 0 : on;

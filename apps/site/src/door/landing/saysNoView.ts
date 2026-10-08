@@ -11,7 +11,7 @@ export type DeclineId = 'susp' | 'week' | 'clean';
 
 export interface Decline {
   id: DeclineId;
-  /** The chip label, also the "YOU ASKED · …" line. */
+  /** The chip label, also the "You asked · …" line. */
   label: string;
   why: string;
   help: string;

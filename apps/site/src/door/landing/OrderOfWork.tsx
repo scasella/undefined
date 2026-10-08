@@ -16,7 +16,7 @@ export function OrderOfWork() {
         </h2>
         <div class="fd-ow-rows">
           <div class="fd-ow-row">
-            <span class="fd-ow-label">THE USUAL ORDER</span>
+            <span class="fd-eyebrow fd-ow-label">THE USUAL ORDER</span>
             <span class="fd-ow-step">You ask</span>
             <Arrow />
             <span class="fd-ow-step">The AI writes a formula</span>
@@ -26,7 +26,7 @@ export function OrderOfWork() {
             <span class="fd-ow-step fd-ow-step--dashed">You do the checking</span>
           </div>
           <div class="fd-ow-row">
-            <span class="fd-ow-label fd-ow-label--here">HERE</span>
+            <span class="fd-eyebrow fd-ow-label fd-ow-label--here">HERE</span>
             <span class="fd-ow-step fd-ow-step--ask">You ask</span>
             <Arrow />
             <span class="fd-ow-step fd-ow-step--ink">The AI drafts a calculation</span>

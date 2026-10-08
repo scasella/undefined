@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { bundledOrders } from '../../data/orders';
 import { agreeOnceTable, CELL_WORD, OUTCOME_WORD } from './agreeOnceView';
 import { STAGE_VERSION } from './stageData';
+import { isShortLabel, isTypedCaps, typedCapsRuns } from '../model/labels';
 
 describe('agreeOnceTable', () => {
   const t = agreeOnceTable(bundledOrders());
@@ -13,6 +14,13 @@ describe('agreeOnceTable', () => {
       ['Rewrite', 'You never saw it'],
       ['Version 4', 'Chef Ravioli Starbright $2,252.07'],
     ]);
+  });
+
+  it('heads the board with a sentence-case line, not capitals typed into the title (it holds the viewer\'s question, and is 58 characters)', () => {
+    expect(t.title).toBe('Your agreement × every version · Top 5 customers by revenue');
+    expect(isShortLabel(t.title)).toBe(false);
+    expect(isTypedCaps(t.title)).toBe(false);
+    expect(typedCapsRuns(t.title)).toEqual([]);
   });
 
   it("ends on the stage example's own version: the one that reached you is the answer shown above it", () => {

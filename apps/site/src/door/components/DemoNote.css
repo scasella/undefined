@@ -3,7 +3,7 @@
 .fd-demo__t { display: flex; align-items: center; gap: 8px; font-size: 14px; line-height: 20px; font-weight: 600; color: var(--fd-ink); }
 .fd-demo__dot { flex: none; width: 6px; height: 6px; border-radius: 999px; background: var(--fd-ink-3); }
 .fd-demo__dot--live { background: var(--fd-green); }
-.fd-demo__p { margin: 6px 0 0; font-size: 13px; line-height: 19px; color: var(--fd-ink-2); }
+.fd-demo__p { margin: 6px 0 0; max-width: var(--fd-measure); font-size: 13px; line-height: 19px; color: var(--fd-ink-2); }
 .fd-demo__a { display: inline-flex; align-items: center; min-height: 44px; font-size: 14px; line-height: 20px; font-weight: 500; }
 
 /* How to run it on your computer (model/runLocally.ts): what you need, the three commands, where it opens. The commands are
@@ -13,6 +13,7 @@
 .fd-rl__hand { margin: 0; max-width: var(--fd-measure); font-size: 14px; line-height: 20px; color: var(--fd-ink); text-wrap: pretty; }
 .fd-rl__lead { margin: 4px 0 0; font-size: 14px; line-height: 20px; font-weight: 500; color: var(--fd-ink); }
 .fd-rl__list { margin: 0; padding: 0 0 0 18px; display: flex; flex-direction: column; gap: 4px; font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
+.fd-rl__list > li { max-width: var(--fd-measure); }
 .fd-rl__code { font-size: 13px; line-height: 20px; font-weight: 500; color: var(--fd-ink); overflow-wrap: anywhere; }
 .fd-rl__cmds {
   margin: 0; padding: 12px 14px; box-sizing: border-box; max-width: 100%; border-radius: var(--fd-r-md);

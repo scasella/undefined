@@ -16,9 +16,10 @@
 }
 .fd-priv__ex { display: block; }
 .fd-priv__off { display: block; margin-top: 6px; color: var(--fd-ink-2); }
-.fd-priv__note { display: block; margin: 6px 0 0; font-size: 13px; line-height: 18px; color: var(--fd-ink-3); }
+.fd-priv__note { display: block; margin: 6px 0 0; max-width: var(--fd-measure); font-size: 13px; line-height: 18px; color: var(--fd-ink-3); }
+/* the hairline runs the card's full width; the words are held to the reading measure by padding, not max-width (which would cut the rule short) */
 .fd-priv__foot {
-  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--fd-line);
+  margin-top: 14px; padding-top: 12px; padding-right: max(0px, calc(100% - var(--fd-measure))); border-top: 1px solid var(--fd-line);
   font-size: 13px; line-height: 18px; color: var(--fd-ink-2);
 }
 .fd-priv__disclose {

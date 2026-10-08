@@ -5,7 +5,7 @@
 }
 .fd-sn__card { padding: 32px; min-width: 0; }
 .fd-sn__h { margin: 0; font-size: 22px; line-height: 28px; font-weight: 600; letter-spacing: -0.015em; }
-.fd-sn__lead { margin: 8px 0 0; color: var(--fd-ink-2); }
+.fd-sn__lead { margin: 8px 0 0; max-width: var(--fd-measure); color: var(--fd-ink-2); }
 
 /* request chips */
 .fd-sn__chips { margin-top: 20px; display: flex; flex-wrap: wrap; gap: 8px; }
@@ -19,10 +19,6 @@
 
 /* the grey "I can't do that reliably." panel */
 .fd-sn__no { margin-top: 16px; border-radius: var(--fd-r-lg); background: var(--fd-surface-2); padding: 20px; }
-.fd-sn__asked {
-  font-family: var(--fd-mono); font-size: 12px; line-height: 18px; font-weight: 500; letter-spacing: 0.06em;
-  color: var(--fd-ink-3);
-}
 .fd-sn__no-h { margin-top: 10px; font-size: 16px; line-height: 22px; font-weight: 600; }
 .fd-sn__no-p { margin: 6px 0 0; max-width: var(--fd-measure); font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
 .fd-sn__b { font-weight: 600; color: var(--fd-ink); }

@@ -27,7 +27,7 @@ const tile = (id: EvidenceTile['id']): EvidenceTile => TILES.find((t) => t.id ==
 function Head({ t }: { t: EvidenceTile }) {
   return (
     <>
-      <div class="fd-ev-big fd-mono">{t.big}</div>
+      <div class="fd-ev-big fd-num">{t.big}</div>
       <div class="fd-ev-sub">{t.sub}</div>
     </>
   );
@@ -87,7 +87,7 @@ function Dots() {
         ))}
       </div>
       <div class="fd-ev-note" aria-live="polite">
-        <span class="fd-ev-note__tag">MADE-UP · </span>
+        <span class="fd-eyebrow">MADE-UP · </span>
         {madeUpTableNote(dot)}
       </div>
     </>

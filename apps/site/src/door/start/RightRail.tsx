@@ -103,7 +103,7 @@ function PrivacyPlaceholder({ rowsOn, sampleRows, replay }: { rowsOn: boolean; s
   const rows = `${sampleRows} example row${sampleRows === 1 ? '' : 's'}`;
   return (
     <div class="fd-priv fd-card">
-      <div class="fd-eyebrow">WHAT THE AI WILL SEE</div>
+      <div class="fd-label-line">What the AI will see</div>
       <ol class="fd-priv__list">
         <li>
           <span class="fd-priv__k">Your question</span>

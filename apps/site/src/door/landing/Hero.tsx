@@ -15,9 +15,9 @@ export function Hero() {
   return (
     <section aria-labelledby="hero-h" class="fd-hero">
       <div class="fd-wrap">
-        <div class="fd-eyebrow">Answers from your spreadsheet exports · checked before you see them</div>
+        <div class="fd-label-line">Answers from your spreadsheet exports · checked before you see them</div>
         <h1 id="hero-h" class="fd-hero__h">
-          The AI writes it. <span class="fd-hero__accent">Your rules check it.</span> You see it only if it passes.
+          The AI <span class="fd-hero__tail">writes it.</span> <span class="fd-hero__accent">Your rules <span class="fd-hero__tail">check it.</span></span> You see it only if it passes.
         </h1>
         <div class="fd-hero__row">
           <p class="fd-hero__p">

@@ -39,6 +39,10 @@
 //      the section under it down once, and a viewer whose window starts below the card's top (the evidence 20, 60 and 300 px down at 1440, 1180 and 390,
 //      the agreement under the card at 390 and 768) sees it move 0 to 2 px, one fresh page per case, every frame sampled; a viewer who can see the card's
 //      top watches it fill (its top holds); "Run again" from the released card never shows a tall frame.
+//   3h. typeset (critique step 5), on the landing, the Full view and Step by step's answer pane: the lead amount and the amounts under it are Geist tabular figures
+//      (no monospaced face, no gap round the comma and the point, a column level digit by digit), the ranked list is named 'Places 2 to 5' by one visible plain
+//      label above it (first-run pages), the labels that stay mono capitals are 22 characters or fewer and every longer one is a sentence-case Geist line with no
+//      tracking, no text over 22 characters is capitals or tracked outside the seal, and no block of text ends on a single word, body text holds to the reading measure, and the money in a thrown-out note is a Geist figure.
 //   3a/3b/3f. the own-file path (docs/FRONT-DOOR.md "Your own file in the demo"): both pickers (Full view, Step by step) say what the
 //      demo cannot do with a file of your own under the drop zone BEFORE one is dropped (one caveat, the same words); once an
 //      own CSV is bound (a pasted one on Step by step, a dropped one on the Full view) the picker stays open, the sample
@@ -333,6 +337,138 @@ try {
   const bindOrders = async () =>
     waitFor(() => window.__undefined.state.value.datasets.some((d) => d.name === 'rows') && document.body.innerText.includes('orders.csv'), null, 30000);
   const LEAD = ['Chef Ravioli Starbright', 2252.07];
+  /**
+   * Typeset (critique step 5), read from whatever page is up: how its figures are set (Geist tabular figures, no gappy comma and point; a column of
+   * amounts level digit by digit), the places label over a ranked list, every label (short noun labels in mono capitals, anything longer a sentence-case
+   * line in Geist), any capitals or tracking on a long text, and any block of text (a paragraph, a heading, a div or span sentence, a list item, a button
+   * label) of five words or more whose last line is one lone word.
+   */
+  const TYPESET_FACTS = () => {
+    const vis = (e) => {
+      const r = e.getBoundingClientRect();
+      const cs = getComputedStyle(e);
+      return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none' && !e.closest('.fd-sr, [hidden], [aria-hidden="true"], [inert]');
+    };
+    const own = (e) => [...e.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join(' ').replace(/\s+/g, ' ').trim();
+    const charRects = (el) => {
+      const tn = [...el.childNodes].find((n) => n.nodeType === 3 && n.textContent.trim());
+      if (!tn) return [];
+      const t = tn.textContent;
+      const out = [];
+      for (let i = 0; i < t.length; i++) {
+        const r = document.createRange();
+        r.setStart(tn, i);
+        r.setEnd(tn, i + 1);
+        const b = r.getBoundingClientRect();
+        out.push({ c: t[i], l: b.left, r: b.right });
+      }
+      return out;
+    };
+    const font = (e) => {
+      const cs = getComputedStyle(e);
+      const fs = parseFloat(cs.fontSize);
+      return { family: cs.fontFamily, nums: cs.fontVariantNumeric, tt: cs.textTransform, ls: cs.letterSpacing === 'normal' ? 0 : parseFloat(cs.letterSpacing) / fs, size: cs.fontSize, mono: /mono/i.test(cs.fontFamily) };
+    };
+    const level = (rows) => {
+      if (rows.length < 2) return false;
+      const len = Math.min(...rows.map((r) => r.length));
+      for (let k = 1; k <= len; k++) {
+        const rights = rows.map((r) => r[r.length - k].r);
+        if (Math.max(...rights) - Math.min(...rights) > 0.51) return false;
+      }
+      return true;
+    };
+    const leadEl = [...document.querySelectorAll('.fd-ac__lead-num')].find(vis);
+    const lc = leadEl ? charRects(leadEl) : [];
+    const ci = lc.findIndex((x) => x.c === ',');
+    const lead = leadEl && ci > 0 ? { text: lc.map((x) => x.c).join(''), ...font(leadEl), commaAdvance: lc[ci].r - lc[ci].l, digitAdvance: lc[1].r - lc[1].l, gapAfterComma: lc[ci + 1].l - lc[ci].r } : null;
+    const amtEls = [...document.querySelectorAll('.fd-ac__amt, .fd-ac__td-amt')].filter(vis);
+    const amounts = { n: amtEls.length, level: level(amtEls.map(charRects)), mono: amtEls.some((e) => font(e).mono), nums: [...new Set(amtEls.map((e) => font(e).nums))] };
+    const ladderEls = [...document.querySelectorAll('.fd-ld-col:nth-of-type(1) .fd-ld-row__amt')].filter(vis);
+    // (the lit column's first row is the bold one: its digits must still line up with the rest)
+    const litEls = [...document.querySelectorAll('.fd-ld-col.is-lit .fd-ld-row__amt')].filter(vis);
+    const ladder = ladderEls.length ? { n: ladderEls.length, level: level(ladderEls.map(charRects)), litN: litEls.length, litLevel: level(litEls.map(charRects)), mono: [...ladderEls, ...litEls].some((e) => font(e).mono) } : null;
+    // the visible label is aria-hidden on purpose (the list's own name says the same words, so a screen reader says them once): found by its box, not by `vis`
+    const pl = [...document.querySelectorAll('.fd-ac__places')].find((e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(e).visibility !== 'hidden' && !e.closest('.fd-sr, [hidden], [inert]'); });
+    const ol = pl?.nextElementSibling;
+    const ranks = ol ? [...ol.querySelectorAll('.fd-ac__rank')].map((e) => e.innerText.trim()) : [];
+    const places = pl ? { text: pl.innerText.trim(), hidden: pl.getAttribute('aria-hidden'), label: ol?.getAttribute('aria-label') ?? null, first: ranks[0] ?? null, last: ranks[ranks.length - 1] ?? null, ...font(pl), beforeList: !!ol && ol.tagName === 'OL' } : null;
+    const lines = [...document.querySelectorAll('.fd-label-line')].filter(vis).map((e) => ({ text: e.innerText.replace(/\s+/g, ' ').trim(), ...font(e) }));
+    const eyebrows = [...document.querySelectorAll('.fd-eyebrow')].filter(vis).map((e) => ({ text: e.innerText.replace(/\s+/g, ' ').trim(), ...font(e) }));
+    // every block of running text, not only p and h1-h3: a sentence in a div, a span, a list item or a button label ends on a lone word just the same.
+    // A block's words are its own and those of its inline children (an inline-block button inside a sentence is part of its last line). Data cells,
+    // code and the trace's own mono header are not prose and are left out.
+    const flowWords = (el) => {
+      const ws = [];
+      const walk = (n) => {
+        for (const c of n.childNodes) {
+          if (c.nodeType === 3) {
+            for (const m of c.textContent.matchAll(/\S+/g)) {
+              const rg = document.createRange();
+              rg.setStart(c, m.index);
+              rg.setEnd(c, m.index + m[0].length);
+              const rs = [...rg.getClientRects()];
+              if (rs.length) ws.push({ w: m[0], c: (rs[0].top + rs[0].bottom) / 2, h: rs[0].height });
+            }
+          } else if (c.nodeType === 1 && !c.closest('.fd-sr, [hidden], [aria-hidden="true"]')) {
+            const d = getComputedStyle(c).display;
+            if (d === 'inline' || d === 'contents' || d.startsWith('inline-')) walk(c);
+          }
+        }
+      };
+      walk(el);
+      return ws;
+    };
+    // a run of capitals TYPED into a longer text ("YOUR AGREEMENT × EVERY VERSION · Top 5 customers by revenue") is capitals however the CSS sets it
+    const CAPS = /(?<![\p{L}\p{N}_])[A-Z]{2,}[A-Z0-9'’.\-]*(?:[ ·×+&/,]+(?:[A-Z]{2,}[A-Z0-9'’.\-]*|\d+))+(?![\p{L}\p{N}_])/gu;
+    const longCaps = [...document.querySelectorAll('body *')]
+      .filter(vis)
+      .map((e) => ({ e, t: own(e) }))
+      .filter(({ t }) => t.length > 22)
+      .filter(({ e, t }) => {
+        const f = font(e);
+        const letters = t.replace(/[^A-Za-z]/g, '');
+        const typedRun = [...t.matchAll(CAPS)].some((m) => m[0].replace(/['’.\-,\s]+$/, '').length > 22);
+        return (f.tt === 'uppercase' || f.ls > 0.02 || (letters.length >= 3 && t === t.toUpperCase()) || typedRun) && !e.closest('.fd-ac__eyebrow, td, th, tbody, pre, code, .fd-priv__pre');
+      })
+      .map(({ t }) => t);
+    // the figures a thrown-out note quotes ("expected $2,252.07, got $2,260.06"): Geist tabular figures, not a monospaced face with a gap round the comma and the point
+    const noteFigures = [...document.querySelectorAll('.fd-trace__ghost-note span span')]
+      .filter(vis)
+      .map((e) => ({ text: e.innerText.trim(), mono: /mono/i.test(getComputedStyle(e).fontFamily), nums: getComputedStyle(e).fontVariantNumeric, ...(() => { const c = charRects(e); const i = c.findIndex((x) => x.c === ','); return i > 0 ? { commaAdvance: c[i].r - c[i].l, digitAdvance: c[1].r - c[1].l } : {}; })() }));
+    // the reading measure: the body text the rails, the stage's mini card, the privacy note and the trace's note hold to --fd-measure runs to 75 characters a line at most
+    const measure = [...document.querySelectorAll('.fd-agree__empty-p, .fd-agree__foot, .fd-priv__foot, .fd-priv__note, .fd-ac__assumption-text, .fd-stage__q-body, .fd-trace__ghost-note > span, .fd-tf__limit-list > li, .fd-tf__files > li, .fd-rl__list > li')]
+      .filter(vis)
+      .map((e) => {
+        const ws = flowWords(e);
+        const rows = [];
+        for (const w of ws) {
+          const last = rows[rows.length - 1];
+          if (last && Math.abs(w.c - last.c) < w.h * 0.6) last.ws.push(w.w);
+          else rows.push({ c: w.c, ws: [w.w] });
+        }
+        return { cls: e.className, longest: Math.max(0, ...rows.map((r) => r.ws.join(' ').length)), text: ws.map((x) => x.w).join(' ').slice(0, 50) };
+      })
+      .filter((x) => x.longest > 75);
+    const lone = [...document.querySelectorAll('body *')]
+      .filter((e) => vis(e) && getComputedStyle(e).display !== 'inline' && !e.closest('pre, code, td, th, .fd-trace__head'))
+      .map((e) => {
+        const ws = flowWords(e);
+        const rows = [];
+        for (const w of ws) {
+          const last = rows[rows.length - 1];
+          if (last && Math.abs(w.c - last.c) < w.h * 0.6) last.ws.push(w.w);
+          else rows.push({ c: w.c, ws: [w.w] });
+        }
+        return { text: ws.map((x) => x.w).join(' ').slice(0, 60), words: ws.length, lines: rows.length, last: rows.length ? rows[rows.length - 1].ws.join(' ') : '', lastWords: rows.length ? rows[rows.length - 1].ws.length : 0 };
+      })
+      .filter((x) => x.lines >= 2 && x.words >= 5 && x.lastWords === 1)
+      .map((x) => `${x.text} → ${x.last}`);
+    return { lead, amounts, ladder, places, lines, eyebrows, longCaps, noteFigures, measure, lone, sideways: document.documentElement.scrollWidth > window.innerWidth };
+  };
+  /** The figures: Geist tabular, no gap round the comma and the point, and the amounts level digit by digit. */
+  const figuresOk = (t) =>
+    !!t.lead && !t.lead.mono && /tabular-nums/.test(t.lead.nums) && t.lead.commaAdvance < 0.4 * t.lead.digitAdvance && Math.abs(t.lead.gapAfterComma) < 1 && !t.amounts.mono && t.amounts.nums.every((n) => /tabular-nums/.test(n));
   /** The answer card as the viewer meets it (run in the page): filled controls, the verdict line and where it sits, the notes. */
   const CARD_FACTS = () => {
     const card = document.querySelector('.fd-ac');
@@ -584,6 +720,42 @@ try {
       "landing: the stress-test tile (11 of 12, under the section's one 'Illustrative' label) carries the recorded run beside it, marked 'Recorded run': the stress test caught 8 of 12 deliberate breaks on orders.csv, the same question, Version 4, its first draft accepted; a solid divider, no second badge, and a 44 px 'Run it yourself' link to #/zen",
       landRecorded,
     );
+    // ── typeset (critique step 5), the landing: the hero line and the figure labels are sentence-case lines, the figures are Geist, the labels that stay are short ──
+    {
+      const t = await p.evaluate(TYPESET_FACTS);
+      const tags = await p.evaluate(() => [...document.querySelectorAll('.fd-ld-col__tag')].map((e) => ({ text: e.innerText.trim(), cls: e.className, mono: /mono/i.test(getComputedStyle(e).fontFamily), tt: getComputedStyle(e).textTransform })));
+      const hero = t.lines.find((l) => l.text.startsWith('Answers from your spreadsheet exports'));
+      const wanted = ['Answers from your spreadsheet exports · checked before you see them', 'Fig. 2 · Same file, three meanings', 'Fig. 3 · One agreement, every version', 'When the rules run out', 'A question only you can answer · Needs you', 'Made-up · table 47 of 100', 'Your agreement × every version · Top 5 customers by revenue'];
+      check(
+        wanted.every((w) => t.lines.some((l) => l.text.replace(/^\? /, '') === w && !l.mono && l.tt === 'none' && l.ls === 0 && l.size === '14px')) && hero?.text === wanted[0] && !!hero && hero.text !== hero.text.toUpperCase(),
+        "typeset, landing: the hero's 67-character line, 'Fig. 2 · Same file, three meanings', 'Fig. 3 · One agreement, every version', 'When the rules run out', the ask card's label, the made-up table's label and the Fig. 3 board's heading (it was capitals typed into a mono title) are sentence-case Geist lines (14 px, no tracking, not capitals)",
+        t.lines,
+      );
+      check(
+        tags.length === 3 && tags.every((g) => !g.mono && g.tt === 'none') && tags.map((g) => g.text).join(' | ') === "The AI's first assumption | + One house rule | + Two house rules",
+        "typeset, landing: the three ladder column tags are one family, all sentence-case Geist lines (the longest is over the limit, so none is capitals)",
+        tags,
+      );
+      check(
+        t.eyebrows.length >= 6 && t.eyebrows.every((e) => e.text.length <= 22 && e.mono && e.tt === 'uppercase') && t.longCaps.length === 0,
+        "typeset, landing: what stays mono capitals is 22 characters or fewer (You asked, YOUR AGREEMENT, THE USUAL ORDER, HERE, MADE-UP, HONEST LIMITS); no text over 22 characters is set in capitals or tracked outside the seal",
+        { eyebrows: t.eyebrows.map((e) => e.text), longCaps: t.longCaps },
+      );
+      check(
+        figuresOk(t) && t.amounts.n === 4 && t.amounts.level && !!t.ladder && t.ladder.n === 5 && t.ladder.level && t.ladder.litN === 5 && t.ladder.litLevel && !t.ladder.mono && t.places === null,
+        "typeset, landing: the illustration's lead and its four amounts, and the ladder's amounts (the first column and the lit one with its bold leader), are Geist tabular figures, level digit by digit (the landing's list keeps its places caption for screen readers only)",
+        { lead: t.lead, amounts: t.amounts, ladder: t.ladder },
+      );
+      const big = await p.evaluate(() => [...document.querySelectorAll('.fd-ev-big')].map((e) => ({ text: e.innerText.trim(), mono: /mono/i.test(getComputedStyle(e).fontFamily), nums: getComputedStyle(e).fontVariantNumeric })));
+      check(big.length === 4 && big.every((b) => !b.mono && /tabular-nums/.test(b.nums)) && big.map((b) => b.text).join(' | ') === '6 of 6 | 100 | 11 of 12 | 1', "typeset, landing: the four evidence figures (6 of 6, 100, 11 of 12, 1) are Geist tabular figures, not wide mono words", big);
+      check(t.lone.length === 0, 'typeset, landing: no block of text ends on a single word', t.lone);
+      check(
+        t.noteFigures.length === 2 && t.noteFigures.map((f) => f.text).join(' | ') === '$2,252.07 | $2,260.06' && t.noteFigures.every((f) => !f.mono && /tabular-nums/.test(f.nums) && f.commaAdvance < 0.4 * f.digitAdvance),
+        "typeset, landing: the two amounts in the thrown-out note ($2,252.07, $2,260.06) are Geist tabular figures, a comma a third of a digit wide (not '$2 , 252 . 07' in a monospaced face)",
+        t.noteFigures,
+      );
+      check(t.measure.length === 0, 'typeset, landing: the body text of the stage card, the trace note and the cards below holds to the reading measure (75 characters a line at most)', t.measure);
+    }
   }
 
   // ── 3. seeded: the recording of the agreement is bundled, so the page installs it and the answer is Full checks ──
@@ -727,6 +899,29 @@ try {
     const file = await dl;
     const msg = await waitFor(() => /^Downloaded .+\.zip: topCustomersByRevenue\.ts, its checks, provenance\.json and a README\.$/.test(document.querySelector('.fd-run__handoff-msg')?.innerText ?? ''), null, 30000);
     check(!!file && /\.zip$/.test(file.suggestedFilename()) && msg, "seeded: the hand-off in the card's action row downloads the zip and says so in its status line", { name: file?.suggestedFilename(), msg });
+    // ── 3h. typeset (critique step 5): the figures, the places label, the labels, the long lines and the last lines on the Full view's answered page ──
+    {
+      const t = await p.evaluate(TYPESET_FACTS);
+      check(
+        figuresOk(t) && t.lead.text === money(LEAD[1]) && t.amounts.n === 4 && t.amounts.level && !t.sideways,
+        "typeset, full view: the lead amount is set in Geist with tabular figures (no monospaced face, a comma a third of a digit wide, no gap after it: not '$2 , 252 . 07'), and the four amounts under it are level digit by digit",
+        t,
+      );
+      check(
+        !!t.places && t.places.text === 'Places 2 to 5' && t.places.label === t.places.text && t.places.hidden === 'true' && t.places.first === '02' && t.places.last === '05' && t.places.beforeList && !t.places.mono && t.places.tt === 'none' && t.places.ls === 0 && t.places.size === '14px',
+        "typeset, full view: the ranked list starts under one visible plain label, 'Places 2 to 5' (worked out from its own rows, '02' to '05'), sentence case in Geist, and the list's accessible name is the same words",
+        t.places,
+      );
+      const wanted = ['Start here · bring a file, ask in plain words', 'What the AI will see'];
+      check(
+        wanted.every((w) => t.lines.some((l) => l.text === w && !l.mono && l.tt === 'none' && l.ls === 0 && l.size === '14px')) &&
+          t.eyebrows.length >= 1 && t.eyebrows.every((e) => e.text.length <= 22 && e.mono && e.tt === 'uppercase') && t.eyebrows.some((e) => e.text.toUpperCase() === 'YOUR AGREEMENT') && t.longCaps.length === 0,
+        "typeset, full view: the short noun labels (YOUR AGREEMENT) stay mono capitals, 22 characters or fewer; the longer ones ('Start here · bring a file, ask in plain words', 'What the AI will see') are sentence-case Geist lines with no tracking; no text over 22 characters is set in capitals or tracked outside the seal",
+        { lines: t.lines, eyebrows: t.eyebrows, longCaps: t.longCaps },
+      );
+      check(t.lone.length === 0, 'typeset, full view: no block of text ends on a single word', t.lone);
+      check(t.measure.length === 0, 'typeset, full view: the rails\' footers, the privacy note and the assumptions hold to the reading measure (75 characters a line at most)', t.measure);
+    }
   }
 
   // the sixth check, the stress test, finishes on its own; the lane reports what the engine counted
@@ -845,6 +1040,16 @@ try {
       "full view (own file) → Ask: the no-recording card offers the way out once (one button, inside the sentence, no second 'Switch to orders.csv' button, the veil does not say the sentence again) and links to how to run it on your computer",
       dead,
     );
+    // the same card with the rails stacked (768 wide): the agreement rail's empty state and its footer, and the privacy rail, hold to the reading measure
+    {
+      const was = p.viewportSize();
+      await p.setViewportSize({ width: 768, height: 900 });
+      await p.waitForTimeout(500);
+      const t = await p.evaluate(TYPESET_FACTS);
+      check(t.measure.length === 0 && t.lone.length === 0 && !t.sideways, "typeset, full view (own file, 768 wide): the empty agreement's words, its footer and the privacy rail hold to the reading measure (75 characters a line at most), and no block of text ends on a single word", { measure: t.measure, lone: t.lone, sideways: t.sideways });
+      await p.setViewportSize(was ?? { width: 1440, height: 900 });
+      await p.waitForTimeout(300);
+    }
     await p.locator('.fd-rs--no button').click();
     await waitFor(() => document.querySelector('.fd-bring__bound-text')?.innerText.startsWith('orders.csv') && document.activeElement?.id === 'fd-ask-btn', null, 20000);
   } catch (e) {
@@ -1135,6 +1340,11 @@ try {
     }));
     check(!!rep && five.line?.startsWith(want + ' · real run ') && /^Passed every check · stress test caught \d+ of \d+ · real run \d+\.\d\d s$/.test(five.line) && five.btn === 'See the checks' && five.expanded === 'false' && five.lanes === 0, "step by step 5: the answer keeps its proof: one collapsed line with the seal words (the engine's own count) and the real run, behind 'See the checks'", { want, five });
     check(five.lockNote === 'This lock comes with the demo file.', "step by step 5: the answer that came with the demo's locked answer says so", five.lockNote);
+    {
+      const t = await p.evaluate(TYPESET_FACTS);
+      check(figuresOk(t) && t.amounts.n === 4 && t.amounts.level && !!t.places && t.places.text === 'Places 2 to 5' && t.places.label === 'Places 2 to 5' && t.places.hidden === 'true' && t.places.beforeList && !t.places.mono && t.longCaps.length === 0 && t.lone.length === 0 && t.measure.length === 0 && !t.sideways,
+        "typeset, step by step 5: the answer's lead and amounts are Geist tabular figures, the ranked list says 'Places 2 to 5' above it (and as its name), no long text is capitals, and no block of text ends on one word", { lead: t.lead, amounts: t.amounts, places: t.places, longCaps: t.longCaps, lone: t.lone });
+    }
     {
       const z = await p.evaluate(CARD_FACTS);
       check(
