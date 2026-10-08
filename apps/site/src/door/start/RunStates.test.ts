@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { GapQuestion, GenerationView } from '@scasella/undefined-engine/types';
 import { routeAnchor, parseHash } from '../router';
-import { confirmKey, draftingView, elapsedText, HOUSE_RULE_HREF } from './RunPanel';
-import { declinedView, DECLINE_WHY, gapPreview, gapView, OWN_FILE_HREF, savedRuleText, serviceView, thrownOutView } from './RunStates';
+import { draftingView, elapsedText, HOUSE_RULE_HREF } from './RunPanel';
+import { confirmKey } from './session';
+import { readFileSync } from 'node:fs';
+import { declinedView, DECLINE_WHY, gapPreview, gapView, NOTHING_SAVED, ONLY_QUESTION_SAVED, OWN_FILE_HREF, savedLine, savedRuleText, serviceView, thrownOutView } from './RunStates';
 
 const gap: GapQuestion = {
   fn: 'median',
@@ -154,5 +156,27 @@ describe('draftingView', () => {
     const live = draftingView(gen({}), 4000)!;
     expect(live.liveText).not.toMatch(/\d+ s\b/);
     expect(live.footer.text).toBe(draftingView(gen({}))!.footer.text);
+  });
+});
+
+describe('what a card that ends with no answer says was saved', () => {
+  it('a suggested question saves nothing before it is asked, so the card says nothing was saved', () => {
+    for (const id of ['top-customers', 'status-counts', 'sales:total-by-region', 'orders:rows']) expect(savedLine(id), id).toBe(NOTHING_SAVED);
+    expect(savedLine(null)).toBe(NOTHING_SAVED);
+    expect(savedLine(undefined)).toBe(NOTHING_SAVED);
+  });
+
+  it('a question the viewer typed was saved as its own step before it was asked (session.ts ensureTyped), so the card says only that', () => {
+    expect(savedLine('own:how-many-orders-were-refunded')).toBe(ONLY_QUESTION_SAVED);
+    expect(ONLY_QUESTION_SAVED).toBe('Only your question was saved: no answer and no calculation.');
+    expect(ONLY_QUESTION_SAVED).not.toMatch(/nothing was saved/i);
+  });
+
+  it('every card that ends with no answer takes the sentence from savedLine, none keeps the fixed one', () => {
+    const src = readFileSync(new URL('./RunStates.tsx', import.meta.url), 'utf8');
+    expect(src).toMatch(/const savedWords = savedLine\(run\?\.questionId\);/);
+    expect(src.match(/\{savedWords\}/g)).toHaveLength(4);
+    // the fixed sentence is only the default inside savedLine
+    expect(src.match(/NOTHING_SAVED/g)).toHaveLength(2);
   });
 });

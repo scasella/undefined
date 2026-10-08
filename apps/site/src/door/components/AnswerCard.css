@@ -147,7 +147,7 @@
 .fd-ac__lock:not(.fd-ac__lock--on):disabled:hover { background: var(--fd-indigo); border-color: var(--fd-indigo); }
 /* a card that HAS the hand-off in its action row (.fd-ac--handoff, set by the slot, not by the variant) makes the lock a quiet secondary
    control: a ring, no fill; locked is the same ring in indigo with the padlock. Without the hand-off the lock is the card's one filled control. */
-.fd-ac--handoff .fd-ac__lock { max-width: 100%; border: 0; background: var(--fd-surface); color: var(--fd-ink); box-shadow: var(--fd-sh-ring-2); transition: background-color 120ms ease, box-shadow 120ms ease, color 120ms ease; }
+.fd-ac--handoff .fd-ac__lock { max-width: 100%; border: 0; background: var(--fd-surface); color: var(--fd-ink); box-shadow: var(--fd-sh-ring-2); transition: background-color 120ms var(--fd-ease), box-shadow 120ms var(--fd-ease), color 120ms var(--fd-ease); }
 .fd-ac--handoff .fd-ac__lock:hover { background: var(--fd-surface-3); color: var(--fd-ink); box-shadow: 0 0 0 1px var(--fd-ink-3); }
 .fd-ac--handoff .fd-ac__lock--on, .fd-ac--handoff .fd-ac__lock--on:hover { background: var(--fd-surface); color: var(--fd-indigo-hover); box-shadow: 0 0 0 1px var(--fd-indigo); }
 .fd-ac--handoff .fd-ac__lock:not(.fd-ac__lock--on):disabled:hover { background: var(--fd-surface); box-shadow: var(--fd-sh-ring-2); }

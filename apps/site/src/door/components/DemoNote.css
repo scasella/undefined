@@ -30,6 +30,6 @@
 }
 .fd-rl__sum::-webkit-details-marker { display: none; }
 .fd-rl__sum:hover { color: var(--fd-indigo-hover); text-decoration: underline; text-underline-offset: 3px; }
-.fd-rl__chev { flex: none; transform: rotate(-90deg); transition: transform 120ms ease; }
+.fd-rl__chev { flex: none; transform: rotate(-90deg); transition: transform 120ms var(--fd-ease); }
 .fd-rl__d[open] > .fd-rl__sum .fd-rl__chev { transform: none; }
 .fd-rl__body { display: flex; flex-direction: column; gap: 8px; padding: 4px 0 0; min-width: 0; }

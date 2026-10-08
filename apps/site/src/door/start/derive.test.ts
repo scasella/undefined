@@ -519,7 +519,7 @@ describe('agreement, copy, version', () => {
     expect(none.action).toBeNull();
     expect(none.before + none.after).toBe(noRecordingText(false, null));
     const v = noRecordingView(false, { id: 'top', label: 'Top 5 customers by revenue' });
-    expect(v.action).toEqual({ kind: 'question', id: 'top', label: 'Top 5 customers by revenue', text: 'try it' });
+    expect(v.action).toEqual({ kind: 'question', id: 'top', text: 'try it' });
     expect(v.before.endsWith('“Top 5 customers by revenue” has one: ')).toBe(true);
     expect(v.after).toBe('.');
     // the plain text is the same sentence it always was
@@ -537,12 +537,12 @@ describe('agreement, copy, version', () => {
   });
   it('a file with nothing recorded is not a dead end: the sentence names the recorded sample and the question it opens on, and its action binds that sample', () => {
     const offer = sampleOffer(null)!;
-    expect(offer).toEqual({ sample: 'orders', file: 'orders.csv', questionId: 'top', question: 'Who are our top customers by revenue?' });
+    expect(offer).toEqual({ sample: 'orders', file: 'orders.csv', question: 'Who are our top customers by revenue?' });
     // the question named is the one binding the sample selects (the sentence stays true), in the question's own words
-    expect(offer.questionId).toBe(DEFAULT_QUESTION_ID.orders);
+    expect(DEFAULT_QUESTION_ID[offer.sample]).toBe('top');
     expect(offer.question).toBe(sampleOpeningQuestion('orders').text);
     const own = noRecordingView(true, null, offer);
-    expect(own.action).toEqual({ kind: 'sample', sample: 'orders', label: 'Who are our top customers by revenue?', text: 'switch to orders.csv' });
+    expect(own.action).toEqual({ kind: 'sample', sample: 'orders', text: 'switch to orders.csv' });
     expect(own.before).toBe(`${NO_RECORDING_OWN} “Who are our top customers by revenue?” has a recorded answer on one sample file: `);
     expect(own.after).toBe('.');
     expect(noRecordingText(true, null, offer)).toBe(

@@ -12,6 +12,7 @@ import type { AssumptionList } from '../model/assumptions';
 import { lockedHelp, type CheckMode } from '../model/agreement';
 import type { StressStatus } from '../model/lanes';
 import { AskDiamond, CheckDisc, Lock, NotChecked } from '../icons';
+import { headingTag, type HeadingLevel } from './headings';
 import './AnswerCard.css';
 
 export const HELD_CAPTION_START = 'Held until every check passes. Ask to start the checks.';
@@ -19,8 +20,6 @@ export const HELD_CAPTION_LANDING = 'Held until every check passes.';
 export const HELD_CAPTION_WAITING = 'Waiting on you. No new answer is shown until you decide.';
 export const HELD_LABEL = 'Answer held until every check passes';
 
-// the check counts and the decisive caveat live in the model (model/answer.ts: the verdict line needs them); kept importable from here
-export { BASIC_CHECKS, decisiveCaveat, TOTAL_CHECKS };
 export const LEVEL_FULL = 'PASSED EVERY CHECK';
 export const LEVEL_BASIC = `PASSED ${BASIC_CHECKS} BASIC CHECKS · NOTHING ELSE CHECKED YET`;
 
@@ -93,6 +92,12 @@ export interface AnswerCardProps {
   calc?: { open: boolean; onToggle: () => void; source: ComponentChildren };
   /** Start page: where 'Add a house rule' goes. */
   houseRuleHref?: string;
+  /**
+   * The level of the card's three headings ("What the AI assumed", "Checked against", "Not checked"): the level that follows the heading
+   * the card sits under. 3 (the default) under an h2, as on the landing's example and the Full view's "Ask a question"; 2 on Step by step,
+   * where the card follows the page's h1 and an h3 would skip a level.
+   */
+  headingLevel?: HeadingLevel;
 }
 
 /**
@@ -184,6 +189,7 @@ export function AnswerCard(props: AnswerCardProps) {
 
 function Body(props: AnswerCardProps & { view: AnswerView; variant: 'landing' | 'start'; held: boolean }) {
   const { view, variant, held, level, locked } = props;
+  const H = headingTag(props.headingLevel ?? 3);
   const lead = view.lead;
   const help = props.lockHelp || lockHelpText({ locked, variant, level, view, ...(props.mode ? { mode: props.mode } : {}) });
   // the green disc says every check that applies finished and passed; a partial ring says how much of it did
@@ -231,7 +237,7 @@ function Body(props: AnswerCardProps & { view: AnswerView; variant: 'landing' | 
       {view.raw !== null && <pre class="fd-ac__raw fd-mono fd-ac__ri" style={vars({ '--fd-ri': '0.16s' })}>{view.raw}</pre>}
 
       <div class="fd-ac__assumed">
-        <h3 class="fd-ac__h3">What the AI assumed</h3>
+        <H class="fd-ac__h3">What the AI assumed</H>
         {!props.assumptions.empty && <p class="fd-ac__assumed-note">{CONFIRM_NOTE}</p>}
         {props.assumptions.empty ? (
           <p class="fd-ac__no-notes">{props.assumptions.empty}</p>
@@ -267,7 +273,7 @@ function Body(props: AnswerCardProps & { view: AnswerView; variant: 'landing' | 
 
       <div class="fd-ac__ledger">
         <div class="fd-ac__checked">
-          <h3 class="fd-ac__h3">Checked against</h3>
+          <H class="fd-ac__h3">Checked against</H>
           <ul class="fd-ac__ledger-list">
             {props.checked.map((t) => (
               <li key={t}>
@@ -278,7 +284,7 @@ function Body(props: AnswerCardProps & { view: AnswerView; variant: 'landing' | 
           </ul>
         </div>
         <div class="fd-ac__not-checked">
-          <h3 class="fd-ac__h3">Not checked</h3>
+          <H class="fd-ac__h3">Not checked</H>
           <ul class="fd-ac__ledger-list">
             {props.notChecked.map((t) => (
               <li key={t}>

@@ -2,12 +2,14 @@
 .zpr { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; min-width: 0; }
 .zpr__line { margin: 0; max-width: var(--fd-measure); font-size: 14px; line-height: 20px; color: var(--fd-ink-2); overflow-wrap: anywhere; }
 .zpr .zpr__btn { gap: 10px; }
-/* a plain chevron drawn with two borders; it turns when the trace is open (the turn is skipped under reduced motion) */
+/* a plain chevron drawn with two borders; it turns when the trace is open (the turn is skipped under reduced motion). Only transform
+   moves it, so the turn and the 3px it sits lower once open (a -3px / +3px margin in a centred row, which is half of each: 1.5px) cost
+   no layout: translate first (a point's screen offset), then the turn. */
 .zpr__chev {
-  flex: none; width: 7px; height: 7px; margin-top: -3px; border-right: 1.6px solid currentColor; border-bottom: 1.6px solid currentColor;
-  transform: rotate(45deg); transition: transform 160ms var(--fd-ease), margin-top 160ms var(--fd-ease);
+  flex: none; width: 7px; height: 7px; border-right: 1.6px solid currentColor; border-bottom: 1.6px solid currentColor;
+  transform: translateY(-1.5px) rotate(45deg); transition: transform 160ms var(--fd-ease);
 }
-.zpr__btn[aria-expanded='true'] .zpr__chev { transform: rotate(-135deg); margin-top: 3px; }
+.zpr__btn[aria-expanded='true'] .zpr__chev { transform: translateY(1.5px) rotate(-135deg); }
 @media (prefers-reduced-motion: reduce) { .zpr__chev { transition: none; } }
 .zpr__body { width: 100%; min-width: 0; }
 .zpr__body[hidden] { display: none; }

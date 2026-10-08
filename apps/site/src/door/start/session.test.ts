@@ -11,13 +11,14 @@ import { hashesFor } from '@scasella/undefined-engine/shared/hash';
 import { buildDataset } from '../../data/dataset';
 import { bundledOrders } from '../../data/orders';
 import { seedAgreement, SEEDED_PIN_ID } from '../model/agreements';
-import { suggestedQuestions } from '../model/questions';
+import { DEFAULT_QUESTION_ID, suggestedQuestions } from '../model/questions';
 import { sampleFile } from '../model/samples';
 import { session as telemetry, shellFileChip } from '../state';
 import { delimiterProblem, fileChipFor, fileProblem, jsonFileKind, ownDatasetName, parseRows, textProblem } from './intake';
 import { ReplayGenerator } from '../../core/generator';
-import { agreementRecording, answerableOther, availabilityOf, callSpecFor, fetchRecordings, levelFor, recordedKeys, seedUsable, specHasAgreement, specKey } from './recorded';
+import { agreementRecording, answerableOther, availabilityOf, callSpecFor, fetchRecordings, levelFor, recordedKeys, sampleAnswerable, seedUsable, specHasAgreement, specKey } from './recorded';
 import { noRecordingText, sampleOffer } from './derive';
+import { sampleTag } from './startView';
 import { createSession, sessionFor, type Session } from './session';
 
 const recordingsDir = new URL('../../../public/recordings/', import.meta.url);
@@ -117,6 +118,56 @@ describe('what the replay site can answer (the real bundled recording)', () => {
       expect([name, seed, a]).toEqual([name, seed, { status: 'none', top, country: 'none' }]);
       expect(answerableOther(qs, a, 'status')?.id ?? null).toBe(top === 'recorded' ? 'top' : null);
     }
+  });
+
+  describe('which sample files have anything the demo can answer (the tag on a sample that has not)', () => {
+    const bundled = (): Recording[] =>
+      ['orders.json', 'orders-agreement.json', 'median.json', 'slugify.json', 'fibonacci.json'].map((f) => JSON.parse(readFileSync(new URL(f, recordingsDir), 'utf8')) as Recording);
+    const refOf = async (id: 'orders' | 'sales', typeName: string): Promise<DatasetRef> => {
+      const f = sampleFile(id);
+      const built = await buildDataset(f.datasetName, f.rows(), { source: 'bundled', filename: f.filename, typeName });
+      if ('error' in built) throw new Error(built.message);
+      return built.ref;
+    };
+    const ask = async (id: 'orders' | 'sales', recordings: Recording[], mode: 'live' | 'replay' = 'replay') =>
+      sampleAnswerable({ mode, sampleId: id, dataset: await refOf(id, id === 'orders' ? 'Row' : 'SalesRow'), rows: sampleFile(id).rows(), program: { functions: {} }, recordings });
+
+    it('replay, with the bundled recordings: orders.csv has an answer on file, sales-q3.csv has none', async () => {
+      expect(await ask('orders', bundled())).toBe(true);
+      expect(await ask('sales', bundled())).toBe(false);
+    });
+
+    it('computed from the recordings, not the file name: a recording for one of the sales questions makes it answerable, none for orders makes orders not', async () => {
+      const sales = await refOf('sales', 'SalesRow');
+      const q = suggestedQuestions(sales, sampleFile('sales').rows(), 'sales')[0]!;
+      const withSales = [...bundled(), await recordingOf(callSpecFor(q.fn, sales), 'sales-first-question')];
+      expect(await ask('sales', withSales)).toBe(true);
+      expect(await ask('orders', [])).toBe(false);
+      expect(await ask('orders', bundled().filter((r) => !/orders/.test(r.id)))).toBe(false);
+    });
+
+    it('a function already certified for the question makes a sample answerable with no recording at all', async () => {
+      const d = await refOf('orders', 'Row');
+      const q = suggestedQuestions(d, sampleFile('orders').rows(), 'orders')[0]!;
+      const spec = callSpecFor(q.fn, d);
+      const h = await hashesFor(spec);
+      const program = { functions: { [q.fn]: { spec, ...h, artifact: { specHash: h.specHash, testsHash: h.testsHash } as never } } };
+      expect(await sampleAnswerable({ mode: 'replay', sampleId: 'orders', dataset: d, rows: sampleFile('orders').rows(), program, recordings: [] })).toBe(true);
+    });
+
+    it('live: every question can be asked, so every sample is answerable', async () => {
+      expect(await ask('orders', [], 'live')).toBe(true);
+      expect(await ask('sales', [], 'live')).toBe(true);
+    });
+
+    it('the tag follows: said in the demo for a sample that cannot be asked, never in live mode, never before it is known, never for one that can', () => {
+      expect(sampleTag('replay', false)).toBe('no recorded answers');
+      expect(sampleTag('replay', true)).toBeNull();
+      expect(sampleTag('replay', undefined)).toBeNull();
+      expect(sampleTag('live', false)).toBeNull();
+      expect(sampleTag('live', true)).toBeNull();
+      expect(sampleTag('live', undefined)).toBeNull();
+    });
   });
 
   it('the seed is installed only when it will run: live, or a recording made against exactly it, or certified for it', async () => {
@@ -498,6 +549,66 @@ describe('session controller (fake engine)', () => {
     s.dispose();
   });
 
+  describe('which samples carry the "no recorded answers" tag (the session\'s own wiring of sampleAnswerable)', () => {
+    const bundled = (): Recording[] =>
+      ['orders.json', 'orders-agreement.json', 'median.json', 'slugify.json', 'fibonacci.json'].map((f) => JSON.parse(readFileSync(new URL(f, recordingsDir), 'utf8')) as Recording);
+    /** Let the effects and the fetch settle (the session loads the recordings, then works the samples out). */
+    const settle = async (): Promise<void> => {
+      for (let i = 0; i < 6; i++) await new Promise((r) => setTimeout(r, 15));
+    };
+
+    it('replay, bundled recordings: orders.csv can be asked, sales-q3.csv cannot, worked out with nothing bound', async () => {
+      const { engine } = fakeEngine('replay');
+      const s = createSession(engine, { recordings: async () => bundled() });
+      await vi.waitFor(() => expect(s.sampleAnswerable.value).toEqual({ orders: true, sales: false }));
+      s.dispose();
+    });
+
+    it('replay, nothing loaded (a failed load is an empty list): no sample is said to have no recorded answers', async () => {
+      for (const load of [async (): Promise<Recording[]> => [], async (): Promise<Recording[]> => Promise.reject(new Error('offline'))]) {
+        const { engine } = fakeEngine('replay');
+        const asked = vi.fn(load);
+        const s = createSession(engine, { recordings: asked });
+        await vi.waitFor(() => expect(asked).toHaveBeenCalled());
+        await settle();
+        expect(s.sampleAnswerable.value).toEqual({});
+        expect(sampleTag('replay', s.sampleAnswerable.value.sales)).toBeNull();
+        expect(sampleTag('replay', s.sampleAnswerable.value.orders)).toBeNull();
+        s.dispose();
+      }
+    });
+
+    it('live: it stays empty and the recordings are never asked for', async () => {
+      const { engine } = fakeEngine('live');
+      const asked = vi.fn(async (): Promise<Recording[]> => bundled());
+      const s = createSession(engine, { recordings: asked });
+      await settle();
+      expect(s.sampleAnswerable.value).toEqual({});
+      expect(asked).not.toHaveBeenCalled();
+      s.dispose();
+    });
+
+    it('a session disposed before the recordings arrive does not take their answer', async () => {
+      const { engine } = fakeEngine('replay');
+      let release: (r: Recording[]) => void = () => undefined;
+      const s = createSession(engine, { recordings: () => new Promise<Recording[]>((r) => (release = r)) });
+      await settle();
+      s.dispose();
+      release(bundled());
+      await settle();
+      expect(s.sampleAnswerable.value).toEqual({});
+    });
+
+    it('moving to live mode clears what replay worked out', async () => {
+      const { engine, state } = fakeEngine('replay');
+      const s = createSession(engine, { recordings: async () => bundled() });
+      await vi.waitFor(() => expect(s.sampleAnswerable.value).toEqual({ orders: true, sales: false }));
+      state.value = { ...state.value, mode: 'live' };
+      await vi.waitFor(() => expect(s.sampleAnswerable.value).toEqual({}));
+      s.dispose();
+    });
+  });
+
   it('the way out of a file with nothing recorded: switching to the recorded sample selects the question the sentence names, and that one has a recording', async () => {
     const { engine } = fakeEngine('replay');
     const s = createSession(engine, { recordings: async () => [ordersRecording()] });
@@ -512,9 +623,9 @@ describe('session controller (fake engine)', () => {
     // the button's action
     expect(await s.useSample(offer.sample)).toBe(true);
     expect(s.sampleId.value).toBe('orders');
-    expect(s.questionId.value).toBe(offer.questionId);
+    expect(s.questionId.value).toBe(DEFAULT_QUESTION_ID[offer.sample]);
     expect(s.question.value?.text).toBe(offer.question);
-    await vi.waitFor(() => expect(s.availability.value[offer.questionId]).toBe('recorded'));
+    await vi.waitFor(() => expect(s.availability.value[DEFAULT_QUESTION_ID[offer.sample]]).toBe('recorded'));
     // the offer is gone once the file bound is the recorded one
     expect(sampleOffer(s.sampleId.value)).toBeNull();
     s.dispose();

@@ -11,6 +11,8 @@ body {
 a { color: var(--fd-indigo); }
 a:hover { color: var(--fd-indigo-hover); }
 button { font-family: inherit; }
+/* A placeholder is text the viewer reads. The browser's own grey (#757575, and Firefox thins it again) is 4.46:1 on the paste area's fill; Quiet Slate is 5.4:1 there. */
+input::placeholder, textarea::placeholder { color: var(--fd-ink-3); opacity: 1; }
 :focus-visible { outline: 2px solid var(--fd-indigo); outline-offset: 2px; }
 .skip {
   position: absolute; left: 8px; top: -48px; z-index: 20; padding: 10px 14px; border-radius: var(--fd-r-md);

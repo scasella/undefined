@@ -34,17 +34,17 @@
 /* the spreadsheet hint says what to do, at body size */
 .fd-bring__zone-hint { margin-top: 2px; max-width: 460px; }
 .fd-bring__choose { margin-top: 14px; }
-.fd-bring__note { margin: 12px 0 0; max-width: 460px; font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
-.fd-bring__note--paste { margin: 0; max-width: none; }
 /* what the demo cannot do with a file of your own, under the tabs and before anything is dropped (replay only) */
 .fd-bring__caveat { margin: 12px 0 0; max-width: var(--fd-measure); font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
+/* once your own file is bound: what to do next, right after the caveat that says why (the reason first, then the way out) */
+.fd-bring__note { margin: 8px 0 0; max-width: var(--fd-measure); font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
 
 /* paste */
 .fd-bring__paste { margin-top: 12px; flex: 1; display: flex; flex-direction: column; gap: 8px; }
 .fd-bring__label { font-size: 14px; line-height: 20px; font-weight: 500; color: var(--fd-ink); }
 .fd-bring__textarea {
   width: 100%; box-sizing: border-box; min-height: 150px; padding: 12px; resize: vertical;
-  border-radius: var(--fd-r-md); border: 1px solid var(--fd-line-2); background: var(--fd-surface);
+  border-radius: var(--fd-r-md); border: 1px solid var(--fd-edge-input); background: var(--fd-surface);
   font-size: 13px; line-height: 20px; color: var(--fd-ink);
 }
 .fd-bring__paste-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
@@ -81,6 +81,11 @@
 }
 .fd-bring__sample.is-on .fd-bring__dot { border: 6px solid var(--fd-indigo); }
 .fd-bring__sample-meta { display: block; margin-top: 6px; font-size: 12px; line-height: 17px; font-weight: 500; color: var(--fd-ink-3); }
+/* the demo's honest tag on a sample none of whose questions has a recorded answer: the dashed marker the question chips use for "needs your computer" */
+.fd-bring__tag {
+  display: block; width: fit-content; max-width: 100%; margin-top: 8px; padding: 0 6px; box-sizing: border-box; border: 1px dashed var(--fd-line-2);
+  border-radius: var(--fd-r-sm); font-size: 12px; line-height: 17px; font-weight: 500; color: var(--fd-ink-3);
+}
 .fd-bring__sample-desc { display: block; margin-top: 6px; font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }
 
 /* Beside the drop card they stack (384 + 240 + the 16px gap = 640, the narrowest the main column gets next to the

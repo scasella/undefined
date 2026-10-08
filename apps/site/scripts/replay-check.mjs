@@ -6,7 +6,7 @@
 //      retry commits a new revision; orders (spec-less, over the bound `rows`) commits on the first attempt with a table.
 //   2. engine: Decide on median after it commits (NaN re-certifies with no model call; "throws" needs live mode; removing
 //      the decision brings median back), a multi-statement line, and a CSV of your own (writing on it needs live mode).
-//   3. the front door: '/' renders its claim with no console errors (besides replay's /generate/health 404); '#/start'
+//   3 and 3s. the front door: '/' renders its claim with no console errors (besides replay's /generate/health 404); '#/start' (3s)
 //      binds orders.csv and, because public/recordings/orders-agreement.json exists (docs/FRONT-DOOR.md "Adaptive
 //      seeding"), installs the seeded agreement (6 examples, 1 locked answer, 2 house rules): "Who are our top
 //      customers by revenue?" replays with FULL checks and answers Chef Ravioli Starbright $2,252.07, already locked, the engine's
@@ -28,22 +28,22 @@
 //      made from a walk-through pane inherits 'manual'), and every Back and Forward onto Step by step lands at scrollY 0.
 //      Also the router's cross-route behaviour: landing -> Step by step focuses #main, a pane change does not, and an anchor on a pane
 //      ('#/zen/3#main') neither scrolls nor focuses.
-//   3g. the answer card (contract A): under the figure, in body text, one verdict line (how the checks went in the seal's own words with the engine's
+//   3g. the answer card: under the figure, in body text, one verdict line (how the checks went in the seal's own words with the engine's
 //      own stress-test count, the one thing most worth knowing was not checked, and the hand-off as the next step), replacing the old standalone "Not
 //      checked:" line; the hand-off is the card's one filled control (the lock is a quiet ring; the landing's illustration, which has no hand-off,
 //      keeps its filled lock and names no next step); the pre-set lock says where it came from and "Version 4" is explained from the engine's own
 //      saved steps (demo only, never when a save before the answer is the viewer's own; the basic fallback gets its two set-up saves named too); Confirm says what it really does and does nothing
 //      more (no engine change, no request); the Full view's live sentence names the answer once, and on Step by step the answer pane's heading is
 //      described by the answer's lead (read from the browser's accessibility tree: the name stays "Your answer", no live region repeats it).
-//   3g (landing). the illustration's answer card is a compact skeleton while it plays and is released at its natural height; the release moves
+//   3i. the landing's illustration, its answer card: it is a compact skeleton while it plays and is released at its natural height; the release moves
 //      the section under it down once, and a viewer whose window starts below the card's top (the evidence 20, 60 and 300 px down at 1440, 1180 and 390,
 //      the agreement under the card at 390 and 768) sees it move 0 to 2 px, one fresh page per case, every frame sampled; a viewer who can see the card's
 //      top watches it fill (its top holds); "Run again" from the released card never shows a tall frame.
-//   3h. typeset (critique step 5), on the landing, the Full view and Step by step's answer pane: the lead amount and the amounts under it are Geist tabular figures
+//   3h. typeset (the typesetting pass), on the landing, the Full view and Step by step's answer pane: the lead amount and the amounts under it are Geist tabular figures
 //      (no monospaced face, no gap round the comma and the point, a column level digit by digit), the ranked list is named 'Places 2 to 5' by one visible plain
 //      label above it (first-run pages), the labels that stay mono capitals are 22 characters or fewer and every longer one is a sentence-case Geist line with no
 //      tracking, no text over 22 characters is capitals or tracked outside the seal, and no block of text ends on a single word, body text holds to the reading measure, and the money in a thrown-out note is a Geist figure.
-//   3a/3b/3f. the own-file path (docs/FRONT-DOOR.md "Your own file in the demo"): both pickers (Full view, Step by step) say what the
+//   The own-file path, blocks 3a, 3b, 3b2 and 3f (docs/FRONT-DOOR.md "Your own file in the demo"): both pickers (Full view, Step by step) say what the
 //      demo cannot do with a file of your own under the drop zone BEFORE one is dropped (one caveat, the same words); once an
 //      own CSV is bound (a pasted one on Step by step, a dropped one on the Full view) the picker stays open, the sample
 //      files stay in sight, a short note sits directly above them, and the forward button on Step by step reads "See
@@ -51,9 +51,19 @@
 //      suggestions (before the buttons), not under them; the dead end has the steps inline and OPEN (what you need, the three
 //      commands exactly, where it opens, the README link) with no horizontal scroll at 390 px, and a fold the viewer made
 //      survives typing a question; the own-file note names orders.csv (the sample that has recordings); a refusal holds Step
-//      by step's picker open in the demo; the landing's limits card lists the same steps and the columns come out level;
+//      by step's picker open in the demo; the landing's limits card (block 3j) lists the same steps and the columns come out level;
 //      the sample path is unchanged ("Continue" primary, the picker folded). A copy that runs on your computer (the
 //      generation service's health stubbed as up) draws none of it, and a refusal there folds the picker as it always did.
+//   3b3. a question the viewer typed on Step by step is saved as its own step when the Full view asks it, so the first answer's version line (and the
+//      card's saves-before-the-answer note) names no save the demo did not make: the engine's saves read 1 starting point, 2 the file, 3 the demo's agreement,
+//      4 the typed question, 5 the answer.
+//   3p. the final polish pass: a text field's edge is 3:1 (the new --fd-edge-input), the selected segment has its indigo bar, the trace takes the project's ring when
+//      Ask is pressed from the keyboard and none from the mouse, no route skips a heading level and each has one banner, one main and one content-info
+//      (the Full view's footer says where the file is; the landing is walked once its answer card is released, so the card's three h3 are in the walk), the drafting
+//      trace's title is two lines at most from 390 to 1440 px (three at 360, which cannot hold it in two) with the counter wrapped under it, the header keeps one
+//      height through a whole run at 560 px, the footer keeps one row at 689 px, a cell's cross and question mark are drawn, the pane-3 mark is a dashed tick outline, a sample none of whose questions
+//      has a recording says "no recorded answers" on both pages (never in live mode), your own file's note comes after its caveat, a typed question's dead-end
+//      card says only the question was saved (and the engine saved exactly that), "Paste data" and "Back" on Step by step leave focus on a control.
 //   4. the same page with orders-agreement.json unavailable (the request for the recordings index is answered without it:
 //      what a re-spec'd agreement whose recording no longer matches looks like; the page's own seed switch is not
 //      reachable from the built bundle). The seeded agreement is then not installed and the question falls back to the
@@ -338,7 +348,7 @@ try {
     waitFor(() => window.__undefined.state.value.datasets.some((d) => d.name === 'rows') && document.body.innerText.includes('orders.csv'), null, 30000);
   const LEAD = ['Chef Ravioli Starbright', 2252.07];
   /**
-   * Typeset (critique step 5), read from whatever page is up: how its figures are set (Geist tabular figures, no gappy comma and point; a column of
+   * Typeset (the typesetting pass), read from whatever page is up: how its figures are set (Geist tabular figures, no gappy comma and point; a column of
    * amounts level digit by digit), the places label over a ranked list, every label (short noun labels in mono capitals, anything longer a sentence-case
    * line in Geist), any capitals or tracking on a long text, and any block of text (a paragraph, a heading, a div or span sentence, a list item, a button
    * label) of five words or more whose last line is one lone word.
@@ -544,7 +554,7 @@ try {
 
   /** What the landing's evidence tile says the recorded run's stress test caught (read there, compared with the real run's own report below). */
   let landRecorded = null;
-  // ── 3g. the landing's illustrative card: the same verdict line with its own labelled numbers; no hand-off, so no next step and the lock keeps its fill ──
+  // ── 3i. the landing's illustrative card: the same verdict line with its own labelled numbers; no hand-off, so no next step and the lock keeps its fill ──
   {
     // ── the landing's answer card while the illustration plays: a compact skeleton (five bars and a caption), its body out of layout and out of the
     // accessibility tree, then released at its natural height; "Run again" goes back to the skeleton in the same render (never a frame of the tall card) ──
@@ -720,7 +730,7 @@ try {
       "landing: the stress-test tile (11 of 12, under the section's one 'Illustrative' label) carries the recorded run beside it, marked 'Recorded run': the stress test caught 8 of 12 deliberate breaks on orders.csv, the same question, Version 4, its first draft accepted; a solid divider, no second badge, and a 44 px 'Run it yourself' link to #/zen",
       landRecorded,
     );
-    // ── typeset (critique step 5), the landing: the hero line and the figure labels are sentence-case lines, the figures are Geist, the labels that stay are short ──
+    // ── typeset (the typesetting pass), the landing: the hero line and the figure labels are sentence-case lines, the figures are Geist, the labels that stay are short ──
     {
       const t = await p.evaluate(TYPESET_FACTS);
       const tags = await p.evaluate(() => [...document.querySelectorAll('.fd-ld-col__tag')].map((e) => ({ text: e.innerText.trim(), cls: e.className, mono: /mono/i.test(getComputedStyle(e).fontFamily), tt: getComputedStyle(e).textTransform })));
@@ -758,7 +768,7 @@ try {
     }
   }
 
-  // ── 3. seeded: the recording of the agreement is bundled, so the page installs it and the answer is Full checks ──
+  // ── 3s. seeded (the front door's '#/start'): the recording of the agreement is bundled, so the page installs it and the answer is Full checks ──
   await openApp(p, srv.url + '#/start');
   check(await bindOrders(), "'#/start' binds the sample orders.csv (as rows)", (await body()).slice(0, 400));
 
@@ -899,7 +909,7 @@ try {
     const file = await dl;
     const msg = await waitFor(() => /^Downloaded .+\.zip: topCustomersByRevenue\.ts, its checks, provenance\.json and a README\.$/.test(document.querySelector('.fd-run__handoff-msg')?.innerText ?? ''), null, 30000);
     check(!!file && /\.zip$/.test(file.suggestedFilename()) && msg, "seeded: the hand-off in the card's action row downloads the zip and says so in its status line", { name: file?.suggestedFilename(), msg });
-    // ── 3h. typeset (critique step 5): the figures, the places label, the labels, the long lines and the last lines on the Full view's answered page ──
+    // ── 3h. typeset (the typesetting pass): the figures, the places label, the labels, the long lines and the last lines on the Full view's answered page ──
     {
       const t = await p.evaluate(TYPESET_FACTS);
       check(
@@ -990,7 +1000,7 @@ try {
         picker: picker ? getComputedStyle(picker).display : null,
         samples: samples.map((b) => b.querySelector('.fd-bring__sample-name')?.innerText.trim()),
         visible: samples.every((b) => b.getBoundingClientRect().height > 0),
-        note: document.querySelector('.fd-bring__note:not(.fd-bring__note--paste)')?.innerText.replace(/\s+/g, ' ').trim(),
+        note: document.querySelector('.fd-bring__note')?.innerText.replace(/\s+/g, ' ').trim(),
         caveat: document.querySelector('.fd-bring__caveat')?.innerText.replace(/\s+/g, ' ').trim(),
         change: `${ch?.innerText.trim()}/${ch?.getAttribute('aria-expanded')}`,
       };
@@ -1092,7 +1102,8 @@ try {
       const before = (a, b) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
       return {
         picker: !!el('#zd-picker'),
-        samples: samples.map((b) => b.innerText.trim()),
+        samples: samples.map((b) => b.firstChild.textContent.trim()),
+        sampleTags: samples.map((b) => b.querySelector('.zd__tag')?.innerText.trim() ?? ''),
         visible: samples.every((b) => b.getBoundingClientRect().height > 0),
         note: note?.innerText.replace(/\s+/g, ' ').trim(),
         live: note?.getAttribute('role'),
@@ -1107,7 +1118,8 @@ try {
         said: [...document.querySelectorAll('.zd .fd-sr[role=status]')].map((e) => e.textContent).join(),
       };
     });
-    check(own.picker && own.samples.join() === 'orders.csv,sales-q3.csv' && own.visible && OWN_CAVEAT.test(own.caveat ?? '') && own.change === 'Change/true', "step by step 1: your own file bound in the demo keeps the picker open: the sample files stay in sight and 'Change' reads 'Change'", own);
+    // (rewritten: the sample buttons are read by file name now that sales-q3.csv carries the demo's tag, which is pinned beside it)
+    check(own.picker && own.samples.join() === 'orders.csv,sales-q3.csv' && own.sampleTags.join('|') === '|no recorded answers' && own.visible && OWN_CAVEAT.test(own.caveat ?? '') && own.change === 'Change/true', "step by step 1: your own file bound in the demo keeps the picker open: the sample files stay in sight and 'Change' reads 'Change'", own);
     check(own.note === 'Read in this browser. To see the checks run, try orders.csv.' && own.live === 'status' && own.directlyAboveSamples && own.beforeStatusAndProblem, "step by step 1: the own-file note (the pasted rows' wording: 'Read in this browser') is a status region directly above the samples (not after the status and problem lines), names orders.csv and does not repeat the caveat", own);
     check(own.label === "See what's in your file" && own.secondary && !own.primary && own.disabled === null && /is loaded\.$/.test(own.said), "step by step 1: the forward button reads \"See what's in your file\" (secondary, still enabled), and a screen reader hears that the file is loaded", own);
     await cont.click();
@@ -1248,12 +1260,15 @@ try {
     check(tried, "step by step 2: 'try it' selects the question that has a recorded answer and makes Continue available (focus on it)", await p.evaluate(() => ({ active: document.activeElement?.id, picked: document.querySelector('.zp__picked')?.innerText })));
     await cont.click();
     check(await h1Is('What your answer must pass') && (await hashNow()) === '#/zen/3', "step by step: Continue opens pane 3 at '#/zen/3'", { h1: await p.evaluate(() => document.querySelector('h1')?.innerText), hash: await hashNow() });
-    const marks = await p.evaluate(() => ({ rows: document.querySelectorAll('.zp__check').length, dashed: document.querySelectorAll('.zp__ico circle[stroke-dasharray]').length, green: [...document.querySelectorAll('.zp__checks *')].filter((e) => /17A36B|33C793/i.test(`${e.getAttribute('fill')} ${e.getAttribute('stroke')}`) || /rgb\(23, 163, 107\)|rgb\(51, 199, 147\)/.test(`${getComputedStyle(e).color} ${getComputedStyle(e).backgroundColor}`)).length, sum: document.querySelector('.zp__sum')?.innerText }));
-    check(marks.rows === 6 && marks.dashed === 6 && marks.green === 0 && /^Full checks: all six apply\. The answer appears after all six have run/.test(marks.sum), 'step by step 3: six dashed will-run markers and nothing green before anything has run; the summary follows the seal rule', marks);
+    const marks = await p.evaluate(() => ({ rows: document.querySelectorAll('.zp__check').length, dashed: document.querySelectorAll('.zp__ico rect[stroke-dasharray]').length, rings: document.querySelectorAll('.zp__ico circle').length, green: [...document.querySelectorAll('.zp__checks *')].filter((e) => /17A36B|33C793/i.test(`${e.getAttribute('fill')} ${e.getAttribute('stroke')}`) || /rgb\(23, 163, 107\)|rgb\(51, 199, 147\)/.test(`${getComputedStyle(e).color} ${getComputedStyle(e).backgroundColor}`)).length, sum: document.querySelector('.zp__sum')?.innerText }));
+    // (rewritten: the will-run mark is the trace's tick drawn dashed, not a dashed ring with a dot, which read as a radio button or a loader: no circle at all)
+    check(marks.rows === 6 && marks.dashed === 6 && marks.rings === 0 && marks.green === 0 && /^Full checks: all six apply\. The answer appears after all six have run/.test(marks.sum), 'step by step 3: six dashed will-run markers and nothing green before anything has run; the summary follows the seal rule', marks);
     await waitFor(() => document.getElementById('zen-continue')?.getAttribute('aria-disabled') !== 'true', null, 15000);
     // the page owns focus and scroll: a hash change that stays on this route (a ?query on the same pane) moves neither
     await waitFor(() => document.activeElement?.id === 'zen-title', null, 5000); // the new pane has spoken its heading; now take focus away from it
     await p.evaluate(() => document.getElementById('zen-continue').focus());
+    // (focusing the button may scroll it clear of the sticky honesty bar, smoothly: let that finish, then read where the page is)
+    await p.waitForTimeout(600);
     const y0 = await p.evaluate(() => scrollY);
     await p.evaluate(() => (location.hash = '#/zen/3?x=1'));
     await p.waitForTimeout(400);
@@ -1912,7 +1927,7 @@ try {
     await p.setViewportSize({ width: 1440, height: 900 });
   }
 
-  // ── 3g. the landing's limits card in the demo lists the steps, and the two columns come out level (the closing card sits under the zip card) ──
+  // ── 3j. the landing's limits card in the demo lists the steps, and the two columns come out level (the closing card sits under the zip card) ──
   try {
     await p.setViewportSize({ width: 1440, height: 900 });
     await p.goto(srv.url + '#/');
@@ -2044,6 +2059,294 @@ try {
     check(false, 'live look (a copy that runs on your computer, health stubbed up)', e.stack?.split('\n').slice(0, 3).join(' | ') ?? String(e));
   } finally {
     await lctx?.close();
+  }
+
+  // ── 3p. the final polish pass: the edge of a text field, the selected segment, the focus ring on the trace, heading order, one footer, the drafting header and footer
+  //        at their widths, the cell marks, the pane-3 mark, the sample tag, the typed question's closing sentence, focus after "Paste data" ──
+  consoleErrors.length = 0;
+  try {
+    await p.emulateMedia({ reducedMotion: 'no-preference' });
+    await p.setViewportSize({ width: 1440, height: 900 });
+    /** The accessible headings in document order, with their levels, from the browser's own accessibility tree. */
+    const axLevels = async () => {
+      const cdp = await p.context().newCDPSession(p);
+      try {
+        await cdp.send('Accessibility.enable');
+        const { nodes } = await cdp.send('Accessibility.getFullAXTree');
+        return nodes
+          .filter((n) => n.role?.value === 'heading' && !n.ignored)
+          .map((n) => ({ level: Number(n.properties?.find((x) => x.name === 'level')?.value.value), name: n.name?.value ?? '' }));
+      } finally {
+        await cdp.detach();
+      }
+    };
+    /** The first heading is an h1 and no heading follows another more than one level deeper: "h1 then h3" is the defect. */
+    const skips = (hs) => hs.flatMap((h, i) => ((i === 0 ? h.level !== 1 : h.level > hs[i - 1].level + 1) ? [`${i === 0 ? 'start' : 'h' + hs[i - 1].level} -> h${h.level} "${h.name}"`] : []));
+    const lum = (rgb) => {
+      const c = rgb.match(/\d+(\.\d+)?/g).slice(0, 3).map((v) => { const x = Number(v) / 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; });
+      return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    };
+    const ratio = (a, c) => { const [x, y] = [lum(a), lum(c)]; return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+    /** The landmarks a screen reader reaches: banners and content-infos that are not inside a section, plus the mains. */
+    const LANDMARKS = () => {
+      const top = (e) => !e.closest('section, article, aside, main, nav');
+      return {
+        banner: [...document.querySelectorAll('header, [role=banner]')].filter((e) => top(e) || e.getAttribute('role') === 'banner').length,
+        main: document.querySelectorAll('main, [role=main]').length,
+        contentinfo: [...document.querySelectorAll('footer, [role=contentinfo]')].filter((e) => top(e) || e.getAttribute('role') === 'contentinfo').length,
+      };
+    };
+    const zenSample = async () => {
+      await p.getByRole('button', { name: 'orders.csv', exact: true }).click();
+      await waitFor(() => document.getElementById('zen-continue')?.getAttribute('aria-disabled') !== 'true', null, 15000);
+    };
+    const next = async () => {
+      await waitFor(() => document.getElementById('zen-continue')?.getAttribute('aria-disabled') !== 'true', null, 15000);
+      await p.locator('#zen-continue').click();
+    };
+
+    // every route has exactly one banner, one main and one content-info, and no heading level is skipped, in every state we can reach
+    await openApp(p, srv.url);
+    // the illustration's answer card keeps its body out of the accessibility tree until the playback releases it (about 7 s in), so the headings are
+    // walked once it is released: a walk before that would never see the card's three h3
+    await waitFor(() => !!document.querySelector('.fd-ac--shown'), null, 30000);
+    const landing = { lm: await p.evaluate(LANDMARKS), hs: await axLevels() };
+    const cardHeads = ['What the AI assumed', 'Checked against', 'Not checked'];
+    check(landing.lm.banner === 1 && landing.lm.main === 1 && landing.lm.contentinfo === 1 && skips(landing.hs).length === 0 && cardHeads.every((n) => landing.hs.some((h) => h.level === 3 && h.name === n)), "polish, landmarks and headings: the landing has one banner, one main and one content-info, and skips no heading level, with its released answer card's three h3 in the walk", { ...landing, skips: skips(landing.hs) });
+
+    await openApp(p, srv.url + '#/zen');
+    await waitFor(() => !!document.getElementById('zen-continue'), null, 15000);
+    const zen = { 1: { lm: await p.evaluate(LANDMARKS), hs: await axLevels() } };
+    await zenSample();
+    await next();
+    await waitFor(() => document.querySelector('h1')?.innerText === 'Ask a question', null, 15000);
+    zen[2] = { hs: await axLevels() };
+    await next();
+    await waitFor(() => document.querySelector('h1')?.innerText === 'What your answer must pass', null, 15000);
+    zen[3] = { hs: await axLevels() };
+    // pane 4 while it drafts, so the footer row and the header can be measured at their widths below (the draft takes a few seconds to replay)
+    await p.locator('#zen-continue').click();
+    await waitFor(() => document.querySelector('h1')?.innerText === 'Checking' && !!document.querySelector('.fd-trace__foot-meta--drafting'), null, 15000);
+    const HEAD_FACTS = () => {
+      const t = document.querySelector('.fd-trace');
+      const a = t.querySelector('.fd-trace__hl-a');
+      const rg = document.createRange();
+      rg.selectNodeContents(a);
+      const foot = t.querySelector('.fd-trace__foot');
+      const meta = t.querySelector('.fd-trace__foot-meta');
+      const text = t.querySelector('.fd-trace__foot-text');
+      return {
+        titleLines: new Set([...rg.getClientRects()].map((r) => Math.round(r.top))).size,
+        headH: Math.round(t.querySelector('.fd-trace__head').getBoundingClientRect().height),
+        footH: Math.round(foot.getBoundingClientRect().height),
+        // one row when the label sits at the top of the footer, beside the text, not under it
+        footOneRow: meta.getBoundingClientRect().top - foot.getBoundingClientRect().top < text.getBoundingClientRect().height / 2,
+        sideways: document.documentElement.scrollWidth > window.innerWidth,
+      };
+    };
+    const heads = {};
+    for (const w of [360, 390, 480, 520, 600, 689, 700, 768, 1440]) {
+      await p.setViewportSize({ width: w, height: 900 });
+      await p.waitForTimeout(80);
+      if (!(await p.evaluate(() => !!document.querySelector('.fd-trace__foot-meta--drafting')))) break; // the draft is over: nothing left to measure
+      heads[w] = await p.evaluate(HEAD_FACTS);
+    }
+    const measured = Object.keys(heads).map(Number);
+    check(measured.includes(360) && measured.includes(1440), 'polish, the drafting header: the draft was still being replayed while the widths were measured (360 to 1440)', measured);
+    // 85 characters of 12px mono need 324px for two lines; a trace has 326px at 390 (16px of padding on phones) and 296px at 360, which holds three
+    check(Object.entries(heads).every(([w, h]) => h.titleLines <= (Number(w) >= 390 ? 2 : 3) && !h.sideways), "polish, the drafting header: the trace's title is two lines at most from 390 to 1440 px (three at 360, where 296px cannot hold it in two), with the replay counter wrapped under it instead of squeezing it, and no sideways scroll", heads);
+    check(heads[689] && heads[689].footOneRow && heads[700]?.footOneRow, "polish, the drafting footer: at 689 px (a trace 585.9px wide) the label sits beside the footer's text, no row is added", { 689: heads[689], 700: heads[700] });
+    await p.setViewportSize({ width: 1440, height: 900 });
+    await waitFor(() => !!document.getElementById('zen-see-answer'), null, 60000);
+    zen[4] = { hs: await axLevels() };
+    await p.locator('#zen-see-answer').click();
+    await waitFor(() => document.querySelector('h1')?.innerText === 'Your answer' && !!document.querySelector('.fd-ac--shown'), null, 30000);
+    zen[5] = { hs: await axLevels(), lm: await p.evaluate(LANDMARKS) };
+    for (const [n, z] of Object.entries(zen)) check(skips(z.hs).length === 0, `polish, headings: Step by step pane ${n} skips no heading level (${z.hs.map((h) => 'h' + h.level).join(' ')})`, { hs: z.hs, skips: skips(z.hs) });
+    check(zen[1].lm.banner === 1 && zen[1].lm.main === 1 && zen[1].lm.contentinfo === 1 && zen[5].lm.banner === 1 && zen[5].lm.main === 1 && zen[5].lm.contentinfo === 1, 'polish, landmarks: Step by step has one banner, one main and one content-info, on its first and its last pane', { first: zen[1].lm, last: zen[5].lm });
+    check(zen[5].hs.map((h) => `h${h.level}`).join() === 'h1,h2,h2,h2', "polish, headings: the answer on Step by step is h1 then three h2 (what the AI assumed, checked against, not checked)", zen[5].hs);
+
+    // the proof chevron turns with transform only, and a cell's cross and question mark are drawn (no text, an svg)
+    const chev = await p.evaluate(() => { const c = document.querySelector('.zpr__chev'); const cs = getComputedStyle(c); return { prop: cs.transitionProperty, margin: cs.marginTop, transform: cs.transform }; });
+    check(chev.prop === 'transform' && chev.margin === '0px', "polish, the proof chevron: its transition is the transform alone and it has no margin to animate", chev);
+    await p.getByRole('button', { name: 'See the checks' }).click();
+    await waitFor(() => !!document.querySelector('.zpr__body .fd-trace'), null, 10000);
+    const cells = await p.evaluate(() => ({ withText: [...document.querySelectorAll('.zpr__body .fd-cell')].filter((c) => c.textContent.trim() !== '').length, fontSizes: [...new Set([...document.querySelectorAll('.zpr__body .fd-cell')].map((c) => getComputedStyle(c).fontSize))] }));
+    check(cells.withText === 0, 'polish, the trace cells carry no text (a mark in a cell is drawn)', cells);
+
+    // the Full view, answered: its landmarks and headings; the trace takes the standard ring when focus arrives by script after a key press
+    await openApp(p, srv.url + '#/start');
+    await waitFor(() => document.getElementById('fd-ask-btn')?.getAttribute('aria-disabled') !== 'true', null, 30000);
+    await p.locator('#fd-ask-btn').focus();
+    await p.keyboard.press('Enter');
+    await waitFor(() => document.activeElement?.classList.contains('fd-trace'), null, 10000);
+    const ring = await p.evaluate(() => { const cs = getComputedStyle(document.activeElement); return { focusVisible: document.activeElement.matches(':focus-visible'), style: cs.outlineStyle, width: cs.outlineWidth, color: cs.outlineColor, offset: cs.outlineOffset }; });
+    check(ring.focusVisible && ring.style === 'solid' && ring.width === '2px' && ring.color === 'rgb(61, 59, 243)' && ring.offset === '2px', "polish, the trace on the Full view: after Ask from the keyboard it is focused and shows the project's ring (2px indigo, 2px offset)", ring);
+    await waitFor(() => !!document.querySelector('.fd-ac--shown'), null, 60000);
+    const start = { lm: await p.evaluate(LANDMARKS), hs: await axLevels() };
+    check(start.lm.banner === 1 && start.lm.main === 1 && start.lm.contentinfo === 1 && skips(start.hs).length === 0, 'polish, landmarks and headings: the Full view has one banner, one main and one content-info, and skips no heading level, answered', { ...start, skips: skips(start.hs) });
+    const foot = await p.evaluate(() => ({ text: document.querySelector('footer')?.innerText.replace(/\s+/g, ' ').trim(), links: [...document.querySelectorAll('footer a')].map((a) => a.getAttribute('href')) }));
+    check(foot.text === 'Undefined · sample files are fictional Your file stays in this browser. This demo plays back recorded answers and sends nothing. Source & README' && foot.links.join() === 'https://github.com/scasella/undefined#readme', "polish, the Full view's footer says where the file is (the demo sends nothing) and links to the source, and nothing it does not do", foot);
+    // the same page, but the mouse: a click on Ask focuses the trace by script and draws no ring
+    await p.locator('#fd-ask-btn').click();
+    await waitFor(() => document.activeElement?.classList.contains('fd-trace'), null, 10000);
+    const noRing = await p.evaluate(() => ({ focusVisible: document.activeElement.matches(':focus-visible'), style: getComputedStyle(document.activeElement).outlineStyle }));
+    check(noRing.focusVisible === false && noRing.style === 'none', 'polish, the trace on the Full view: after Ask from a mouse click it is focused and draws no ring', noRing);
+    await waitFor(() => !!document.querySelector('.fd-ac--shown'), null, 60000);
+
+    // the Full view's dead end (a question with no recording) keeps its h3 under "Ask a question"
+    await chip(Q_STATUS).click();
+    await p.waitForTimeout(200);
+    await askBtn.click();
+    await waitFor(() => !!document.querySelector('.fd-rs'), null, 20000);
+    const dead = { hs: await axLevels() };
+    check(skips(dead.hs).length === 0 && /^h3 No recorded answer for this one\.$/.test(dead.hs.map((h) => `h${h.level} ${h.name}`).find((s) => /No recorded/.test(s)) ?? ''), 'polish, headings: the Full view\'s "No recorded answer for this one." card is an h3 under "Ask a question" and skips no level', dead.hs);
+    const closing = await p.evaluate(() => document.querySelector('.fd-rs__meta')?.innerText.replace(/\s+/g, ' ').trim());
+    check(closing === 'Nothing was checked. Nothing was saved.', "polish, a suggested question with no recording saves nothing, so its card still says 'Nothing was checked. Nothing was saved.'", closing);
+
+    // the edge of a text field is 3:1 or better on its fill and on the page it sits on; the selected segment carries the indigo bar
+    await openApp(p, srv.url + '#/start');
+    await waitFor(() => !!document.querySelector('.fd-bring__bound'), null, 30000);
+    await p.getByRole('button', { name: 'Change' }).click();
+    await p.getByRole('tab', { name: 'Paste data' }).click();
+    const tab = await p.evaluate(() => {
+      const on = document.querySelector('.fd-seg__item.is-on');
+      const bar = getComputedStyle(on, '::after');
+      const ta = document.getElementById('paste-box');
+      const cs = getComputedStyle(ta);
+      return { selected: on.getAttribute('aria-selected'), bar: { color: bar.borderBottomColor, w: bar.borderBottomWidth, style: bar.borderBottomStyle, bg: bar.backgroundColor, content: bar.content }, edge: cs.borderTopColor, fill: cs.backgroundColor, track: getComputedStyle(on.parentElement).backgroundColor, focus: document.activeElement.id };
+    });
+    check(tab.selected === 'true' && tab.bar.color === 'rgb(61, 59, 243)' && tab.bar.w === '2px' && tab.bar.style === 'solid' && tab.bar.bg === 'rgba(0, 0, 0, 0)' && ratio(tab.bar.color, tab.track) >= 3 && ratio(tab.edge, tab.fill) >= 3, "polish, the Full view's tabs and text area: the selected tab has the 2px indigo bar, drawn as a border (3:1 on the track), the paste area's edge is 3:1 on its fill, and focus stays on the tab", tab);
+    check(tab.focus === 'fd-bring-tab-paste', 'polish, focus: pressing the "Paste data" tab on the Full view leaves focus on the tab', tab.focus);
+
+    // Step by step's "Paste data" and "Back" put focus on a control; the question box and paste area edges are 3:1
+    await openApp(p, srv.url + '#/zen');
+    await waitFor(() => !!document.getElementById('zen-continue'), null, 15000);
+    await p.getByRole('button', { name: 'Paste data' }).focus();
+    await p.keyboard.press('Enter');
+    await waitFor(() => document.activeElement?.id === 'zen-paste', null, 3000);
+    const afterPaste = await p.evaluate(() => `${document.activeElement?.tagName}#${document.activeElement?.id}`);
+    const pasteEdge = await p.evaluate(() => { const cs = getComputedStyle(document.getElementById('zen-paste')); return { edge: cs.borderTopColor, fill: cs.backgroundColor, page: getComputedStyle(document.body).backgroundColor }; });
+    await p.getByRole('button', { name: 'Back' }).focus();
+    await p.keyboard.press('Enter');
+    await waitFor(() => document.activeElement?.tagName === 'BUTTON' && document.activeElement.innerText === 'Paste data', null, 3000);
+    const afterBack = await p.evaluate(() => `${document.activeElement?.tagName}#${document.activeElement?.id}:${document.activeElement?.innerText}`);
+    check(afterPaste === 'TEXTAREA#zen-paste' && afterBack === 'BUTTON#:Paste data', 'polish, focus: on Step by step "Paste data" moves focus to the paste box and "Back" returns it to the "Paste data" button (keyboard)', { afterPaste, afterBack });
+    await p.getByRole('button', { name: 'Paste data' }).click();
+    await waitFor(() => document.activeElement?.id === 'zen-paste', null, 3000);
+    const afterClick = await p.evaluate(() => document.activeElement?.id);
+    check(afterClick === 'zen-paste' && ratio(pasteEdge.edge, pasteEdge.fill) >= 3 && ratio(pasteEdge.edge, pasteEdge.page) >= 3, 'polish, focus and edge: the same with the mouse, and the paste box edge is 3:1 on its fill and on the page', { afterClick, pasteEdge });
+    await p.getByRole('button', { name: 'Back' }).click();
+
+    // the sample that cannot be asked carries the tag on both pages, in the demo, once the recordings are known; orders.csv never does
+    await waitFor(() => document.querySelectorAll('.zd__sample .zd__tag').length === 1, null, 15000);
+    const zenTags = await p.evaluate(() => [...document.querySelectorAll('.zd__sample')].map((b) => [b.firstChild.textContent.trim(), b.querySelector('.zd__tag')?.innerText.trim() ?? null]));
+    check(JSON.stringify(zenTags) === JSON.stringify([['orders.csv', null], ['sales-q3.csv', 'no recorded answers']]), "polish, the sample tag: Step by step's sample buttons say 'no recorded answers' on sales-q3.csv alone", zenTags);
+    await openApp(p, srv.url + '#/start');
+    await waitFor(() => !!document.querySelector('.fd-bring__bound'), null, 30000);
+    await p.getByRole('button', { name: 'Change' }).click();
+    await waitFor(() => document.querySelectorAll('.fd-bring__sample .fd-bring__tag').length === 1, null, 15000);
+    const fullTags = () => p.evaluate(() => [...document.querySelectorAll('.fd-bring__sample')].map((c) => [c.querySelector('.fd-bring__sample-name').innerText.trim(), c.querySelector('.fd-bring__tag')?.innerText.trim() ?? null]));
+    const withOrders = await fullTags();
+    await p.getByRole('radio', { name: /sales-q3/ }).click();
+    await waitFor(() => document.querySelector('.fd-bring__bound-text')?.innerText.startsWith('sales-q3.csv'), null, 20000);
+    await p.getByRole('button', { name: /Change|Close/ }).first().click().catch(() => undefined);
+    await p.waitForTimeout(300);
+    const withSales = await fullTags();
+    check(JSON.stringify(withOrders) === JSON.stringify(zenTags) && JSON.stringify(withSales) === JSON.stringify(zenTags), "polish, the sample tag: the Full view's sample cards carry it too, on sales-q3.csv alone, whichever sample is bound", { withOrders, withSales });
+
+    // your own file on the Full view: the caveat first, then the note (the reason, then the way out)
+    await openApp(p, srv.url + '#/start');
+    await waitFor(() => !!document.querySelector('.fd-bring__bound'), null, 30000);
+    await p.getByRole('button', { name: 'Change' }).click();
+    await p.locator('input[type=file]').setInputFiles({ name: 'mine.csv', mimeType: 'text/csv', buffer: Buffer.from(OWN_CSV) });
+    await waitFor(() => !!document.querySelector('.fd-bring__note'), null, 20000);
+    const order = await p.evaluate(() => {
+      const c = document.querySelector('.fd-bring__caveat');
+      const n = document.querySelector('.fd-bring__note');
+      return { caveatFirst: !!(c.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_FOLLOWING), above: c.getBoundingClientRect().bottom <= n.getBoundingClientRect().top + 1, noteInZone: !!n.closest('.fd-bring__zone'), note: n.innerText.trim() };
+    });
+    check(order.caveatFirst && order.above && !order.noteInZone && order.note === 'Your file stays in this browser. To see the checks run, try orders.csv.', "polish, the Full view with your own file: the caveat comes first, the note under it (outside the drop zone)", order);
+
+    // a question you typed is saved as its own step before it is asked, so its dead-end card says only that; the step is really there
+    await openApp(p, srv.url + '#/zen');
+    await waitFor(() => !!document.getElementById('zen-continue'), null, 15000);
+    await zenSample();
+    await next();
+    await waitFor(() => document.querySelector('h1')?.innerText === 'Ask a question', null, 15000);
+    await p.locator('#zen-question').fill('How many orders were refunded?');
+    await p.getByRole('button', { name: 'Use this question' }).click();
+    await waitFor(() => /Asking:/.test(document.body.innerText) && /how many orders were refunded/i.test(document.querySelector('.zp__picked')?.innerText ?? ''), null, 15000);
+    const savedBefore = await state(() => window.__undefined.state.value.revisions.filter((r) => r.kind === 'spec-edit').length);
+    await p.locator('.zen__full').click();
+    await waitFor(() => !!document.getElementById('fd-ask-btn') && document.getElementById('fd-ask-btn').getAttribute('aria-disabled') !== 'true', null, 30000);
+    await askBtn.click();
+    await waitFor(() => !!document.querySelector('.fd-rs__meta'), null, 20000);
+    const typedCard = await p.evaluate(() => document.querySelector('.fd-rs__meta')?.innerText.replace(/\s+/g, ' ').trim());
+    const savedAfter = await state(() => ({ n: window.__undefined.state.value.revisions.filter((r) => r.kind === 'spec-edit').length, titles: window.__undefined.state.value.revisions.slice(-1).map((r) => r.title) }));
+    check(typedCard === 'Nothing was checked. Only your question was saved: no answer and no calculation.' && savedAfter.n === savedBefore + 1, 'polish, a typed question with no recording: the card says only the question was saved, and the engine really saved one step (its own contract) and no answer', { typedCard, savedBefore, savedAfter });
+
+    // the header does not hop while a run goes on: at 560px "checking…" would fit beside the title and "stress test running…" would not, so the
+    // counter sits under the title through every word it takes and the header keeps one height from the draft to the verdict
+    let hctx = null;
+    try {
+      hctx = await b.browser.newContext({ viewport: { width: 560, height: 900 } });
+      const hp = await hctx.newPage();
+      await openApp(hp, srv.url + '#/start');
+      await hp.waitForFunction(() => document.getElementById('fd-ask-btn')?.getAttribute('aria-disabled') !== 'true', null, { timeout: 30000 });
+      await hp.locator('#fd-ask-btn').click();
+      const hops = new Map();
+      const t0 = Date.now();
+      for (let done = false; !done && Date.now() - t0 < 60000; await hp.waitForTimeout(40)) {
+        const f = await hp.evaluate(() => {
+          const t = document.querySelector('.fd-trace');
+          if (!t) return null;
+          return { word: t.querySelector('.fd-trace__timer').innerText.replace(/\s+/g, ' ').trim().replace(/^\d+\.\d+ s$/, 'seconds').replace(/\d+ min \d+ s|\d+ s/, 'N s'), h: Math.round(t.querySelector('.fd-trace__head').getBoundingClientRect().height), verdict: !!t.querySelector('.fd-trace__hl-b') };
+        });
+        if (!f) continue;
+        hops.set(f.word, f.h);
+        done = f.verdict;
+      }
+      const words = [...hops.keys()];
+      check(['replaying the recorded draft · N s', 'checking…', 'stress test running…', 'seconds'].every((w) => words.includes(w)) && new Set(hops.values()).size === 1, 'polish, the drafting header at 560px: the counter sits under the title for every word it takes, so the header keeps one height from the draft to the verdict (no 21px hop)', Object.fromEntries(hops));
+    } finally {
+      await hctx?.close();
+    }
+
+    // forced colors (Windows High Contrast): the selected segment's bar is a border, which survives the repaint of every background
+    let fctx = null;
+    try {
+      fctx = await b.browser.newContext({ viewport: { width: 1000, height: 900 }, forcedColors: 'active' });
+      const fp = await fctx.newPage();
+      await openApp(fp, srv.url);
+      await fp.waitForSelector('.fd-seg__item.is-on', { timeout: 15000 });
+      const forced = await fp.evaluate(() => {
+        const on = document.querySelector('.fd-seg__item.is-on');
+        const bar = getComputedStyle(on, '::after');
+        return { active: matchMedia('(forced-colors: active)').matches, w: bar.borderBottomWidth, style: bar.borderBottomStyle, color: bar.borderBottomColor, ground: getComputedStyle(document.body).backgroundColor, selected: on.getAttribute('aria-selected') ?? on.getAttribute('aria-pressed') };
+      });
+      check(forced.active && forced.w === '2px' && forced.style === 'solid' && ratio(forced.color, forced.ground) >= 3 && forced.selected === 'true', "polish, forced colors: the selected segment's bar is still there (a 2px border, 3:1 on the window's own ground) and the state is still in the markup", forced);
+    } finally {
+      await fctx?.close();
+    }
+
+    // live: a copy that runs on your computer (health stubbed up) never tags a sample
+    let pctx = null;
+    try {
+      pctx = await b.browser.newContext({ viewport: { width: 1440, height: 900 } });
+      const pp = await pctx.newPage();
+      await pp.route('**/generate/health', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, codexVersion: '0.157.0', model: 'gpt-6-luna', effort: 'low' }) }));
+      await openApp(pp, srv.url + '#/zen');
+      await pp.waitForSelector('.zd__sample', { timeout: 15000 });
+      await pp.waitForTimeout(1500);
+      const liveTags = await pp.evaluate(() => ({ mode: window.__undefined.state.value.mode, tags: document.querySelectorAll('.zd__tag').length, samples: document.querySelectorAll('.zd__sample').length }));
+      check(liveTags.mode === 'live' && liveTags.tags === 0 && liveTags.samples === 2, 'polish, the sample tag: a copy that runs on your computer draws no tag on either sample', liveTags);
+    } finally {
+      await pctx?.close();
+    }
+    check(consoleErrors.length === 0, "polish: no console errors (besides the replay /generate/health 404)", consoleErrors);
+  } catch (e) {
+    check(false, 'polish block (3p)', e.stack?.split('\n').slice(0, 4).join(' | ') ?? String(e));
   }
 
   // ── 4. seed off: no recording of the agreement (the recordings index is served without it), so the spec-less answer ──

@@ -8,11 +8,6 @@ import type { Engine, EngineState } from '@scasella/undefined-engine/types';
 /** The engine, set once by <App/>. */
 export const engineRef = signal<Engine | null>(null);
 
-/** The engine state; reading it in a component subscribes that component. */
-export function useEngineState(engine: Engine): EngineState {
-  return engine.state.value;
-}
-
 // ───────────── session telemetry ("checks this session N · last 0.41 s") ─────────────
 
 export interface SessionTelemetry {
@@ -46,6 +41,17 @@ export function setSendRows(on: boolean): void {
 
 /** Pure: the short form in the privacy strip. */
 export const rowsShort = (on: boolean): string => (on ? '3 example rows' : 'types only');
+
+/**
+ * Pure: where the file is, in one line, as the footers say it (Step by step's and the Full view's): it stays in this browser; the demo plays
+ * back recorded answers and sends nothing; a copy that runs on your computer sends the AI the column names and, with the switch on, three
+ * example rows. (The rows' own wording is `rowsShort`.)
+ */
+export function privacyLine(mode: 'live' | 'replay', rowsOn: boolean): string {
+  return mode === 'replay'
+    ? 'Your file stays in this browser. This demo plays back recorded answers and sends nothing.'
+    : `Your file stays in this browser. The AI sees column names + ${rowsShort(rowsOn)}.`;
+}
 
 // ───────────── what the shell's top bar shows, set by the page ─────────────
 

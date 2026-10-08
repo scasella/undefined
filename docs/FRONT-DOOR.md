@@ -18,7 +18,7 @@ spacing, colours, motion, a11y attributes), translated into Preact + CSS files w
 | Route | What | Design board |
 |---|---|---|
 | `#/` (default) | Landing: telemetry bar, hero claim, example stage (check trace + answer + agreement rail), evidence strip, order-of-work, definition ladder, "agree once", "it asks", "says no" + privacy, team file + honest limits, footer, honesty bar | `V3-Door-Landing` |
-| `#/start` | The full first run, for people who want everything on one page (reached from the landing's footer, "Full view of the demo", and from the step-by-step page's "Full view"): a short task heading, bring a file (drop / paste / sample), ask a question, live check trace, answer, the file's columns, right rail (what the AI will see, your agreement, demo note). Not redirected; `scripts/record-door.mjs` and `replay-check.mjs` open it | `V3-Door-FirstRun` |
+| `#/start` | The full first run, for people who want everything on one page (reached from the landing's footer, "Full view of the demo", and from the step-by-step page's "Full view"): a short task heading, bring a file (drop / paste / sample), ask a question, live check trace, answer, the file's columns, right rail (what the AI will see, your agreement, demo note), and a footer that says where the file is (the demo sends nothing) and links to the source, so each route has one banner, one main and one content-info. Not redirected; `scripts/record-door.mjs` and `replay-check.mjs` open it | `V3-Door-FirstRun` |
 | `#/zen`, `#/zen/N` | **Step by step** (the route is still `#/zen`; the pane is in the address, `#/zen/1` to `#/zen/5`, and nothing moves by itself): where first-time visitors are sent (the landing's "Try the demo" buttons and the top bar's "Step by step" button; in the demo the landing's second hero button reads "Use your own file: run it on your computer" and goes to `#own-file` instead, `landing/teamFileView.ts` `ownFileCta`, and only on a live copy does it lead here). A five-pane walk-through in a bare single column (1 bring data · 2 ask · 3 what the answer must pass, the six checks each tagged in the check trace's own words: `Always` (01 and 05) or `Applies` (the other four, when they will run), `No examples yet` / `Nothing locked yet` / `No house rules yet` / `Needs your rules first` (the stress test) when there is nothing to run it on, and `Not re-run` when the agreement holds it but the answer on file was checked before it was set (`zen/flow.ts` `zenChecks`, `model/lanes.ts` `OFF_NOTES`) · 4 the live check trace, which starts the run and stays on the finished trace until the viewer presses "See the answer" · 5 the answer, its one-line proof, download, ask again). Same session and components as `#/start`; nothing scripted. What each pane does is under "Step by step, pane by pane" below | (no board; `src/door/zen/`) |
 
 ## Step by step, pane by pane (`src/door/zen/`)
@@ -80,8 +80,9 @@ spacing, colours, motion, a11y attributes), translated into Preact + CSS files w
   repeats the note). The table is reference and 320px tall: above the buttons it pushed Continue off the screen
   (y 970 at 1440x900, 1062 at 390x844; it is now at 650 and 693).
 - **3 · What your answer must pass.** The six checks as a list. Nothing has run on this pane, so none of them is green: a
-  check that will run (`Always` / `Applies`) carries a neutral dashed ring with a dot, a check that will not run keeps the
-  plain dashed ring and its tag (`No examples yet` …). Green appears only after a pass (the trace, the answer). The sentence
+  check that will run (`Always` / `Applies`) carries the trace's own tick (10 by 14) drawn as a neutral dashed outline (a ring with a
+  dot read as a radio button or a loader, and a square as a checkbox), a check that will not run keeps the dashed circle and its tag
+  (`No examples yet` …). Green appears only after a pass (the trace, the answer). The sentence
   under the list follows the seal rule: for Full checks the answer appears after all six have run, the first five must pass,
   and the stress test reports how many of its deliberate breaks the checks caught.
 - **4 · Checking** is the live trace and **never hands over by itself** (there is no timer: the old 1.1 s hand-over is gone, so
@@ -94,15 +95,20 @@ spacing, colours, motion, a11y attributes), translated into Preact + CSS files w
   three ticks and the counter still ticks as text). It is in the footer and not the header on purpose: the header holds the
   title and the counter, which have no room to give at some width or another (beside the counter the mark cost the title a line
   near 950 px on `#/start` and the counter a second line on a phone), so the header is exactly what it was without the mark
-  and nothing there knows about it. The mark sits under the label, so the cell is as wide as the label and the footer's text
+  and nothing there knows about it (the header does wrap now, for its own reason, below). The mark sits under the label, so the cell is as wide as the label and the footer's text
   keeps all its room (beside it, the cell would have been 34 px wider: the label would have dropped under the text on Step by
-  step's desktop column); where the label has dropped under the text on its own row (trace content under 586 px: the text's
-  360 px, the 24 px gap and the 202 px label) the mark goes beside it instead (`components/CheckTrace.css`; a test ties the 586
-  to those three numbers). Measured mid-draft at 42 widths from 320 to 1440 px on both pages: the header (height, title lines,
+  step's desktop column); where the label has dropped under the text on its own row (trace content under 585.61 px: the text's
+  360 px, the 24 px gap and the 201.6 px label) the mark goes beside it instead (`components/CheckTrace.css`; a test ties the 585.61
+  to those three numbers: at 586 a trace of 585.9 px, a 689 px window, was still called narrow and the label took a row of its own, 23 px of height). Measured mid-draft at 42 widths from 320 to 1440 px on both pages: the header (height, title lines,
   counter lines) and the footer height are the same as they were before the mark, the mark is inside the trace, and the page
-  does not scroll sideways. (Not the mark's, and unchanged by it: without any mark the drafting header already squeezes the
-  title between about 480 and 700 px of screen, where the replay counter, `replaying the recorded draft · 4 s`, takes the room
-  beside it: up to 5 title lines at about 500 px.) The mark is also in Full view and is gone the moment the checks start.
+  does not scroll sideways. (Not the mark's, and since fixed: without any mark the drafting header squeezed the
+  title between about 480 and 700 px of screen, where the replay counter, `replaying the recorded draft · 4 s`, took the room
+  beside it: up to 5 title lines at about 500 px. The header is now a wrapping row: the title asks for 340 px beside the counter and,
+  where they do not fit, the counter sits under it. The counter's side does not change with its words: under 539 px of trace content (the
+  340 px title, the 16 px gap and the widest quiet or running counter, "waiting for your question", 183 px) every counter sits under the title,
+  so a run does not hop the header between 34 and 55 px as "checking…" gives way to "stress test running…". On phones (480 px and under) the
+  trace pads 16 px instead of 24 and the header drops its 0.01em tracking, so the title is two lines from 390 px up (its longer line, 324 px, in
+  the 326 px a trace has at 390); at 360 px it is three, because 85 characters of 12px mono do not fit two lines in 296 px.) The mark is also in Full view and is gone the moment the checks start.
   When the run settles (committed, or answered from the version on file, with the seal already final: the
   stress test has finished) the pane stays "Checking" with the finished trace, one plain line saying how the checks went (the
   answer pane's own line, `traceSummary`), Back (secondary) and "See the answer" (primary). Focus moves to "See the answer"
@@ -228,8 +234,9 @@ including what a refusal does to the picker there).
   it; the refusal stays under the chip). In the demo, a refusal left over from the sample's own set-up (`session.ts`, a
   failed seed install writes to the same `intake.problem`) would also hold the picker open when the viewer comes back to
   pane 1; that is an error path, and the message it shows is still the engine's own.
-- **A short note directly above the samples** (Step by step: a status region that exists, empty, before it has words, between the
-  caveat and the samples; the Full view keeps its note inside the drop zone): "Your file stays in this browser. To see the checks
+- **A short note after the caveat, before the samples** (Step by step: a status region that exists, empty, before it has words, between the
+  caveat and the samples; the Full view: one note under the caveat inside the picker's card, outside the drop zone, so the reader meets why
+  before what to do): "Your file stays in this browser. To see the checks
   run, try orders.csv." (`DROP_NOTE`; pasted rows get `PASTE_NOTE`, "Read in this browser. To see the checks run, try orders.csv.", on the Full view's
   paste tab and on Step by step, which picks by the name the session gave the data: `ownFileNote`). It names the sample that has
   recorded answers, from the caveat's own constant, because `sales-q3.csv` sits right beside it and has none ("try a sample
@@ -259,6 +266,9 @@ including what a refusal does to the picker there).
   to the closing card's bottom; measured 0 px apart at 1440, 1280, 1180, 1100, 1024, 900 and 810; before it the limits card ended 48 px short at 1180,
   96 at 1024 and 143 at 900). The commands are set in the mono face and wrap (pre-wrap, at a URL's seams) instead of
   scrolling, so nothing scrolls sideways at 390 px.
+- **What a card that ends with no answer says was saved** (`start/RunStates.tsx` `savedLine`): "Nothing was saved." for a suggested question (nothing is saved
+  before it is asked). A question the viewer typed is saved as its own step first (`session.ts` `ensureTyped`: the engine's "Spec added: … no artifact yet"), so its
+  card says "Only your question was saved: no answer and no calculation." instead, after "Nothing was checked." where the card says that.
 - **The dead end has a way out** (`start/derive.ts` `noRecordingView`, `sampleOffer`; the same sentence on the Full view's Ask card and
   on the card that follows a press of Ask, and on Step by step's panes 2 and 3; the answer card's held caption no longer says it, only
   "Nothing was checked, so no answer is shown."). For a
@@ -273,9 +283,17 @@ including what a refusal does to the picker there).
   "Only some questions about orders.csv" stays
   true: the sentence names ONE question, not the file, and `start/ownFileCaveat.test.ts` opens the sample against the real recordings and
   fails if that question has none. A viewer already on orders.csv gets the existing `try it` for the other question, never this.
+- **A sample that cannot be asked says so** (`start/startView.ts` `sampleTag`, `start/recorded.ts` `sampleAnswerable`, `session.sampleAnswerable`): in the demo
+  only, a sample file none of whose questions has a recorded answer (or a certified function) carries a dashed mono tag, "no recorded answers", on Step by
+  step's sample buttons and the Full view's sample cards, before it is picked. It is worked out from the recordings themselves, with the same hashes the
+  bound file's own availability uses (the sample is typed and content-addressed the way the engine will bind it, nothing is bound), never from the file's
+  name; until the recordings have loaded nothing is said, nothing is said either when no recording loaded at all (that list can be a failed load, and
+  then no sample could be told from another), and a copy that runs on your computer never draws it. The recordings are now fetched when the
+  page opens, not when a file is first bound.
 - **Not done here:** the suggestion generator still offers questions that mean little for an own file (it works from column
   types alone: model/questions.ts); the landing's hero and closing buttons are as they were; "Paste data" and the paste form's
-  "Back" still drop focus to the page (as before this path existed; changing it would change a copy that runs on your computer).
+  "Back" on Step by step used to drop focus to the page; they now put it on the control that replaces them (the paste box after "Paste data", the
+  "Paste data" button after "Back"), in both modes. On the Full view "Paste data" is a tab that stays where it is, so focus was never lost there.
 
 ### Suggested and typed questions (`#/start` and `#/zen`)
 

@@ -1,5 +1,5 @@
 /**
- * Typeset (critique step 5), pinned where it is cheap to read: the shared label classes and figures in base.css, the one place each kind
+ * Typeset (the typesetting pass), pinned where it is cheap to read: the shared label classes and figures in base.css, the one place each kind
  * of mono capitals is allowed to live, the words on every `.fd-eyebrow` and `.fd-label-line` in the source, the money that is no longer
  * set in a monospaced face, the text-wrap rules and the reading measure. Reads the source files, as copy.test.ts does.
  */

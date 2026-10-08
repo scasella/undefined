@@ -12,7 +12,7 @@ describe('zenPrivacyLine', () => {
   });
 });
 
-describe('Zen.tsx: nothing moves by itself (C1)', () => {
+describe('Zen.tsx: nothing moves by itself', () => {
   const src = readFileSync(new URL('./Zen.tsx', import.meta.url), 'utf8');
   it('has no hand-over timer and never switches to the answer pane except from the viewer\'s own button', () => {
     expect(src).not.toMatch(/HAND_OVER/);
@@ -37,7 +37,7 @@ describe('Zen.tsx: nothing moves by itself (C1)', () => {
   });
 });
 
-describe('Zen.tsx: focus goes to "See the answer" when the run settles, wherever it was (C1)', () => {
+describe('Zen.tsx: focus goes to "See the answer" when the run settles, wherever it was', () => {
   const src = readFileSync(new URL('./Zen.tsx', import.meta.url), 'utf8');
   const body = /function focusSeeAnswer\(\): void \{([\s\S]*?)\n\}/.exec(src)?.[1] ?? '';
   it('takes the button\'s own id and does not look at where focus is (no exception for a stray Tab to the skip link or a top-bar link)', () => {
@@ -50,7 +50,7 @@ describe('Zen.tsx: focus goes to "See the answer" when the run settles, wherever
   });
 });
 
-describe('Zen.tsx: the in-app Back checks where the browser landed (C5)', () => {
+describe('Zen.tsx: the in-app Back checks where the browser landed', () => {
   const src = readFileSync(new URL('./Zen.tsx', import.meta.url), 'utf8');
   it('remembers the pane it was pressed on only when it asks the browser, and asks flow.ts what to do once the browser has landed', () => {
     expect(src).toMatch(/backFrom\.current = step;\s*history\.back\(\);/);
@@ -77,7 +77,7 @@ describe('Zen.tsx: owns the scroll while it is mounted (Back and Forward must no
   });
 });
 
-describe('Zen.tsx: the answer pane says the answer once, with the heading that takes focus (A4)', () => {
+describe('Zen.tsx: the answer pane says the answer once, with the heading that takes focus', () => {
   const src = readFileSync(new URL('./Zen.tsx', import.meta.url), 'utf8');
   it('the heading is described by one hidden sentence holding the answer\'s lead, only on pane 5 while the answer is shown', () => {
     expect(ZEN_ANSWER_LEAD_ID).toBe('zen-answer-lead');

@@ -19,8 +19,11 @@
 import type { DatasetRef, FunctionSpec, Program, Recording } from '@scasella/undefined-engine/types';
 import { specFromCall } from '@scasella/undefined-engine/gates/source';
 import { hashesFor } from '@scasella/undefined-engine/shared/hash';
+import { seedAgreement } from '../model/agreements';
 import { checkFactsFrom, hasAgreement } from '../model/assumptions';
-import type { CheckLevel, SuggestedQuestion } from '../model/questions';
+import type { DataRow } from '../model/figures';
+import { suggestedQuestions, type CheckLevel, type SuggestedQuestion } from '../model/questions';
+import type { SampleId } from '../model/samples';
 
 /**
  * certified: answered from a function already certified (either mode: nothing is written or re-checked) · recorded: a
@@ -140,6 +143,38 @@ export async function availabilityOf(input: {
 async function sameHashes(a: FunctionSpec, b: FunctionSpec): Promise<boolean> {
   const [x, y] = await Promise.all([hashesFor(a), hashesFor(b)]);
   return x.specHash === y.specHash && x.testsHash === y.testsHash;
+}
+
+/**
+ * Whether a sample file has ANY question this page can answer (a recorded draft for the exact spec it would grow, or a function already
+ * certified for it), worked out the way the bound file's own availability is (availabilityOf: the same hashes against the same recordings,
+ * the seeded agreement installed only where seedUsable says so). In live mode every question can be asked, so it is always true there.
+ * The sample's file name is not looked at: a sample with no recording behind any of its questions is the one this says false for.
+ */
+export async function sampleAnswerable(input: {
+  mode: 'live' | 'replay';
+  sampleId: SampleId;
+  dataset: DatasetRef;
+  rows: readonly DataRow[];
+  program: Pick<Program, 'functions'>;
+  recordings: readonly Recording[];
+}): Promise<boolean> {
+  if (input.mode === 'live') return true;
+  const questions = suggestedQuestions(input.dataset, input.rows, input.sampleId);
+  const seeds = new Map<string, FunctionSpec>();
+  for (const q of questions) {
+    const raw = seedAgreement(input.sampleId, q.id, input.dataset);
+    if (raw && (await seedUsable({ mode: input.mode, seed: raw.spec, program: input.program, recordings: input.recordings }))) seeds.set(q.id, raw.spec);
+  }
+  const a = await availabilityOf({
+    mode: input.mode,
+    questions,
+    program: input.program,
+    dataset: input.dataset,
+    recordings: input.recordings,
+    seedFor: (q) => seeds.get(q.id) ?? null,
+  });
+  return Object.values(a).some((v) => v === 'recorded' || v === 'certified');
 }
 
 /** The first question (in list order) that can be answered here, other than `except`. */

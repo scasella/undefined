@@ -1,4 +1,8 @@
 .fd-honesty { position: sticky; bottom: 0; z-index: 4; background: var(--fd-surface); border-top: 1px solid var(--fd-line); }
+/* The bar sticks to the bottom of the window, so a control focused from the keyboard in the last stretch of the window sat under it (the landing's
+   "Watch it pass" at 390px, 44px of it covered). Focus scrolling keeps a focused element out of the scroll padding, so the padding is the bar:
+   70px at its tallest (phones, three lines), and 18px more for the focus ring and a little air. */
+html { scroll-padding-bottom: 88px; }
 /* vertical padding (not just min-height) so the two lines of a wrapped bar never touch the border. 12px text at the 1.4
    leading floor is 17px: 9px of padding and a 2px row gap (1px less and 2px less than before) keep the bar exactly as tall
    as it was, wrapped or not. */

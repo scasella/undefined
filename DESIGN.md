@@ -16,6 +16,7 @@ colors:
   surface-3: "#FBFBFD"
   line: "#E3E6EC"
   line-2: "#CDD2DB"
+  edge-input: "#848EA0"
   green: "#17A36B"
   green-ink: "#0B6B43"
   green-wash: "#E7F6EE"
@@ -310,7 +311,7 @@ A cool, near-neutral paper palette with one electric indigo, three verdict hues 
 - **Recess Grey** (#F0F2F6): recessed fills: segmented-control track, the veil over a held answer, pressed states, read-back question, code blocks.
 - **Lifted Paper** (#FBFBFD): the faintest step above white: table heads, the "Not checked" panel, secondary-button hover.
 - **Hairline** (#E3E6EC): the 1px ring of cards and dividers.
-- **Control Edge** (#CDD2DB): the 1px ring of buttons and chips, input borders, dashed edges. (The off-state switch track is not a Control Edge: it is Quiet Slate, so the control reads at 3:1 or better.)
+- **Control Edge** (#CDD2DB): the 1px ring of buttons and chips, dashed edges. **Input Edge** (#848EA0, `--fd-edge-input`): the 1px border of every text field and textarea only (the question box, both paste areas, the house-rule reason box), 3.3:1 on Card White and 3.08:1 on Bench Paper, because a field's border is the only thing that says where it is. (The off-state switch track is not a Control Edge: it is Quiet Slate, so the control reads at 3:1 or better.)
 
 ### Verdict Colors (tertiary, functional)
 - **Passed Green** (#17A36B): the passed disc, ticks and the live-mode dot; **Passed Ink** (#0B6B43) for green text; **Passed Wash** (#E7F6EE) behind a saved house rule.
@@ -413,7 +414,7 @@ The feel is quiet and exact: controls look like what they are, state is a ring o
 - **Agreement lines:** 44px rows, 6px radius, ringed; hover darkens the ring; the selected line takes the Focus ring. A locked line carries a small padlock, and its mono meta line opens with "Locked" in indigo.
 
 ### Segmented control
-- Recess Grey track, 10px radius, 3px padding. Items are at least 44px tall (10px vertical padding, so a label that wraps grows the item instead of touching its edge), 6px radius; the selected item is Card White with a hairline ring and a soft 1px shadow; hover tints an unselected item.
+- Recess Grey track, 10px radius, 3px padding. Items are at least 44px tall (10px vertical padding, so a label that wraps grows the item instead of touching its edge), 6px radius; the selected item is Card White with a hairline ring and a soft 1px shadow and a 2px Signal Indigo bar under its label (a border, so it survives a forced-colors window; 6:1 on the track), because white on the grey track is only 1.1:1 and the fill alone does not say which one is on; hover tints an unselected item.
 
 ### Switch
 - A 40 by 24px pill track (Quiet Slate off, 6:1 against white, Signal Indigo on) with an 18px white knob, set inside a 44 by 44px button so the target is full size while the drawn switch stays small. The focus outline hugs the track.
@@ -436,7 +437,7 @@ The feel is quiet and exact: controls look like what they are, state is a ring o
 - **Nesting:** cards hold tables, code and rows in ringed or tonal panels. The one card inside a card is the answer's ledger, a solid "Checked against" panel beside a dashed "Not checked" panel; that pair is a deliberate signature, not a pattern to repeat.
 
 ### Inputs / Fields
-- **Style:** Card White, 1px Control Edge border, 10px radius, 48px tall (44px for the reason box), 16px text; paste areas are 13px/20px Geist on a 1px Control Edge border.
+- **Style:** Card White, 1px Input Edge border, 10px radius, 48px tall (44px for the reason box), 16px text; paste areas are 13px/20px Geist on a 1px Input Edge border. Placeholders are Quiet Slate (5.4:1). The page keeps 88px of scroll padding at the bottom so a focused control is never left under the sticky honesty bar.
 - **Focus:** the border goes indigo and takes the Focus ring (the default outline is replaced by it).
 - **Error / Disabled:** a problem is a plain Ask Wash notice with ink text, no border; a disabled control is at 55% opacity.
 
@@ -446,7 +447,7 @@ The feel is quiet and exact: controls look like what they are, state is a ring o
 - **Honesty bar:** a sticky bar (at least 40px tall) at the bottom, Card White with a 1px Hairline top rule, 12px Body Slate mono text: "Checked, not proven." and the version line (marked "Example answer" on the landing). Wide, the claim sits left and the version and receipt link right, with a dot between; at 480px and under all three run on as one paragraph and the dot is dropped, so it can never hang at the end of a line.
 
 ### The Check Trace (signature)
-The dark instrument. Trace Night ground with the 8px pin-dot texture, 20px radius, Float shadow, 24px padding. A mono header (draft, question, file, timer), then lanes: Trace Lane rows of at least 44px (28px in the compact variant) with a numbered label, a cell strip and a right-aligned verdict column. A lane in progress carries a 1px Pen Lime ring and a lime pen (a 1px line with a 6px nub) sweeping its cells; a passed lane's cells are Trace Mint; a thrown-out draft's cell is Trace Fail with a red strike line and the word Thrown out; a lane that stopped to ask takes Trace Ask Wash with an amber pen and diamond; a lane that did not run is a dashed Trace Border 2 pill with a plain note. On a pass a 1px lime seal draws along the top. Every static style is the finished state, so with reduced motion it lands on the finished picture. Text the animation hides is also removed from the accessibility tree; an `aria-live` sentence states the result.
+The dark instrument. Trace Night ground with the 8px pin-dot texture, 20px radius, Float shadow, 24px padding (16px at 480px and under, so the drafting title holds two lines from 390px up; at 360px and below it is three). A mono header (draft, question, file, timer), then lanes: Trace Lane rows of at least 44px (28px in the compact variant) with a numbered label, a cell strip and a right-aligned verdict column. A lane in progress carries a 1px Pen Lime ring and a lime pen (a 1px line with a 6px nub) sweeping its cells; a passed lane's cells are Trace Mint; a thrown-out draft's cell is Trace Fail with a red strike line and the word Thrown out; a lane that stopped to ask takes Trace Ask Wash with an amber pen and diamond; a lane that did not run is a dashed Trace Border 2 pill with a plain note. On a pass a 1px lime seal draws along the top. Every static style is the finished state, so with reduced motion it lands on the finished picture. Text the animation hides is also removed from the accessibility tree; an `aria-live` sentence states the result.
 
 ### The Answer Card (signature)
 A card that earns its depth. It sits under a Recess Grey veil of five skeleton bars with a mono caption ("Held until every check passes.") until the checks pass (on the landing the held card is a compact skeleton of about 300px, its body out of layout and out of the accessibility tree, instead of reserving the revealed card's full height; a viewer who has scrolled past it is not moved when it releases), then releases: an indigo seal hairline draws across the top, the card rises to the Answer shadow, and its rows settle in 4px staggered 60ms. Top to bottom: the figure caption in Quiet Slate (Fig. 1 · title · what was counted · file · rows · Version N), the seal and level words in mono, the lead name and figure, then ONE verdict line in 16px ink body text (no icon): how the checks went in the seal's own words, the single most decisive thing not checked, and, where the card has the hand-off, that the data team can take it from there. It is built from the seal's and the ledger's own functions, so it cannot say anything they do not, ranked rows with 4px bars in Indigo Wash, "What the AI assumed" (dashed rows until Confirmed, then a solid ring with a green disc), the Checked against and Not checked pair, the line "Checked, not proven.", and the actions: the hand-off ("Hand this to your data team (download)") is the one filled control and comes first; lock, see the calculation and add a house rule are quiet. Where the demo gave the answer a lock or a history the viewer did not make, one plain note under the actions says so ("This lock comes with the demo file."), and a second caption line under the figure caption says where Version N comes from, only when every earlier save is the setup the demo made.

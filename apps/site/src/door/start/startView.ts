@@ -83,6 +83,19 @@ export function ownFileRegion(mode: 'live' | 'replay'): boolean {
 export const DROP_NOTE = `Your file stays in this browser. To see the checks run, try ${RECORDED_SAMPLE_FILE}.`;
 export const PASTE_NOTE = `Read in this browser. To see the checks run, try ${RECORDED_SAMPLE_FILE}.`;
 
+/** The tag a sample file carries in the demo when no question about it has a recorded answer (the words the chips and the sentences use). */
+export const NO_RECORDED_ANSWERS = 'no recorded answers';
+
+/**
+ * The one honest tag on a sample's button or card: in the demo only, and only for a file none of whose questions can be answered here
+ * (`answerable` is session.sampleAnswerable, worked out from the recordings themselves, never from the file's name). `undefined` means it
+ * is not known yet (the recordings are still loading): nothing is said before it is. On a copy that runs on your computer every question
+ * can be asked, so a sample never carries it.
+ */
+export function sampleTag(mode: 'live' | 'replay', answerable: boolean | undefined): string | null {
+  return mode === 'replay' && answerable === false ? NO_RECORDED_ANSWERS : null;
+}
+
 /**
  * The file name the session gives data that was pasted rather than dropped (start/session.ts `PASTED`, which is not exported;
  * start/ownFileCaveat.test.ts reads the session's source and fails if the two drift).

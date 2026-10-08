@@ -10,13 +10,13 @@
  * it opens (flow.ts forwardLabel). A refusal holds the picker open in the demo too. A copy that runs on your computer draws
  * none of this and folds the picker as it always did.
  */
-import { useRef, useState } from 'preact/hooks';
+import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { TargetedDragEvent, TargetedEvent } from 'preact';
 import type { Engine } from '@scasella/undefined-engine/types';
 import { FileGlyph } from '../icons';
 import { sampleFiles, type SampleId } from '../model/samples';
 import { sessionFor } from '../start/session';
-import { ACCEPT, boundAnnouncement, ownFileCaveat, ownFileNote, ownFileRegion, PASTED_NAME, showOwnFileNote, zenPickerFold } from '../start/startView';
+import { ACCEPT, boundAnnouncement, ownFileCaveat, ownFileNote, ownFileRegion, PASTED_NAME, sampleTag, showOwnFileNote, zenPickerFold } from '../start/startView';
 import { ZEN_CONTINUE_ID } from './flow';
 import './ZenData.css';
 
@@ -33,6 +33,19 @@ export function ZenData({ engine }: { engine: Engine }) {
   const depth = useRef(0);
   const picker = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
+  const pasteBtn = useRef<HTMLButtonElement>(null);
+  const pasteBox = useRef<HTMLTextAreaElement>(null);
+  // "Paste data" and "Back" swap the two halves of the drop zone, so the button that was pressed is gone with its half and focus would fall
+  // to <body>: where it goes instead is said when it is pressed, and done once the other half is on screen (the textarea after "Paste data",
+  // the "Paste data" button after "Back"). A swap the page makes itself (a pasted file read, see done()) says nothing, and focus is not moved here.
+  const focusAfterSwap = useRef<'box' | 'button' | null>(null);
+  // (a layout effect: focus moves in the same frame the other half appears, so there is no frame on <body> for a screen reader to announce)
+  useLayoutEffect(() => {
+    const to = focusAfterSwap.current;
+    focusAfterSwap.current = null;
+    if (to === 'box') pasteBox.current?.focus();
+    else if (to === 'button') pasteBtn.current?.focus();
+  }, [pasting]);
 
   const intake = s.intake.value;
   const chip = s.fileChip.value;
@@ -146,7 +159,17 @@ export function ZenData({ engine }: { engine: Engine }) {
                   <button type="button" class="zd__btn" aria-disabled={!canChange || undefined} onClick={() => canChange && input.current?.click()}>
                     Choose a file
                   </button>
-                  <button type="button" class="zd__btn" aria-disabled={!canChange || undefined} onClick={() => canChange && setPasting(true)}>
+                  <button
+                    ref={pasteBtn}
+                    type="button"
+                    class="zd__btn"
+                    aria-disabled={!canChange || undefined}
+                    onClick={() => {
+                      if (!canChange) return;
+                      focusAfterSwap.current = 'box';
+                      setPasting(true);
+                    }}
+                  >
                     Paste data
                   </button>
                 </div>
@@ -159,6 +182,7 @@ export function ZenData({ engine }: { engine: Engine }) {
                 </label>
                 <textarea
                   id="zen-paste"
+                  ref={pasteBox}
                   rows={6}
                   spellcheck={false}
                   placeholder={PASTE_PLACEHOLDER}
@@ -170,7 +194,14 @@ export function ZenData({ engine }: { engine: Engine }) {
                   <button type="button" class="zd__btn zd__btn--go" aria-disabled={!canChange || !text.trim() || undefined} onClick={() => text.trim() && usePaste()}>
                     Use this data
                   </button>
-                  <button type="button" class="zd__btn" onClick={() => setPasting(false)}>
+                  <button
+                    type="button"
+                    class="zd__btn"
+                    onClick={() => {
+                      focusAfterSwap.current = 'button';
+                      setPasting(false);
+                    }}
+                  >
                     Back
                   </button>
                 </div>
@@ -185,18 +216,23 @@ export function ZenData({ engine }: { engine: Engine }) {
           )}
           <div class="zd__samples" role="group" aria-label="Sample files">
             <span class="zd__or">or try a sample</span>
-            {sampleFiles().map((f) => (
-              <button
-                key={f.id}
-                type="button"
-                class={'zd__sample fd-mono' + (f.id === sampleId ? ' is-on' : '')}
-                aria-pressed={f.id === sampleId}
-                aria-disabled={!canChange || undefined}
-                onClick={() => pickSample(f.id)}
-              >
-                {f.filename}
-              </button>
-            ))}
+            {sampleFiles().map((f) => {
+              // in the demo, a sample none of whose questions has a recorded answer says so before it is picked (startView.ts sampleTag)
+              const tag = sampleTag(mode, s.sampleAnswerable.value[f.id]);
+              return (
+                <button
+                  key={f.id}
+                  type="button"
+                  class={'zd__sample fd-mono' + (f.id === sampleId ? ' is-on' : '')}
+                  aria-pressed={f.id === sampleId}
+                  aria-disabled={!canChange || undefined}
+                  onClick={() => pickSample(f.id)}
+                >
+                  {f.filename}
+                  {tag && <span class="zd__tag">{tag}</span>}
+                </button>
+              );
+            })}
           </div>
           <p class="zd__hint">Up to 20,000 rows, 1 MB. Excel files (.xlsx) are not read here: in Excel, choose File › Save As › CSV, then bring that.</p>
         </div>

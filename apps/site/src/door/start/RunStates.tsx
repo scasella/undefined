@@ -18,8 +18,10 @@ import type { AttemptView, DecideOptions, Declined, Engine, GapAlternative, GapQ
 import { dayText } from '../model/agreement';
 import { ghostFromAttempts, type LaneFacts } from '../model/lanes';
 import { ASK_LABEL } from '../model/labels';
+import { isTypedQuestion } from '../model/questions';
 import { AskDiamond, CheckDisc, ThrownOut } from '../icons';
 import { Button } from '../components/LinkButton';
+import { headingTag, type HeadingLevel } from '../components/headings';
 import { ASK_BUTTON_ID, NoRecordingSentence } from './AskCard';
 import type { SampleId } from '../model/samples';
 import { matchRun, noRecordingView, sampleOffer, type RunOutcome } from './derive';
@@ -30,6 +32,15 @@ import './RunStates.css';
 export const OWN_FILE_HREF = '#/#own-file';
 export const CACHED_LINE = 'Already checked in this session. Change a rule or ask a different question to check again.';
 export const NOTHING_SAVED = 'Nothing was saved.';
+/**
+ * What a card says is saved when the question was one the viewer typed. A typed question's own contract is saved as a step BEFORE it
+ * is asked (session.ts ensureTyped -> the engine's upsertSpec: "Spec added: <name> — no artifact yet"), so a run that ends with no
+ * answer still saved that one thing, and "Nothing was saved." would be false. What is never saved by a run that ended this way is
+ * an answer (nothing was shown) or a calculation (no draft was kept).
+ */
+export const ONLY_QUESTION_SAVED = 'Only your question was saved: no answer and no calculation.';
+/** The sentence that closes a card that ends with no answer: for a question the viewer typed, the one that says what really was saved. */
+export const savedLine = (questionId: string | null | undefined): string => (questionId && isTypedQuestion(questionId) ? ONLY_QUESTION_SAVED : NOTHING_SAVED);
 
 // ───────────────────────── the question only you can answer ─────────────────────────
 
@@ -178,8 +189,13 @@ interface Saved {
   at: number;
 }
 
-export function RunStates({ engine, session }: { engine: Engine; session?: Session }) {
+/**
+ * `headingLevel` is the level of the cards' headings (3 under the Full view's "Ask a question" h2, 2 on Step by step, where the card
+ * follows the page's h1): the level that follows the page's own, so none is skipped.
+ */
+export function RunStates({ engine, session, headingLevel = 3 }: { engine: Engine; session?: Session; headingLevel?: HeadingLevel }) {
   const s = session ?? sessionFor(engine);
+  const H = headingTag(headingLevel);
   const o = s.outcome.value;
   const run = s.run.value;
   const busy = s.busy.value;
@@ -225,18 +241,20 @@ export function RunStates({ engine, session }: { engine: Engine; session?: Sessi
   };
 
   const label = s.question.value?.label ?? '';
+  // a question the viewer typed was saved before it was asked, so the cards that end with no answer say so (savedLine)
+  const savedWords = savedLine(run?.questionId);
   let card = null;
   if (o.kind === 'stopped') {
     const g = s.gap.value;
-    if (g) card = <GapCard key={`${run?.id}:${g.call}:${g.check.name}`} gap={g} busy={busy} headRef={headRef} onSave={decide} />;
+    if (g) card = <GapCard key={`${run?.id}:${g.call}:${g.check.name}`} gap={g} busy={busy} headRef={headRef} onSave={decide} level={headingLevel} />;
   } else if (o.kind === 'declined') {
     const v = declinedView(o.reason, o.message, label);
     card = (
       <div class="fd-rs fd-rs--no" role="status">
         <div class="fd-label-line">{v.asked}</div>
-        <h3 class="fd-rs__no-h" tabIndex={-1} ref={headRef}>
+        <H class="fd-rs__no-h" tabIndex={-1} ref={headRef}>
           I can't do that reliably.
-        </h3>
+        </H>
         <p class="fd-rs__p">
           <span class="fd-rs__b">Why: </span>
           {v.why}
@@ -245,7 +263,7 @@ export function RunStates({ engine, session }: { engine: Engine; session?: Sessi
           <span class="fd-rs__b">What would help: </span>
           {v.help}
         </p>
-        <p class="fd-rs__meta">{NOTHING_SAVED}</p>
+        <p class="fd-rs__meta">{savedWords}</p>
       </div>
     );
   } else if (o.kind === 'no-recording') {
@@ -254,9 +272,9 @@ export function RunStates({ engine, session }: { engine: Engine; session?: Sessi
     card = (
       <div class="fd-rs fd-rs--no" role="status">
         <div class="fd-label-line">You asked · {label}</div>
-        <h3 class="fd-rs__no-h" tabIndex={-1} ref={headRef}>
+        <H class="fd-rs__no-h" tabIndex={-1} ref={headRef}>
           No recorded answer for this one.
-        </h3>
+        </H>
         <p class="fd-rs__p">
           {/* the way out is said once, in the sentence, as a real button (`try it` / `switch to orders.csv`): no second control for it below */}
           {s.noRecording.value ? <NoRecordingSentence view={noRecordingView(s.source.value === 'own', other, offer)} onTry={tryOther} onUse={useSample} busy={busy} /> : o.message}
@@ -266,7 +284,7 @@ export function RunStates({ engine, session }: { engine: Engine; session?: Sessi
             How to run it on your computer
           </a>
         </div>
-        <p class="fd-rs__meta">Nothing was checked. {NOTHING_SAVED}</p>
+        <p class="fd-rs__meta">Nothing was checked. {savedWords}</p>
       </div>
     );
   } else if (o.kind === 'thrown-out') {
@@ -274,17 +292,17 @@ export function RunStates({ engine, session }: { engine: Engine; session?: Sessi
     const v = thrownOutView(gen, s.trace.value.facts, o.recordedOut);
     card = (
       <div class="fd-rs fd-rs--out" role="status">
-        <h3 class="fd-rs__out-h" tabIndex={-1} ref={headRef}>
+        <H class="fd-rs__out-h" tabIndex={-1} ref={headRef}>
           <ThrownOut size={20} tone="light" />
           {THROWN_OUT_HEAD}
-        </h3>
+        </H>
         <p class="fd-rs__p">{v.last}</p>
         {v.recorded && <p class="fd-rs__p">{v.recorded}</p>}
         <div class="fd-rs__actions">
           <Button variant="secondary" aria-disabled={!s.canAsk.value || undefined} onClick={retry}>
             Try again
           </Button>
-          <span class="fd-rs__meta fd-rs__meta--inline">{v.tried} · {NOTHING_SAVED}</span>
+          <span class="fd-rs__meta fd-rs__meta--inline">{v.tried} · {savedWords}</span>
         </div>
       </div>
     );
@@ -292,9 +310,9 @@ export function RunStates({ engine, session }: { engine: Engine; session?: Sessi
     const v = serviceView(o);
     card = (
       <div class="fd-rs fd-rs--plain" role="alert">
-        <h3 class="fd-rs__plain-h" tabIndex={-1} ref={headRef}>
+        <H class="fd-rs__plain-h" tabIndex={-1} ref={headRef}>
           {v.head}
-        </h3>
+        </H>
         <p class="fd-rs__p">{v.text}</p>
         {v.fix.length > 0 && (
           <>
@@ -306,7 +324,7 @@ export function RunStates({ engine, session }: { engine: Engine; session?: Sessi
           <Button variant="secondary" aria-disabled={!s.canAsk.value || undefined} onClick={retry}>
             Try again
           </Button>
-          <span class="fd-rs__meta fd-rs__meta--inline">Nothing was checked. {NOTHING_SAVED}</span>
+          <span class="fd-rs__meta fd-rs__meta--inline">Nothing was checked. {savedWords}</span>
         </div>
       </div>
     );
@@ -344,12 +362,15 @@ function GapCard({
   busy,
   headRef,
   onSave,
+  level,
 }: {
   gap: GapQuestion;
   busy: boolean;
   headRef: RefObject<HTMLHeadingElement | null>;
   onSave: (choice: string, opts: DecideOptions, rule: string) => void;
+  level: HeadingLevel;
 }) {
+  const H = headingTag(level);
   const v = gapView(gap);
   const [sel, setSel] = useState<string | null>(null);
   const [scope, setScope] = useState<'call' | 'rule'>('call');
@@ -368,9 +389,9 @@ function GapCard({
         <AskDiamond solid size={16} />
         {ASK_LABEL}
       </div>
-      <h3 id="fd-gap-h" tabIndex={-1} ref={headRef} class="fd-rs__ask-h">
+      <H id="fd-gap-h" tabIndex={-1} ref={headRef} class="fd-rs__ask-h">
         {v.head}
-      </h3>
+      </H>
       <p class="fd-rs__ask-body">{v.body}</p>
       <div class="fd-rs__case">
         <div class="fd-label-line fd-rs__case-tag">{v.caseTag}</div>

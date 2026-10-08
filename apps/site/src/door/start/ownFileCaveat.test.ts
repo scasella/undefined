@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import type { Recording } from '@scasella/undefined-engine/types';
 import { buildDataset } from '../../data/dataset';
 import { seedAgreement } from '../model/agreements';
-import { suggestedQuestions } from '../model/questions';
+import { DEFAULT_QUESTION_ID, suggestedQuestions } from '../model/questions';
 import { sampleFile, SAMPLE_IDS, type SampleId } from '../model/samples';
 import { needsLiveLegend, NEEDS_YOUR_COMPUTER } from './AskCard';
 import { sampleOffer } from './derive';
@@ -80,7 +80,7 @@ describe('the caveat says only what the demo can do', () => {
     expect(offer.sample).toBe('orders');
     const orders = await answerableIn('orders');
     // "has a recorded answer": the question the binding selects is one the real recordings answer here...
-    expect(orders[offer.questionId]).toBe(true);
+    expect(orders[DEFAULT_QUESTION_ID[offer.sample]]).toBe(true);
     // ...while "only some" is still true of the file (so the sentence names the question, not the file's every question)
     expect(Object.values(orders).every(Boolean)).toBe(false);
     // and the file it sends the viewer to is never the one that has none

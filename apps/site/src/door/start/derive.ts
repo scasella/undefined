@@ -471,8 +471,7 @@ export interface SampleOffer {
   sample: SampleId;
   /** `orders.csv` */
   file: string;
-  /** The id and the words of the question binding it selects: what the sentence says has a recorded answer. */
-  questionId: string;
+  /** The words of the question that binding it selects (session.useSample opens on DEFAULT_QUESTION_ID): what the sentence says has a recorded answer. */
   question: string;
 }
 
@@ -484,7 +483,7 @@ export interface SampleOffer {
 export function sampleOffer(bound: SampleId | null): SampleOffer | null {
   if (bound === RECORDED_SAMPLE) return null;
   const q = sampleOpeningQuestion(RECORDED_SAMPLE);
-  return { sample: RECORDED_SAMPLE, file: RECORDED_SAMPLE_FILE, questionId: q.id, question: q.text };
+  return { sample: RECORDED_SAMPLE, file: RECORDED_SAMPLE_FILE, question: q.text };
 }
 
 /** The words of the button that binds the recorded sample: it says what it does and to what (it replaces the file on screen). */
@@ -496,8 +495,8 @@ export const switchToSample = (file: string): string => `switch to ${file}`;
  * question that has a recorded answer: select it) or a `sample` (the recorded sample file: bind it).
  */
 export type NoRecordingAction =
-  | { kind: 'question'; id: string; label: string; text: typeof TRY_IT }
-  | { kind: 'sample'; sample: SampleId; label: string; text: string };
+  | { kind: 'question'; id: string; text: typeof TRY_IT }
+  | { kind: 'sample'; sample: SampleId; text: string };
 
 export interface NoRecordingView {
   before: string;
@@ -511,11 +510,11 @@ export interface NoRecordingView {
  */
 export function noRecordingView(ownData: boolean, other: { id?: string; label: string } | null, offer: SampleOffer | null = null): NoRecordingView {
   const head = ownData ? NO_RECORDING_OWN : NO_RECORDING_QUESTION;
-  if (other) return { before: `${head} “${other.label}” has one: `, action: { kind: 'question', id: other.id ?? '', label: other.label, text: TRY_IT }, after: '.' };
+  if (other) return { before: `${head} “${other.label}” has one: `, action: { kind: 'question', id: other.id ?? '', text: TRY_IT }, after: '.' };
   if (offer) {
     return {
       before: `${head} “${offer.question}” has a recorded answer on one sample file: `,
-      action: { kind: 'sample', sample: offer.sample, label: offer.question, text: switchToSample(offer.file) },
+      action: { kind: 'sample', sample: offer.sample, text: switchToSample(offer.file) },
       after: '.',
     };
   }
@@ -722,14 +721,5 @@ export function versionLine(state: Pick<EngineState, 'headRevision' | 'revisions
 /** DataFacts of the bound rows (memo-free; the controller caches it per dataset). */
 export function factsOfRows(rows: ReadonlyArray<Record<string, unknown>> | null): DataFacts | null {
   return rows ? dataFacts(rows) : null;
-}
-
-/** The latest REPL output of `fn` anywhere in the transcript (e.g. to restore the answer after a reload). */
-export function lastOutputOf(repl: readonly ReplEntry[], fn: string): OutputEntry | null {
-  for (let i = repl.length - 1; i >= 0; i--) {
-    const e = repl[i]!;
-    if (e.kind === 'output' && e.pinnable?.fn === fn) return e;
-  }
-  return null;
 }
 

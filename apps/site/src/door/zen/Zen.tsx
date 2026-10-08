@@ -27,7 +27,7 @@ import { Button } from '../components/LinkButton';
 import { Mark } from '../icons';
 import { answerLead } from '../model/answer';
 import type { SampleId } from '../model/samples';
-import { rowsShort, sendRows } from '../state';
+import { privacyLine, sendRows } from '../state';
 import { noRecordingText, noRecordingView, sampleOffer, traceSummary } from '../start/derive';
 import { RunPanel } from '../start/RunPanel';
 import { sessionFor, type Session } from '../start/session';
@@ -59,10 +59,9 @@ import './Zen.css';
 /** The hidden sentence the answer pane's heading is described by: the answer's lead, so a screen reader hears it with the heading. */
 export const ZEN_ANSWER_LEAD_ID = 'zen-answer-lead';
 
+/** Step by step's one footer line: where the file is (state.ts privacyLine) and the claim, which this page has no honesty bar to carry. */
 export function zenPrivacyLine(mode: 'live' | 'replay', rowsOn: boolean): string {
-  return mode === 'replay'
-    ? 'Your file stays in this browser. This demo plays back recorded answers and sends nothing. Checked, not proven.'
-    : `Your file stays in this browser. The AI sees column names + ${rowsShort(rowsOn)}. Checked, not proven.`;
+  return `${privacyLine(mode, rowsOn)} Checked, not proven.`;
 }
 
 /** What the shared session says, in the walk-through's terms (flow.ts resolveStep / openingStep). */

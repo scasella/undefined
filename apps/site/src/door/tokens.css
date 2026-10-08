@@ -54,6 +54,10 @@
   --fd-surface-3: #FBFBFD;
   --fd-line: #E3E6EC;
   --fd-line-2: #CDD2DB;
+  /* The edge of a text field or a text area, which is the only thing that shows where it ends: WCAG 1.4.11 asks 3:1 for that, and
+     line-2 is 1.4:1 on the page ground. The next slate down the same family: 3.3:1 on white, 3.1:1 on the page ground (polish.test.ts
+     computes both). Text fields and text areas ONLY; dividers and the rings of labelled buttons and chips keep line-2. */
+  --fd-edge-input: #848EA0;
 
   /* accent (indigo) */
   --fd-indigo: #3D3BF3;

@@ -34,9 +34,6 @@ export const BASIC_LEVEL_LINE = "Basic checks only: no examples, locked answers 
  */
 export const NEEDS_YOUR_COMPUTER = 'needs your computer';
 
-// (the phrase lives with the agreement's other words; kept exported here for the callers that import it from the card)
-export { agreementPhrase };
-
 /**
  * The line under the Ask button. The check level is the one that will REALLY check the answer (session questions,
  * recorded.ts levelFor): a function certified before a lock or rule was added still answers from that basic-checked
@@ -76,13 +73,6 @@ export function levelLineView(input: LevelLineInput): LevelLineView {
   } else if (a.seeded) head = `Full checks: this demo file comes with ${agreementPhrase(a.n)} for this question.`;
   else head = `Full checks: you set ${agreementPhrase(a.n)} for this question.`;
   return { head, noRecording: null };
-}
-
-export function levelLine(input: LevelLineInput): string {
-  const v = levelLineView(input);
-  const n = v.noRecording;
-  const rest = n ? n.before + (n.action?.text ?? '') + n.after : '';
-  return v.head && rest ? `${v.head} ${rest}` : v.head || rest;
 }
 
 export interface ChipView {
@@ -139,24 +129,15 @@ export function legendUnlessDeadEnd(chips: ReadonlyArray<Pick<ChipView, 'needsLi
   return deadEnd ? null : needsLiveLegend(chips, mode);
 }
 
-/**
- * The legend with its way forward: the README's steps, in a new tab so the page and what was picked stay as they are.
- * `link` false leaves the link out where the way forward is already on screen (components/DemoNote.tsx RunLocally lists the
- * steps and ends in the same link).
- */
-export function NeedsLiveLegend({ text, class: cls, link = true }: { text: string; class: string; link?: boolean }) {
+/** The legend with its way forward: the README's steps, in a new tab so the page and what was picked stay as they are. */
+export function NeedsLiveLegend({ text, class: cls }: { text: string; class: string }) {
   return (
     <p class={cls}>
-      {text}
-      {link && (
-        <>
-          {' '}
-          <a class="fd-ask__run" href={RUN_LOCALLY_URL} target="_blank" rel="noopener">
-            How to run it on your computer
-            <span class="fd-sr"> (the README on GitHub, opens in a new tab)</span>
-          </a>
-        </>
-      )}
+      {text}{' '}
+      <a class="fd-ask__run" href={RUN_LOCALLY_URL} target="_blank" rel="noopener">
+        How to run it on your computer
+        <span class="fd-sr"> (the README on GitHub, opens in a new tab)</span>
+      </a>
     </p>
   );
 }

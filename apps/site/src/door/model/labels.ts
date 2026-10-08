@@ -1,5 +1,5 @@
 /**
- * The one rule for the small labels above a section, a card or a rail (critique step 5, typeset). Pure: no DOM.
+ * The one rule for the small labels above a section, a card or a rail (the typesetting pass). Pure: no DOM.
  *
  * A label that NAMES a thing in a few words (FIG. 1, HONEST LIMITS, YOUR AGREEMENT, START HERE) is Geist Mono capitals, tracked:
  * base.css `.fd-eyebrow`. Anything longer, and anything that reads as a clause or a sentence ("Answers from your spreadsheet exports ·

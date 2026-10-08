@@ -14,7 +14,7 @@ describe('ZenData.tsx: the picker keeps the samples in sight once your own file 
   const t = code('./ZenData.tsx');
   it('folds by the shared rule through zenPickerFold (mode and source go in, so a refusal holds the picker in the demo only), not by "open" alone', () => {
     expect(t).toContain('zenPickerFold({ bound, open, source: s.source.value, mode, problem: !!intake.problem })');
-    // a call to pickerFold with the refusal clause ungated is what put live mode's refusal on a different path (D9)
+    // a call to pickerFold with the refusal clause ungated is what put live mode's refusal on a different path from the demo's
     expect(t).not.toMatch(/\bpickerFold\(/);
     expect(t).toContain('const showPicker = !fold.folded;');
     expect(t).not.toMatch(/const showPicker = !bound \|\| open;/);
@@ -74,9 +74,20 @@ describe('DataBringer.tsx (the Full view): the same caveat, the same fold rule, 
   it('"Change" while the picker cannot be closed (the note or a refusal) moves in, also when it was opened by hand; it never calls setOpen(false) then', () => {
     expect(t).toMatch(/else if \(forced\) \{\s*picker\.current\?\.querySelector<HTMLElement>\('\[role="tab"\]\[aria-selected="true"\]'\)\?\.focus\(\);\s*\} else \{\s*setOpen\(false\);/);
   });
-  it('keeps its own-file note in both panels, from the shared (trimmed) strings', () => {
-    expect(t).toContain('{ownNote && <p class="fd-bring__note">{DROP_NOTE}</p>}');
-    expect(t).toContain('{ownNote && <p class="fd-bring__note fd-bring__note--paste">{PASTE_NOTE}</p>}');
+  // Rewritten from "keeps its own-file note in both panels": the note sat inside the drop zone, above the caveat, so the reader met what to do
+  // before why. It is now one note after the caveat, as on Step by step, still from the shared (trimmed) strings, one per tab.
+  it('draws its own-file note once, after the caveat (the reason first, then what to do), from the shared (trimmed) strings, one per tab', () => {
+    expect(t).toContain('{ownNote && <p class="fd-bring__note">{tab === \'drop\' ? DROP_NOTE : PASTE_NOTE}</p>}');
+    expect([...t.matchAll(/fd-bring__note/g)]).toHaveLength(1);
+    const caveat = t.indexOf('{caveat && <p class="fd-bring__caveat">{caveat}</p>}');
+    const note = t.indexOf('{ownNote && <p class="fd-bring__note">');
+    const status = t.indexOf('class="fd-bring__status"');
+    expect(caveat).toBeGreaterThan(-1);
+    expect(note).toBeGreaterThan(caveat);
+    expect(note).toBeLessThan(status);
+    // and neither tab panel holds a note any more
+    const paste = t.indexOf("id={panelId('paste')}");
+    expect(t.slice(0, paste)).not.toContain('fd-bring__note');
   });
 });
 

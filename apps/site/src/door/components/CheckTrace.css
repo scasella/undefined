@@ -3,13 +3,15 @@
    all animation) the trace still lands in the right picture. Motion is inline `animation` built by model/traceScript. */
 
 .fd-trace {
+  /* 24px, 16px on phones (see the @media block under the header rules): the seal's line runs between the same two edges */
+  --fd-trace-pad: 24px;
   position: relative;
   background-color: var(--tr-bg);
   background-image: radial-gradient(var(--tr-dot) 1px, transparent 1px);
   background-size: 8px 8px;
   border-radius: var(--fd-r-xl);
   box-shadow: var(--fd-sh-float);
-  padding: 24px;
+  padding: var(--fd-trace-pad);
   color: var(--tr-text);
   overflow: hidden;
   /* The lanes lay themselves out by the trace's own width, not the viewport's: the same trace sits in a wide column
@@ -17,7 +19,7 @@
   container: fd-trace / inline-size;
 }
 .fd-trace__seal {
-  position: absolute; top: 0; left: 24px; right: 24px; height: 1px;
+  position: absolute; top: 0; left: var(--fd-trace-pad); right: var(--fd-trace-pad); height: 1px;
   background: var(--tr-pen); transform-origin: left center;
 }
 .fd-trace__mono {
@@ -25,11 +27,16 @@
   font-variant-numeric: tabular-nums slashed-zero;
   font-feature-settings: 'tnum', 'zero';
 }
+/* The title and the counter sit side by side while the title keeps 340px (two lines of its 85 characters of 12px mono, 329px for the longer
+   one); when they do not fit, the counter wraps under the title and the title takes the whole line. Without that the long counter ("replaying
+   the recorded draft · 12 s", 249px) took its width from the title and squeezed it to three, four, five lines between about 480 and 700px.
+   Where the counter would fit for some of its words and not for others ("checking…" does, "stress test running…" does not), it would hop
+   between the two as a run goes on and move the lanes 21px each time: see the container rule under the lanes, which fixes the side by width. */
 .fd-trace__head {
-  display: flex; align-items: center; gap: 16px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px;
   font-size: 12px; line-height: 17px; font-weight: 500; letter-spacing: 0.01em;
 }
-.fd-trace__hl { flex: 1; min-width: 0; display: grid; }
+.fd-trace__hl { flex: 1 1 340px; min-width: 0; display: grid; }
 .fd-trace__hl > span, .fd-trace__timer > span { grid-area: 1 / 1; }
 .fd-trace__hl-a { color: var(--tr-text-2); }
 .fd-trace__hl-b { color: var(--tr-text); }
@@ -38,6 +45,14 @@
 .fd-trace__timer { display: grid; justify-items: end; flex: none; }
 .fd-trace__timer-a { color: var(--tr-pen); }
 .fd-trace__timer-b { color: var(--tr-text-2); }
+/* Phones (480px and under): the trace pads 16px, the page's own gutter, and the header drops its 0.01em tracking. The title is 85 characters of
+   12px mono and its longer line is 45 of them (324px at no tracking, 329px at 0.01em); the content of a trace at 390px is 326px (390 less 2 x 16
+   of gutter and 2 x 16 of padding), where 24px of padding left 310px and three lines. A trace 360px wide has 296px and cannot hold it in two:
+   there the title takes three lines, never more. */
+@media (max-width: 480px) {
+  .fd-trace { --fd-trace-pad: 16px; }
+  .fd-trace__head { letter-spacing: 0; }
+}
 /* Drafting (RunPanel's draftingView): three ticks, the trace's own mark, rise and fade in turn beside the footer's "drafting ·
    checks start next" label (under it). They live in the FOOTER, not the header, on purpose: the header holds the title and the seconds
    counter and has no room to spare at some width or another, so anything added there can cost the title a line (it did, as an
@@ -113,13 +128,14 @@
   border: 1.5px dashed var(--tr-border-2); font-size: 12px; line-height: 17px; color: var(--tr-text-3); white-space: nowrap;
 }
 
-/* cells: ticks 10x14 (8x12 compact), grid 4x4, stress 10x10 */
+/* cells: ticks 10x14 (8x12 compact), grid 4x4, stress 10x10. A cross or a question mark in one is drawn (CheckTrace.tsx CellMark: an svg of
+   5x5 / 5x7, in the cell's colour), not set as an 8px letter, which is off the type ramp. */
 .fd-cell {
   width: 10px; height: 14px; border-radius: var(--fd-r-xs);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 8px; line-height: 8px; font-weight: 700; box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center; box-sizing: border-box;
   background: var(--tr-pass);
 }
+.fd-cell svg { display: block; flex: none; }
 .fd-lane--compact .fd-cell { width: 8px; height: 12px; }
 .fd-lane__cells--grid .fd-cell { width: auto; height: 4px; border-radius: 2px; }
 .fd-lane__cells--stress .fd-cell { width: 10px; height: 10px; }
@@ -175,11 +191,14 @@
   .fd-lane { grid-template-areas: 'label count' 'mid mid'; align-items: start; }
 }
 
-/* Phones: let the header wrap so the verdict gets the full width and the timer sits under it (no squeezed column). */
-@media (max-width: 480px) {
-  .fd-trace__head { flex-wrap: wrap; gap: 4px 16px; }
-  .fd-trace__hl { flex: 1 1 100%; }
-  .fd-trace__timer { justify-items: start; }
+/* The counter's side does not depend on which words it holds. The widest one that comes with a quiet or a running trace is "waiting for your
+   question" (25 characters of 12px mono, 183px); with the 340px title and the 16px gap it needs 539px. Narrower than that EVERY counter sits
+   under the title, at the left like it, so a run ("checking…", "stress test next…", "stress test running…", the seconds) never moves the lanes
+   as the words change; wider, all of them sit beside it. (The drafting counter, "replaying the recorded draft · 12 s", is longer, 256px, and wraps
+   by itself up to about 610px of trace content, a window of about 715px on the Full view: there the header is 55px while the AI drafts and 34px
+   once the checks start, one step as the lanes arrive.) */
+@container fd-trace (width < 539px) {
+  .fd-trace__timer { flex-basis: 100%; justify-items: start; }
 }
 
 /* footer */
@@ -194,8 +213,10 @@
    own width on a desktop). Under it, the mark fills the empty part of the cell's column beside a text of two lines or more. */
 .fd-trace__foot-meta--drafting { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 /* Where the label has dropped under the text and is alone in its row (the text keeps 360px, the gap is 24px, the label is 28
-   characters of 12px mono, 202px: 586px of trace content), the mark goes beside it instead, so no row is added. */
-@container fd-trace (width < 586px) {
+   characters of 12px mono, 201.6px: 585.6px of trace content, measured 585.609), the mark goes beside it instead, so no row is added.
+   The number is the sum itself, not rounded up to a whole pixel: at 586 a trace of 585.9px (a 689px window) was still "narrow", took the
+   mark beside the label (which then needs 235.6px) and dropped it to a row of its own, 23px of height for a line that fit. */
+@container fd-trace (width < 585.61px) {
   .fd-trace__foot-meta--drafting { flex-direction: row; align-items: center; gap: 10px; }
 }
 

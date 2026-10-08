@@ -11,9 +11,6 @@ import { DATASET_LIMITS } from '../../data/dataset';
 import { AGREEMENT_FN, AGREEMENT_TESTS, HOUSE_RULES, MADE_UP_TABLES } from '../model/agreements';
 import { STAGE_VERSION } from './stageData';
 
-/** The landing example's version: the stage's own (the same one the honesty bar and the answer's caption say). */
-export const EXAMPLE_VERSION = STAGE_VERSION;
-
 export interface ZipItem {
   /** Plain name: `The calculation` */
   title: string;
@@ -45,7 +42,7 @@ export function teamFileView(fn: string = AGREEMENT_FN): TeamFileView {
   const { folder, files } = ejectFileNames(fn);
   const [code, tests, prov, readme] = files as [string, string, string, string];
   const items: ZipItem[] = [
-    { title: 'The calculation', file: code, desc: `Version ${EXAMPLE_VERSION}, exactly as it passed the checks` },
+    { title: 'The calculation', file: code, desc: `Version ${STAGE_VERSION}, exactly as it passed the checks` },
     {
       title: 'Its checks',
       file: tests,

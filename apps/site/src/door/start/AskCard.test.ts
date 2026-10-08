@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { SuggestedQuestion } from '../model/questions';
 import { readFileSync } from 'node:fs';
-import { agreementPhrase, BASIC_LEVEL_LINE, chipsOf, legendUnlessDeadEnd, levelLine, levelLineView, NEEDS_YOUR_COMPUTER, needsLiveLegend, tagsTellApart } from './AskCard';
+import { agreementPhrase } from '../model/agreement';
+import { BASIC_LEVEL_LINE, chipsOf, legendUnlessDeadEnd, levelLineView, NEEDS_YOUR_COMPUTER, needsLiveLegend, tagsTellApart, type LevelLineInput } from './AskCard';
 import { runLocallyView } from '../model/runLocally';
 import { OWN_REPLAY_NOTE } from '../zen/ZenPanes';
 import { NEXT_VERSION_LIVE, NEXT_VERSION_REPLAY } from '../model/agreement';
@@ -10,6 +11,14 @@ import { NO_RECORDING_OWN, noRecordingText, sampleOffer } from './derive';
 const seeded = { empty: false, seeded: true, n: { examples: 6, locks: 1, rules: 2 } };
 const none = { empty: true, seeded: false, n: { examples: 0, locks: 0, rules: 0 } };
 const q = (id: string, level: 'full' | 'basic'): SuggestedQuestion => ({ id, label: `L ${id}`, text: `T ${id}`, call: `${id}(rows)`, fn: id, level });
+
+/** The line under the Ask button as one string (the page draws its two halves, the sentence and the button inside the second, separately). */
+function levelLine(input: LevelLineInput): string {
+  const v = levelLineView(input);
+  const n = v.noRecording;
+  const rest = n ? n.before + (n.action?.text ?? '') + n.after : '';
+  return v.head && rest ? `${v.head} ${rest}` : v.head || rest;
+}
 
 describe('agreementPhrase', () => {
   it('joins the parts that exist', () => {
@@ -185,7 +194,7 @@ describe('levelLine for a question the demo cannot answer', () => {
     const input = { level: 'basic', agreement: none, availability: 'none', ownData: false, recordedOther: { id: 'top', label: 'Top 5 customers by revenue' }, mode: 'replay' } as const;
     const v = levelLineView(input);
     expect(v.head).toBe('');
-    expect(v.noRecording?.action).toEqual({ kind: 'question', id: 'top', label: 'Top 5 customers by revenue', text: 'try it' });
+    expect(v.noRecording?.action).toEqual({ kind: 'question', id: 'top', text: 'try it' });
     expect(levelLine(input)).toBe(noRecordingText(false, { label: 'Top 5 customers by revenue' }));
     expect(levelLineView({ ...input, availability: 'recorded' })).toEqual({ head: BASIC_LEVEL_LINE, noRecording: null });
   });
@@ -196,7 +205,7 @@ describe('a file with nothing recorded is not a dead end', () => {
   it('your own file: the sentence names the recorded sample file and offers to switch to it as a button', () => {
     const offer = sampleOffer(null);
     const v = levelLineView({ ...base, ownData: true, offer });
-    expect(v.noRecording?.action).toEqual({ kind: 'sample', sample: 'orders', label: 'Who are our top customers by revenue?', text: 'switch to orders.csv' });
+    expect(v.noRecording?.action).toEqual({ kind: 'sample', sample: 'orders', text: 'switch to orders.csv' });
     const text = levelLine({ ...base, ownData: true, offer });
     expect(text).toContain('orders.csv');
     expect(text).toContain('“Who are our top customers by revenue?” has a recorded answer on one sample file: switch to orders.csv.');

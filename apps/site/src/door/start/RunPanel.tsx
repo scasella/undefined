@@ -23,8 +23,6 @@ import './RunPanel.css';
 /** 'Add a house rule' goes to the landing's "It asks instead of guessing" (router: '#/' then '#asks'). */
 export const HOUSE_RULE_HREF = '#/#asks';
 
-// where the confirmations are kept per run is the session's (session.ts confirmKey); re-exported for the page's tests
-export { confirmKey } from './session';
 
 export interface DraftingView {
   /** The timer word while the AI is still writing. */
@@ -181,7 +179,7 @@ export function RunPanel({
           {...(onSettled ? { onSettled } : {})}
         />
       )}
-      {part !== 'answer' && <RunStates engine={engine} session={s} />}
+      {part !== 'answer' && <RunStates engine={engine} session={s} headingLevel={zen ? 2 : 3} />}
       {part !== 'run' && <AnswerCard
         variant="start"
         view={a.view}
@@ -207,6 +205,8 @@ export function RunPanel({
         checkedAsk={a.checkedAsk}
         notChecked={a.notChecked}
         {...(zen ? {} : { houseRuleHref: HOUSE_RULE_HREF })}
+        // the card follows Step by step's h1 directly (h2), and the Full view's "Ask a question" h2 (h3)
+        headingLevel={zen ? 2 : 3}
       />}
     </div>
   );

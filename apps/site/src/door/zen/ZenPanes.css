@@ -38,7 +38,7 @@
 .zp__form { display: flex; flex-direction: column; gap: 6px; }
 .zp__row { display: flex; flex-wrap: wrap; gap: 8px; }
 .zp__box {
-  flex: 1 1 180px; min-width: 0; box-sizing: border-box; min-height: 48px; padding: 0 14px; border-radius: var(--fd-r-md); border: 1px solid var(--fd-line-2);
+  flex: 1 1 180px; min-width: 0; box-sizing: border-box; min-height: 48px; padding: 0 14px; border-radius: var(--fd-r-md); border: 1px solid var(--fd-edge-input);
   background: var(--fd-surface); font: inherit; font-size: 16px; color: var(--fd-ink);
 }
 .zp__box:focus-visible { outline: none; border-color: var(--fd-indigo); box-shadow: var(--fd-sh-focus); }
@@ -66,7 +66,7 @@
 .zp__check.is-off .zp__label { color: var(--fd-ink-2); }
 .zp__num { flex: none; width: 20px; padding-top: 2px; font-size: 12px; line-height: 17px; color: var(--fd-ink-3); }
 .zp__ico { flex: none; padding-top: 1px; display: flex; }
-/* will run: a dashed ring in the body ink (dashed = not established; nothing is green until a check passes). Not run / not set: the lighter dashed ring */
+/* will run: the trace's tick as a dashed outline in the body ink (dashed = not established; nothing is green until a check passes). Not run / not set: the lighter dashed circle */
 .zp__will { color: var(--fd-ink-2); }
 .zp__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .zp__label { font-size: var(--fd-fs-row); line-height: var(--fd-lh-row); font-weight: 500; color: var(--fd-ink); }

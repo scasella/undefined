@@ -43,19 +43,21 @@
 .zd__label { font-size: 14px; line-height: 20px; font-weight: 500; color: var(--fd-ink); }
 .zd__textarea {
   width: 100%; box-sizing: border-box; min-height: 140px; padding: 12px; resize: vertical;
-  border-radius: var(--fd-r-md); border: 1px solid var(--fd-line-2); background: var(--fd-surface-3);
+  border-radius: var(--fd-r-md); border: 1px solid var(--fd-edge-input); background: var(--fd-surface-3);
   font-size: 13px; line-height: 20px; color: var(--fd-ink);
 }
 
 .zd__samples { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; }
 .zd__or { font-size: 13px; line-height: 19px; color: var(--fd-ink-3); margin-right: 4px; }
 .zd__sample {
-  min-height: 44px; padding: 0 14px; border: 0; border-radius: 999px; cursor: pointer; font-size: 13px; line-height: 19px; font-weight: 500;
+  display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border: 0; border-radius: 999px; cursor: pointer; font-size: 13px; line-height: 19px; font-weight: 500;
   background: var(--fd-surface); color: var(--fd-ink); box-shadow: var(--fd-sh-ring-2);
   transition: box-shadow 120ms ease, background-color 120ms ease;
 }
 .zd__sample:where(:not([aria-disabled='true'])):hover { box-shadow: 0 0 0 1.5px var(--fd-ink-3); }
 .zd__sample:where(:not([aria-disabled='true'])):active { background: var(--fd-surface-2); }
+/* the demo's honest tag on a sample none of whose questions has a recorded answer: the dashed marker the question chips use for "needs your computer" */
+.zd__tag { font-size: 12px; line-height: 17px; font-weight: 500; color: var(--fd-ink-3); border: 1px dashed var(--fd-line-2); border-radius: var(--fd-r-sm); padding: 0 5px; }
 .zd__sample.is-on { background: var(--fd-indigo-wash); box-shadow: 0 0 0 1.5px var(--fd-indigo); color: var(--fd-indigo-hover); }
 .zd__sample[aria-disabled='true'] { cursor: progress; opacity: 0.55; }
 .zd__hint { margin: 0 auto; max-width: var(--fd-measure); text-align: center; font-size: 14px; line-height: 20px; color: var(--fd-ink-2); }

@@ -1,5 +1,5 @@
 /**
- * The landing's within-section distillation (critique step 4): copy that only said again what the section's own heading or lead had said was
+ * The landing's within-section distillation (the landing's distillation pass): copy that only said again what the section's own heading or lead had said was
  * cut, and every honesty statement next to it stays. Pinned so a cut sentence does not creep back, and a kept honesty line is not cut by the
  * next pass. (Cross-section repeats are a decision for the owner, not pinned here.)
  */

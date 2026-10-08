@@ -2,8 +2,8 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { Fragment, h, type VNode } from 'preact';
-import { AnswerCard, BASIC_CHECKS, CONFIRM_NOTE, decisiveCaveat, HELD_CAPTION_START, HELD_CAPTION_WAITING, LOCK_HELP_REPLAY, lockHelpText, ringArc, TOTAL_CHECKS, type AnswerCardProps } from './AnswerCard';
-import { shapeValue } from '../model/answer';
+import { AnswerCard, CONFIRM_NOTE, HELD_CAPTION_START, HELD_CAPTION_WAITING, LOCK_HELP_REPLAY, lockHelpText, ringArc, type AnswerCardProps } from './AnswerCard';
+import { BASIC_CHECKS, decisiveCaveat, shapeValue, TOTAL_CHECKS } from '../model/answer';
 import { illustrativeAgreement, SEEDED_LOCK_NOTE } from '../model/agreement';
 import { assumptionsFromNote } from '../model/assumptions';
 
@@ -376,5 +376,25 @@ describe('AnswerCard', () => {
     expect(btn.props['aria-label']).toBe('Confirm this assumption: Revenue = quantity × unit price, after discount.');
     expect(String(btn.props['aria-label'])).toContain('Confirm');
     expect(btn.props.children).toBe('Confirm');
+  });
+});
+
+describe('AnswerCard heading level (no level is skipped where the card sits)', () => {
+  const headings = (r: Flat) => r.nodes.filter((n) => /^h[1-6]$/.test(n.type)).map((n) => n.type);
+
+  it('under an h2 (the landing, the Full view) its three headings are h3, the default', () => {
+    expect(headings(render(base))).toEqual(['h3', 'h3', 'h3']);
+    expect(headings(render({ ...base, headingLevel: 3 }))).toEqual(['h3', 'h3', 'h3']);
+  });
+
+  it('straight after Step by step\'s h1 they are h2, and the words and classes do not change', () => {
+    const r = render({ ...base, headingLevel: 2 });
+    expect(headings(r)).toEqual(['h2', 'h2', 'h2']);
+    const titles = r.nodes.filter((n) => n.type === 'h2').map((n) => [n.props.class, n.props.children]);
+    expect(titles).toEqual([
+      ['fd-ac__h3', 'What the AI assumed'],
+      ['fd-ac__h3', 'Checked against'],
+      ['fd-ac__h3', 'Not checked'],
+    ]);
   });
 });

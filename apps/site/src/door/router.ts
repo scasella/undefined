@@ -19,7 +19,6 @@
  * focuses #main, and the page then rewrites the address to '#/zen/1'; an id the page does not have does nothing.
  */
 import { signal, type ReadonlySignal } from '@preact/signals';
-import { h, type AnchorHTMLAttributes, type ComponentChildren } from 'preact';
 
 export type Route = 'landing' | 'start' | 'zen';
 
@@ -125,11 +124,6 @@ export function navigate(path: string): void {
   }
   if (location.hash === path) applyRoute(r, true);
   else location.hash = path;
-}
-
-/** A link to a route ('#/…') or an in-page anchor ('#id'). Plain <a>, so it works without JS and opens in new tabs. */
-export function Link({ to, children, ...rest }: { to: string; children?: ComponentChildren } & Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href'>) {
-  return h('a', { ...rest, href: to }, children);
 }
 
 const reducedMotion = (): boolean => typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;

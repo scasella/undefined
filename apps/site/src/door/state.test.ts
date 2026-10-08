@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatDay, formatSession, headVersion, recordChecks, rowsShort, session } from './state';
+import { formatDay, formatSession, headVersion, privacyLine, recordChecks, rowsShort, session } from './state';
 
 describe('session telemetry', () => {
   it('reads "checks this session 0" before any run', () => {
@@ -21,6 +21,19 @@ describe('privacy strip', () => {
   it('names what the AI sees', () => {
     expect(rowsShort(true)).toBe('3 example rows');
     expect(rowsShort(false)).toBe('types only');
+  });
+});
+
+describe('privacyLine (the footers\' one line about where the file is)', () => {
+  it('the demo: the file stays here and nothing is sent, whatever the example-rows switch says', () => {
+    for (const rows of [true, false]) expect(privacyLine('replay', rows)).toBe('Your file stays in this browser. This demo plays back recorded answers and sends nothing.');
+  });
+  it('a copy on your computer: what the AI sees follows the switch', () => {
+    expect(privacyLine('live', true)).toBe('Your file stays in this browser. The AI sees column names + 3 example rows.');
+    expect(privacyLine('live', false)).toBe('Your file stays in this browser. The AI sees column names + types only.');
+  });
+  it('says nothing about the claim, which the Full view\'s honesty bar carries', () => {
+    expect(privacyLine('replay', true)).not.toMatch(/Checked, not proven/);
   });
 });
 

@@ -19,7 +19,7 @@ import { Segmented } from '../components/Segmented';
 import { DropGrid, FileGlyph } from '../icons';
 import { sampleFiles, type SampleId } from '../model/samples';
 import { sessionFor } from './session';
-import { ACCEPT, DROP_NOTE, ownFileCaveat, PASTE_NOTE, pickerFold, radioKeyIndex, showOwnFileNote } from './startView';
+import { ACCEPT, DROP_NOTE, ownFileCaveat, PASTE_NOTE, pickerFold, radioKeyIndex, sampleTag, showOwnFileNote } from './startView';
 import './DataBringer.css';
 
 type Mode = 'drop' | 'paste';
@@ -200,7 +200,6 @@ export function DataBringer({ engine }: { engine: Engine }) {
               Choose a file
             </Button>
             <input ref={input} type="file" accept={ACCEPT} class="fd-sr" tabIndex={-1} aria-hidden="true" onChange={onPick} />
-            {ownNote && <p class="fd-bring__note">{DROP_NOTE}</p>}
           </div>
 
           <div role="tabpanel" id={panelId('paste')} aria-labelledby={tabId('paste')} hidden={tab !== 'paste'} class="fd-bring__paste">
@@ -222,10 +221,11 @@ export function DataBringer({ engine }: { engine: Engine }) {
               </Button>
               <span class="fd-bring__hint">Commas or tabs both work. Nothing is sent anywhere until you ask.</span>
             </div>
-            {ownNote && <p class="fd-bring__note fd-bring__note--paste">{PASTE_NOTE}</p>}
           </div>
 
           {caveat && <p class="fd-bring__caveat">{caveat}</p>}
+          {/* what to do next comes after why (the caveat), as on Step by step: the reader meets the reason before the way out; one note, on either tab */}
+          {ownNote && <p class="fd-bring__note">{tab === 'drop' ? DROP_NOTE : PASTE_NOTE}</p>}
 
           <div class="fd-bring__status" role="status">
             {busyText}
@@ -249,6 +249,8 @@ export function DataBringer({ engine }: { engine: Engine }) {
           {samples.map((f, i) => {
             const on = f.id === sampleId;
             const focusable = current < 0 ? i === 0 : on;
+            // in the demo, a sample none of whose questions has a recorded answer says so before it is picked (startView.ts sampleTag)
+            const tag = sampleTag(mode, s.sampleAnswerable.value[f.id]);
             return (
               <button
                 key={f.id}
@@ -269,6 +271,7 @@ export function DataBringer({ engine }: { engine: Engine }) {
                   <span class="fd-bring__dot" aria-hidden="true" />
                 </span>
                 <span class="fd-bring__sample-meta fd-mono">{f.meta}</span>
+                {tag && <span class="fd-bring__tag fd-mono">{tag}</span>}
                 <span class="fd-bring__sample-desc">{f.desc}</span>
               </button>
             );

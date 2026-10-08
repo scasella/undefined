@@ -1,5 +1,5 @@
 /**
- * The front door shell: top bar, <main id="main"> holding the routed page, the landing's footer and the sticky
+ * The front door shell: top bar, <main id="main"> holding the routed page, the footer (the landing's, or the Full view's) and the sticky
  * honesty bar. Routes: '#/' landing, '#/start' the full first run, '#/zen' the "Step by step" walk-through, which has
  * its own bare shell (router.ts). In-page '#id' links scroll, they never route.
  */
@@ -13,7 +13,7 @@ import { STAGE_VERSION } from './landing/stageData';
 import { installRouter, useRoute } from './router';
 import { Start } from './start/Start';
 import { Zen } from './zen/Zen';
-import { engineRef, shellFileChip, shellRunning } from './state';
+import { engineRef, privacyLine, sendRows, shellFileChip, shellRunning } from './state';
 
 /**
  * The landing's example is "Version 4 · 5 Oct 2026" (an illustration, see FRONT-DOOR.md honesty rule 2): the bar says so.
@@ -49,7 +49,8 @@ export function App({ engine, initError }: { engine: Engine; initError?: string 
           </div>
         )}
       </main>
-      {page === 'landing' && <SiteFooter />}
+      {/* one contentinfo on every route: this footer (landing, Full view) or Step by step's own */}
+      {page === 'landing' ? <SiteFooter /> : <SiteFooter page="start" privacy={privacyLine(st.mode, sendRows.value)} />}
       <HonestyBar version={honesty?.version ?? null} date={honesty?.date ?? null} example={page === 'landing'} />
     </div>
   );

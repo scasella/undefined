@@ -89,12 +89,13 @@
 import { batch, computed, effect, signal, type ReadonlySignal } from '@preact/signals';
 import type { DatasetRef, DecideChoice, DecideOptions, Engine, EngineState, FunctionSpec, GapQuestion, GapRef, Program, Recording } from '@scasella/undefined-engine/types';
 import { hashesFor } from '@scasella/undefined-engine/shared/hash';
+import { buildDataset } from '../../data/dataset';
 import { seedAgreement, SEEDED_PIN_ID, type SeededAgreement } from '../model/agreements';
 import type { AgreementView } from '../model/agreement';
 import type { DataRow } from '../model/figures';
 import { lastSentPrompt, privacyView, type PrivacyView } from '../model/privacy';
 import { customQuestion, customSpec, DEFAULT_QUESTION_ID, matchQuestion, suggestedQuestions, type SuggestedQuestion } from '../model/questions';
-import { sampleFile, sampleIdFor, type SampleId } from '../model/samples';
+import { sampleFile, sampleIdFor, SAMPLE_IDS, type SampleId } from '../model/samples';
 import { recordChecks, session as telemetry, shellFileChip, shellRunning } from '../state';
 import {
   agreementFor,
@@ -116,7 +117,7 @@ import {
   type TraceView,
 } from './derive';
 import { delimiterProblem, fileChipFor, fileProblem, ownDatasetName, parseRows, takenNames, textProblem } from './intake';
-import { answerableOther, availabilityOf, fetchRecordings, levelFor, seedUsable, type Availability } from './recorded';
+import { answerableOther, availabilityOf, fetchRecordings, levelFor, sampleAnswerable, seedUsable, type Availability } from './recorded';
 
 export type DataSource = 'sample' | 'own' | 'none';
 
@@ -176,6 +177,12 @@ export interface Session {
   readonly seedState: ReadonlySignal<'none' | 'installing' | 'installed' | 'failed'>;
   readonly availability: ReadonlySignal<Record<string, Availability>>;
   readonly recordedOther: ReadonlySignal<SuggestedQuestion | null>;
+  /**
+   * Per sample file: can ANY question about it be answered here (recorded.ts sampleAnswerable). Replay only; a sample is missing from it
+   * until that is worked out (the recordings load first), and in live mode it is empty (every question can be asked). It is empty too when
+   * no recording loaded at all: that may be a failed load, and then there is nothing to tell the samples apart by.
+   */
+  readonly sampleAnswerable: ReadonlySignal<Partial<Record<SampleId, boolean>>>;
   readonly run: ReadonlySignal<RunRef | null>;
   readonly outcome: ReadonlySignal<RunOutcome>;
   readonly trace: ReadonlySignal<TraceView>;
@@ -269,6 +276,7 @@ export function createSession(engine: Engine, config: Partial<SessionConfig> = {
   );
   const recordings = signal<Recording[] | null>(null);
   const availability = signal<Record<string, Availability>>({});
+  const answerableSamples = signal<Partial<Record<SampleId, boolean>>>({});
   /** Seed verdicts (seedUsable) by seedKey: true = install it, false = ask spec-less. Missing = not decided yet. */
   const seedVerdicts = signal<ReadonlyMap<string, boolean>>(new Map());
   const seedChecks = new Map<string, Promise<boolean>>();
@@ -495,6 +503,56 @@ export function createSession(engine: Engine, config: Partial<SessionConfig> = {
       }).then((a) => {
         if (!disposed && my === availSeq) availability.value = a;
       });
+    }),
+  );
+
+  // which sample files have anything the demo can answer, for the picker's tag (replay only; the recordings load first, whatever is bound)
+  const sampleRefs = new Map<SampleId, Promise<DatasetRef | null>>();
+  /** The dataset a sample file would be bound as (the engine's own typing and content hash, nothing bound or stored). */
+  function refOfSample(id: SampleId): Promise<DatasetRef | null> {
+    let p = sampleRefs.get(id);
+    if (!p) {
+      const f = sampleFile(id);
+      const name = cfg.sampleNames[id] ?? f.datasetName;
+      p = (async () => {
+        const preview = await engine.previewDataset({ text: f.text(), filename: f.filename, name });
+        if (!preview.ok) return null;
+        const built = await buildDataset(name, f.rows(), { source: 'bundled', filename: f.filename, typeName: preview.typeName });
+        return 'ref' in built ? built.ref : null;
+      })().catch(() => null);
+      sampleRefs.set(id, p);
+    }
+    return p;
+  }
+  let sampleSeq = 0;
+  stops.push(
+    effect(() => {
+      const m = mode.value;
+      const recs = recordings.value;
+      const prog = program.value;
+      const my = ++sampleSeq;
+      if (m !== 'replay') {
+        if (Object.keys(answerableSamples.peek()).length > 0) answerableSamples.value = {};
+        return;
+      }
+      if (recs === null) {
+        void loadRecordings();
+        return;
+      }
+      // Nothing loaded at all (the list is empty): the recordings may simply have failed to load (recorded.ts fetchRecordings turns a failure into an
+      // empty list), and then "no recorded answers" would be said of every sample and mean nothing. Say nothing until there is something to tell apart.
+      if (recs.length === 0) {
+        if (Object.keys(answerableSamples.peek()).length > 0) answerableSamples.value = {};
+        return;
+      }
+      void (async () => {
+        const next: Partial<Record<SampleId, boolean>> = {};
+        for (const id of SAMPLE_IDS) {
+          const ref = await refOfSample(id);
+          if (ref) next[id] = await sampleAnswerable({ mode: m, sampleId: id, dataset: ref, rows: sampleFile(id).rows(), program: prog, recordings: recs });
+        }
+        if (!disposed && my === sampleSeq) answerableSamples.value = next;
+      })().catch(() => undefined);
     }),
   );
 
@@ -874,6 +932,7 @@ export function createSession(engine: Engine, config: Partial<SessionConfig> = {
     seedState,
     availability,
     recordedOther,
+    sampleAnswerable: answerableSamples,
     run,
     outcome,
     trace,

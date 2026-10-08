@@ -191,14 +191,15 @@ export function ZenYourData({ engine }: { engine: Engine }) {
 const TAG_CLASS: Record<ZenCheck['state'], string> = { always: 'is-on', applies: 'is-on', none: 'is-off', after: 'is-off', held: 'is-off' };
 
 /**
- * A check that WILL run: a dashed ring (dashed = not established, drawn in the body ink) with a dot at its centre. Nothing
- * has run on this pane, so nothing is green; the green disc is for a check that passed (the trace and the answer).
+ * A check that WILL run: the trace's own tick (10 by 14, the cell a passed check fills with mint) drawn as a dashed outline, in the body
+ * ink. Dashed = not established, and nothing has run on this pane, so nothing is green; the green disc is for a check that passed (the
+ * trace and the answer) and the dashed circle (NotChecked) is for one that will not run. A tall outline of the trace's own mark cannot be
+ * taken for a control (a radio is a circle, a checkbox is square) or for a spinner (a ring). Decoration: the words beside it say it.
  */
 function WillRun() {
   return (
-    <svg aria-hidden="true" focusable="false" width="18" height="18" viewBox="0 0 16 16" class="zp__will">
-      <circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2.4 2" />
-      <circle cx="8" cy="8" r="2" fill="currentColor" />
+    <svg aria-hidden="true" focusable="false" width="18" height="18" viewBox="0 0 18 18" class="zp__will">
+      <rect x="4.75" y="2.75" width="8.5" height="12.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2.4 1.8" />
     </svg>
   );
 }

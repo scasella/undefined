@@ -163,9 +163,6 @@ export function stressStatus(i: StressInput): StressStatus {
   return r.skipped !== undefined ? { kind: 'partial', ...base, planned: plannedBreaks(r.skipped) } : { kind: 'done', ...base };
 }
 
-/** The stress test is still to come: the answer (and the seal) wait for it. */
-export const stressPending = (s: StressStatus): boolean => s.kind === 'pending';
-
 /** 'break' for one, 'breaks' otherwise: the unit every surface that counts the stress test's deliberate breaks agrees on (`deliberateBreaks`, the verdict line). */
 export const breaksWord = (n: number): string => (n === 1 ? 'break' : 'breaks');
 

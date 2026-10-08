@@ -221,6 +221,26 @@ export function CheckTrace(p: CheckTraceProps) {
   );
 }
 
+export type CellMarkKind = 'cross' | 'query';
+
+/**
+ * What a cell says when it is not a plain tick: a cross on a thrown-out draft's cell, a question mark on a deliberate break the checks
+ * missed. Drawn (a stroke and a dot, in the cell's own colour; 5x5 and 5x7, about the ink the old letter had) at the size of the trace's marks, not set as an 8px letter, which is a size
+ * off the type ramp. Decoration: the cells sit in an aria-hidden strip, and the lane's verdict is in words beside it.
+ */
+export function CellMark({ kind }: { kind: CellMarkKind }) {
+  return kind === 'cross' ? (
+    <svg aria-hidden="true" focusable="false" width="5" height="5" viewBox="0 0 5 5" fill="none" stroke="currentColor" stroke-width="1.3">
+      <path d="M1.1 1.1l2.8 2.8M3.9 1.1L1.1 3.9" />
+    </svg>
+  ) : (
+    <svg aria-hidden="true" focusable="false" width="5" height="7" viewBox="0 0 5 7" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="butt">
+      <path d="M1 2.2A1.5 1.5 0 1 1 3.6 3.3C2.9 3.8 2.5 4.1 2.5 4.8" />
+      <circle cx="2.5" cy="6.2" r="0.62" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 interface LaneProps {
   lane: LaneView;
   timing: Timing | null;
@@ -242,21 +262,21 @@ function Lane({ lane, timing, sx, highlight, compact }: LaneProps) {
   const cells: JSX.Element[] = [];
   for (let i = 0; i < lane.cells; i++) {
     let cls = 'fd-cell';
-    let text = '';
+    let mark: CellMarkKind | null = null;
     if (!settled) cls += i < progressDone ? '' : ' fd-cell--wait';
     else if (st === 'failed') {
       cls += ' fd-cell--fail';
-      text = '×';
+      mark = 'cross';
     } else if (stopAt !== null && i === stopAt - 1) cls += ' fd-cell--ask';
     else if (stopAt !== null && i > stopAt - 1) cls += ' fd-cell--wait';
     else if (st === 'stopped' && stopAt === null) cls += ' fd-cell--ask';
     else if (i >= missedFrom) {
       cls += ' fd-cell--ask';
-      text = '?';
+      mark = 'query';
     }
     cells.push(
       <span key={i} class={cls} style={css(m.cells[i])}>
-        {text}
+        {mark && <CellMark kind={mark} />}
       </span>,
     );
   }
