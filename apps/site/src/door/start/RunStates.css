@@ -80,6 +80,22 @@
   font-size: 16px; line-height: 22px; font-weight: 600; color: var(--fd-red);
 }
 .fd-rs__out-h svg { flex: none; }
+/* "This check may be wrong" (model/suspectCheck.ts): a tonal panel in the thrown-out card, in the stop-and-ask colours, because it is a
+   question only the viewer can settle (is the check right?), not a verdict */
+.fd-rs__suspect { margin-top: 14px; padding: 16px; border-radius: var(--fd-r-md); background: var(--fd-amber-wash); box-shadow: 0 0 0 1px var(--fd-amber); display: flex; flex-direction: column; gap: 8px; }
+.fd-rs__suspect-h { margin: 0; display: flex; align-items: flex-start; gap: 8px; font-size: 16px; line-height: 22px; font-weight: 600; color: var(--fd-ink); }
+.fd-rs__suspect-h svg { flex: none; margin-top: 2px; }
+.fd-rs__suspect-p { margin: 0; max-width: var(--fd-measure); font-size: 14px; line-height: 20px; color: var(--fd-ink); overflow-wrap: anywhere; }
+.fd-rs__suspect-ev {
+  margin: 0; padding: 10px 12px; border-radius: var(--fd-r-sm); background: var(--fd-surface); box-shadow: var(--fd-sh-ring);
+  font-family: var(--fd-mono); font-size: 13px; line-height: 19px; color: var(--fd-ink); overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums slashed-zero; font-feature-settings: 'tnum', 'zero';
+}
+.fd-rs__suspect-code { font-size: 13px; color: var(--fd-ink-2); }
+.fd-rs__suspect-code summary { cursor: pointer; min-height: 32px; line-height: 32px; color: var(--fd-indigo); font-weight: 500; }
+.fd-rs__suspect-code pre { margin: 4px 0 0; padding: 10px 12px; max-height: 240px; overflow: auto; border-radius: var(--fd-r-sm); background: var(--fd-surface); font-family: var(--fd-mono); font-size: 12px; line-height: 18px; white-space: pre; }
+.fd-rs__suspect-demo { margin: 0; font-size: 13px; line-height: 19px; color: var(--fd-amber-ink); }
+.fd-rs__actions--suspect { margin-top: 4px; }
 
 /* ── service / error ── */
 .fd-rs--plain { background: var(--fd-surface); box-shadow: var(--fd-sh-card); padding: 20px; }

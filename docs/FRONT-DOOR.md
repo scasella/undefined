@@ -120,6 +120,18 @@ spacing, colours, motion, a11y attributes), translated into Preact + CSS files w
   (`NEEDS_DRAFT_REASON`, `DRAFTED_LEVEL_LINE`), and then the recorded answer replays with every check live. In the demo the recorded
   answers are picked and nothing that would change the checks can be changed (no other choice, no unticking, no redraft), each said
   in one plain sentence. A test pins that the recording reads back and replays (`model/recordedDraft.test.ts`).
+  **When a drafted check may be wrong** (`model/suspectCheck.ts`, shown in the thrown-out card, `start/RunStates.tsx` `suspectView`):
+  when at least two drafts were all thrown out by the SAME check and the AI drafted it, the card adds an amber panel. Drafts that all
+  gave the same answer to an example lead with "This check may be wrong" (they were written separately and agree with each other, not
+  with the check); drafts that disagree, or a house rule (a shrunk counterexample differs per draft), lead with "Your agreement may not
+  say what this check requires" (the answer's writer reads the agreement and the checks' names, never what a check does). It shows the
+  call, what the check expects and what the drafts gave, the check behind "Show the check", and two buttons, the favoured first: "Drop
+  this check and try again" (`withoutCheck`: the other checks byte for byte) and "Keep it: add it to the agreement and try again"
+  (`withRequirement`: its plain words go into `doc`); both install through `session.applySpec` and ask again, and the agreement's
+  saved card counts from the program, so it stays true. The demo shows the panel without the buttons (`SUSPECT_DEMO`). Upstream, the
+  retry prompt tells the model never to bend the code to a check that contradicts the agreement (`shared/prompt.ts`): measured live, a
+  wrong drafted example (three rows "give four") was otherwise passed by `return rows.length + 1;` on the second draft; with the line,
+  all three drafts held to `rows.length` and the panel appeared.
 - **4 · Checking** is the live trace and **never hands over by itself** (there is no timer: the old 1.1 s hand-over is gone, so
   the finished trace can be read for as long as the viewer wants). While the AI's draft is replayed (up to about 5 s in the
   demo) the trace shows the seconds counter and, in its footer, a small indeterminate mark by the "drafting · checks start next"

@@ -285,6 +285,9 @@ function historySection(history: PromptInput['history']): string {
   lines.push(
     '',
     'Fix exactly what the diagnostics show. Keep what worked. Do not repeat an approach that was already rejected.',
+    // a check can be wrong (one the AI drafted, door/model/suspectCheck.ts): bending the code to it would commit a wrong answer that
+    // passes every check. Holding to the contract lets every draft fail the same check, which is what the page can show the user.
+    'Never special-case input values or add an adjustment just to produce an expected value. If what a check expects contradicts the contract above, implement the contract and say so in notes: the user decides whether that check is wrong. Where the contract is silent, meet the check.',
   );
   return lines.join('\n');
 }

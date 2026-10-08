@@ -131,6 +131,9 @@ function promptCases(): Record<string, PromptInput> {
   };
 }
 
+// The three retry prompts were recaptured when the retry instructions gained the "never bend the code to a check that contradicts the
+// contract" line (shared/prompt.ts historySection; door/model/suspectCheck.ts): a deliberate prompt change with no other function in the
+// program, not a composition effect. Replayed attempts still show the prompt stored in their recording (core/generator.ts recordedPrompt).
 const PROMPTS: Record<string, string> = {
   median: '74f6806c83c87eb332386bb37a84d0ac63a5ce095d6f008dc80e546f37bf13c3',
   slugify: '8790b07138325d315c4eb7dec29775b0e7e44f155c50a4a59c65cf07950e3bb6',
@@ -139,11 +142,11 @@ const PROMPTS: Record<string, string> = {
   'call no args': '59fb14a13422c8d2f7f32eae70a7be7637c663f6831a45493f9795780c6a8f51',
   'dataset topCustomersByRevenue': 'd11bf8650599bef87dab16bb69f8a3b9b52ffca04947652ad8afcd0165fe6cbf',
   'dataset with samples': '7eda0d5470034d95c70080aea3986a84ab3d45594115872b3952189d0b44c4ee',
-  'median retry history': 'd93f83d364a0fe5a8b044d1e0b11bd6782b4459f2d0198ca00612342e0e960e4',
-  'slugify compile retry': 'ffc38643aac2e41a928703c6b38b630595fe62a4884e23f72c0741c31e563af4',
+  'median retry history': '34c9e2bfc7708be14a95cce8b974d6782900fe3d9250fc1993647a612ed15bf7',
+  'slugify compile retry': 'c9b543e1d218c403607c5ed20a0ba88d6956ea39a5c1a67a77dbb80f1ce5640f',
   'median runtime fault': '6b318e933381e13fdc015916836a7161a9c20883d928c9e03a43556c93590244',
   'median decisions': '746697292f555f4ecaf142b4636a3f6417a73e1967cc9d39066227728a6eda49',
-  'median decisions + retry': '1b94808598d8f119e382e1e4b7ba11c62238c6f29ad694db311568cca04cc9ba',
+  'median decisions + retry': 'c2021c7ed348638d1e67155373b294824d3456621cf617bd4418f41727304a47',
   'median ruling': 'da8de4a62959d9b2c9fd48cc1a6c99bd84628c5cd6b56f1fbd1e05e3941e5938',
   'median inferred return': 'd77d0cfcbf97c09b592869ff3890dc52be74c8bc5e631cb9b8e7b6fe449e73f1',
 };

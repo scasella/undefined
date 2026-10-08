@@ -5,7 +5,8 @@
  *   declined     the grey "I can't do that reliably." panel (LANDING 759-765), from GenerationView.declined
  *   no-recording the honest replay message (session.noRecording) with the way out in it as ONE real button (the question that
  *                has a recorded answer, or the sample file that has one), and the link to run it on your computer
- *   thrown-out   every draft was thrown out: the last reason and how many drafts were tried
+ *   thrown-out   every draft was thrown out: the last reason and how many drafts were tried; when every draft failed the SAME check
+ *                and the AI drafted it, "This check may be wrong" (model/suspectCheck.ts): the evidence, and the two ways forward
  *   service      the writing service failed: its message and the exact fix commands
  *   error        the calculation itself failed on the file
  *   cached       a normal answer, plus one quiet line saying nothing was re-checked
@@ -25,6 +26,7 @@ import { headingTag, type HeadingLevel } from '../components/headings';
 import { ASK_BUTTON_ID, NoRecordingSentence } from './AskCard';
 import type { SampleId } from '../model/samples';
 import { matchRun, noRecordingView, sampleOffer, type RunOutcome } from './derive';
+import { suspectCheck, withoutCheck, withRequirement, type SuspectCheck } from '../model/suspectCheck';
 import { sessionFor, type Session } from './session';
 import './RunStates.css';
 
@@ -169,6 +171,55 @@ export function thrownOutView(gen: GenerationView | null, facts: LaneFacts, reco
   };
 }
 
+// ───────────────────────── this check may be wrong ─────────────────────────
+
+/** A shown value, kept to one readable line. */
+const clip = (v: string, n = 140): string => (v.length > n ? `${v.slice(0, n - 1)}…` : v);
+
+export interface SuspectView {
+  head: string;
+  intro: string;
+  /** The call, what the check expects and what the drafts gave (examples only). */
+  evidence: string | null;
+  why: string;
+  /** The two ways forward, the one the evidence favours first. */
+  actions: Array<{ id: 'drop' | 'keep'; label: string }>;
+  /** The demo cannot change the checks (no recording would match): said instead of the buttons. */
+  demo: string | null;
+}
+
+export const SUSPECT_DEMO = 'On your computer you could drop this check or write what it requires into the agreement, then try again. This demo can only replay its recording.';
+
+export function suspectView(s: SuspectCheck, mode: 'live' | 'replay'): SuspectView {
+  const n = s.drafts;
+  const intro = `All ${n} drafts failed the same check, one the AI drafted for you: “${s.plain}”`;
+  let evidence: string | null = null;
+  if (s.kind === 'example' && s.expected !== null && s.gave.length > 0) {
+    const at = s.call ? `${clip(s.call, 60)}: ` : '';
+    const gave = s.reading === 'check' ? `every draft gave ${clip(s.gave[0]!)}` : `the drafts gave ${s.gave.map((g) => clip(g, 60)).join(' · ')}`;
+    evidence = `${at}the check expects ${clip(s.expected)}; ${gave}.`;
+  }
+  const drop = { id: 'drop' as const, label: 'Drop this check and try again' };
+  const keep = { id: 'keep' as const, label: 'Keep it: add it to the agreement and try again' };
+  return s.reading === 'check'
+    ? {
+        head: 'This check may be wrong',
+        intro,
+        evidence,
+        why: 'The drafts were written separately and agree with each other, not with the check. That usually means the answer the check expects is off. You decide which is right.',
+        actions: [drop, keep],
+        demo: mode === 'replay' ? SUSPECT_DEMO : null,
+      }
+    : {
+        head: 'Your agreement may not say what this check requires',
+        intro,
+        evidence,
+        why: 'The AI that writes the answer reads your agreement and the names of its checks, never what a check does. If the check is right, writing what it requires into the agreement gives the next drafts a fair chance; if it is wrong, drop it.',
+        actions: [keep, drop],
+        demo: mode === 'replay' ? SUSPECT_DEMO : null,
+      };
+}
+
 // ───────────────────────── service / error ─────────────────────────
 
 export function serviceView(o: Extract<RunOutcome, { kind: 'service' }> | Extract<RunOutcome, { kind: 'error' }>): { head: string; text: string; fix: string[] } {
@@ -288,8 +339,19 @@ export function RunStates({ engine, session, headingLevel = 3 }: { engine: Engin
       </div>
     );
   } else if (o.kind === 'thrown-out') {
-    const gen = matchRun(s.engine.state.value, run).generation;
+    const st = s.engine.state.value;
+    const gen = matchRun(st, run).generation;
     const v = thrownOutView(gen, s.trace.value.facts, o.recordedOut);
+    const spec = gen ? (st.program.functions[gen.fn]?.spec ?? null) : null;
+    const sus = suspectCheck(gen, spec);
+    const sv = sus ? suspectView(sus, st.mode) : null;
+    // the viewer's ruling on the suspect: install the changed agreement (session.applySpec), then ask again
+    const settle = (id: 'drop' | 'keep') => {
+      if (!sus || !spec || !s.canChange.peek()) return;
+      const next = id === 'drop' ? withoutCheck(spec, sus) : withRequirement(spec, sus);
+      if (!next) return;
+      void s.applySpec(next).then((ok) => ok && s.ask());
+    };
     card = (
       <div class="fd-rs fd-rs--out" role="status">
         <H class="fd-rs__out-h" tabIndex={-1} ref={headRef}>
@@ -298,9 +360,35 @@ export function RunStates({ engine, session, headingLevel = 3 }: { engine: Engin
         </H>
         <p class="fd-rs__p">{v.last}</p>
         {v.recorded && <p class="fd-rs__p">{v.recorded}</p>}
+        {sus && sv && (
+          <div class="fd-rs__suspect">
+            <p class="fd-rs__suspect-h">
+              <AskDiamond size={18} solid />
+              {sv.head}
+            </p>
+            <p class="fd-rs__suspect-p">{sv.intro}</p>
+            {sv.evidence && <p class="fd-rs__suspect-ev">{sv.evidence}</p>}
+            <p class="fd-rs__suspect-p">{sv.why}</p>
+            <details class="fd-rs__suspect-code">
+              <summary>Show the check</summary>
+              <pre>{sus.source}</pre>
+            </details>
+            {sv.demo ? (
+              <p class="fd-rs__suspect-demo">{sv.demo}</p>
+            ) : (
+              <div class="fd-rs__actions fd-rs__actions--suspect">
+                {sv.actions.map((a) => (
+                  <Button key={a.id} variant="secondary" aria-disabled={!s.canChange.value || undefined} onClick={() => settle(a.id)}>
+                    {a.label}
+                  </Button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         <div class="fd-rs__actions">
           <Button variant="secondary" aria-disabled={!s.canAsk.value || undefined} onClick={retry}>
-            Try again
+            {sus ? 'Try again as it is' : 'Try again'}
           </Button>
           <span class="fd-rs__meta fd-rs__meta--inline">{v.tried} · {savedWords}</span>
         </div>
