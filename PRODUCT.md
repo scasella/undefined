@@ -56,7 +56,7 @@ Checked, not proven. **The headline feature is agreeing on the checks before the
 - Bundled sample data: `orders.csv` (332 rows; paid 258, pending 47, refunded 27) and `sales-q3.csv` (48 rows). Landing figures are computed from them by `apps/site/src/door/model/figures.ts` and pinned by tests.
 - Recorded live sessions in `apps/site/public/recordings` (model `gpt-6-luna`, reasoning effort low, measured 2026-10-04).
 - Measurements: [docs/LAUNCH.md](docs/LAUNCH.md) (first-draft rejection and recovery rates, decline rule, mutation kill rates), [docs/EVIDENCE.md](docs/EVIDENCE.md) (confidence line, Node/CLI parity), [docs/HOSTILE.md](docs/HOSTILE.md) (54 stranger-style calls), [docs/EXAMPLES.md](docs/EXAMPLES.md), [docs/COMPOSE-MEASUREMENTS.md](docs/COMPOSE-MEASUREMENTS.md).
-- Media: `docs/opening.gif`, `docs/opening-fibonacci.gif`, `docs/social.png`, `docs/demo.mp4` (recorded in the removed REPL UI; engine behavior unchanged).
+- Media: `docs/zen-flow.gif` (the README's lead: Step by step end to end in the demo, recorded from the shipped build), `docs/opening.gif`, `docs/opening-fibonacci.gif`, `docs/social.png`, `docs/demo.mp4` (recorded in the removed REPL UI; engine behavior unchanged).
 - **Absent, must not be fabricated:** customers, testimonials, press, usage numbers, pricing, an npm release, third-party benchmarks, results on any model other than `gpt-6-luna`.
 
 ## Product Principles

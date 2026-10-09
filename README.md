@@ -2,6 +2,10 @@
 
 [![CI](https://github.com/scasella/undefined/actions/workflows/ci.yml/badge.svg)](https://github.com/scasella/undefined/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
+![Step by step in the demo, start to finish: bring the orders sample, ask "What is our revenue by country?", the AI asks what the question leaves open, drafts the checks and you approve them, two drafts are thrown out and the third passes every check, then the answer](docs/zen-flow.gif)
+
+*[Step by step](https://scasella.github.io/undefined/#/zen) in the public demo, end to end (sped up; the AI's replies are a recorded `gpt-6-luna` run, every check runs live in the browser): the AI asks what your question leaves open, drafts the checks, you agree to them, and only an answer that passes them all is shown.*
+
 **A live program that grows the functions you call but haven't written. The model proposes; your toolchain decides.**
 
 **[Try it in your browser](https://scasella.github.io/undefined/)** (a demo: recorded `gpt-6-luna` answers, real checks running in your browser, no install, no account). To ask new questions about your own file, [run it on your computer](#run-it-on-your-computer).
@@ -13,9 +17,7 @@ visitors start; `#/start` is the full first-run page. Their contract and vocabul
 removed; engine features it alone exposed (free-form calls, spec editing, rollback, share links, the session log) are
 engine API only now, listed in [docs/FEATURES.md](docs/FEATURES.md#engine-features-with-no-ui).
 
-![The opening sequence: an undefined call, a rejected candidate, a retry, a commit](docs/opening.gif)
-
-[Watch the 40-second demo](docs/demo.mp4) (recorded in the previous REPL UI, since removed; the engine behaviour it shows is unchanged. 2880×1800 MP4: the opening sequence; then Decide: rule that `median([])` returns NaN, and the committed `median` is re-certified in place with no model call; then the data scratchpad: load a dataset, call a function over it with no spec, get a table, pin the result as a test).
+The engine underneath, before the front door existed: [the opening sequence](docs/opening.gif) (an undefined call, a rejected candidate, a retry, a commit) and [the 40-second demo](docs/demo.mp4) (both recorded in the previous REPL UI, since removed; the engine behaviour they show is unchanged. The MP4 is 2880×1800: the opening sequence; then Decide: rule that `median([])` returns NaN, and the committed `median` is re-certified in place with no model call; then the data scratchpad: load a dataset, call a function over it with no spec, get a table, pin the result as a test).
 
 Compilers used to sit upstream of everything: a human wrote code, the compiler judged it. LLMs invert that pipeline. The
 model becomes the *upstream source* of code, and the ordinary toolchain (a strict TypeScript compiler, unit tests,
